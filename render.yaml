@@ -1,0 +1,31 @@
+# Render Blueprint — despliega el backend y la base de datos juntos.
+# Al conectar este repo en Render como "Blueprint", crea automáticamente
+# ambos servicios y los conecta entre sí (DATABASE_URL se inyecta solo).
+#
+# https://render.com/docs/blueprint-spec
+
+databases:
+  - name: rac-db
+    plan: standard          # ajustar según el volumen (900k+ registros en personal_ministerio)
+    databaseName: rac
+    user: rac_admin
+
+services:
+  - type: web
+    name: rac-backend
+    runtime: node
+    plan: standard
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rac-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "20"
