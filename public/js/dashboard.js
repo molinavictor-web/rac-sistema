@@ -6,13 +6,12 @@ const usuario = renderShell("dashboard", "Resumen");
       contenido.innerHTML = `<div class="cargando">Cargando resumen…</div>`;
 
       try {
-        const [alertasResp, plantelesResp] = await Promise.all([
+        const [alertasResp, totalPlanteles] = await Promise.all([
           RAC.get("/api/alertas"),
-          RAC.get("/api/planteles"),
+          contarTodosLosPlanteles(),
         ]);
 
         const alertas = RAC.lista(alertasResp, "alertas");
-        const planteles = RAC.lista(plantelesResp, "planteles");
         const pendientes = alertas.filter((a) => a.estado === "pendiente");
 
         contenido.innerHTML = `
@@ -26,7 +25,7 @@ const usuario = renderShell("dashboard", "Resumen");
               <div class="lbl">Alertas totales registradas</div>
             </div>
             <div class="stat-card acento-sello">
-              <div class="num">${planteles.length}</div>
+              <div class="num">${totalPlanteles}</div>
               <div class="lbl">Planteles en el catálogo</div>
             </div>
           </div>
@@ -62,6 +61,22 @@ const usuario = renderShell("dashboard", "Resumen");
           <tbody>${filas}</tbody>
         </table>
       `;
+    }
+
+    // El backend limita /api/planteles a 100 resultados por página, así que
+    // recorremos las páginas necesarias para tener el total real (973).
+    async function contarTodosLosPlanteles() {
+      let pagina = 1;
+      let total = 0;
+      while (true) {
+        const resp = await RAC.get(`/api/planteles?page=${pagina}&limit=100`);
+        const items = RAC.lista(resp, "planteles");
+        total += items.length;
+        if (items.length < 100) break;
+        pagina++;
+        if (pagina > 50) break; // seguro anti-bucle infinito
+      }
+      return total;
     }
 
     function etiquetaTipo(tipo) {
