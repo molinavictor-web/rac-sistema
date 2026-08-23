@@ -8,6 +8,8 @@ const router = express.Router();
  * GET /api/planteles?municipio_id=...&q=...
  * Búsqueda del catálogo maestro (para autocompletar en el frontend
  * al momento de registrar o trasladar a alguien).
+ * Devuelve { planteles, total } -- total es el conteo real, ya que
+ * los resultados vienen limitados a 100 filas por consulta.
  */
 router.get("/", requireAuth, async (req, res) => {
   const condiciones = [];
@@ -27,7 +29,11 @@ router.get("/", requireAuth, async (req, res) => {
     `SELECT * FROM planteles ${where} ORDER BY nombre LIMIT 100`,
     valores
   );
-  res.json(rows);
+  const { rows: totalRows } = await pool.query(
+    `SELECT COUNT(*) FROM planteles ${where}`,
+    valores
+  );
+  res.json({ planteles: rows, total: parseInt(totalRows[0].count, 10) });
 });
 
 /**
