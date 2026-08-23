@@ -11,8 +11,8 @@
 <body>
   <div class="login-shell">
     <div class="login-card">
-      <span class="login-sello">Centro de la Calidad Educativa · Monagas</span>
-      <h1>Registro de Asignación de Cargo (RAC)</h1>
+      <span class="login-sello">Secretaría de Educación · Monagas</span>
+      <h1>Registro de Asignación de Carga</h1>
       <p class="login-sub">Inicia sesión para continuar.</p>
 
       <div class="error-msg" id="errorMsg"></div>
@@ -32,34 +32,6 @@
   </div>
 
   <script src="/js/api.js"></script>
-  <script>
-    if (RAC.getToken()) window.location.href = "/dashboard.html";
-
-    const form = document.getElementById("formLogin");
-    const errorMsg = document.getElementById("errorMsg");
-    const btn = document.getElementById("btnEntrar");
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      errorMsg.classList.remove("visible");
-      btn.disabled = true;
-      btn.textContent = "Entrando…";
-
-      try {
-        const email = document.getElementById("email").value.trim();
-        const password = document.getElementById("password").value;
-        const data = await RAC.post("/api/auth/login", { email, password });
-        RAC.guardarSesion(data.token, data.usuario);
-        window.location.href = "/dashboard.html";
-      } catch (err) {
-        errorMsg.textContent = err.message === "Failed to fetch"
-          ? "No se pudo conectar con el servidor."
-          : "Correo o contraseña incorrectos.";
-        errorMsg.classList.add("visible");
-        btn.disabled = false;
-        btn.textContent = "Entrar";
-      }
-    });
-  </script>
+  <script src="/js/login.js"></script>
 </body>
 </html>
