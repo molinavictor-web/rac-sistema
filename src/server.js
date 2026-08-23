@@ -5,6 +5,7 @@ const helmet = require("helmet");
 
 const authRoutes = require("./routes/auth");
 const racRoutes = require("./routes/rac");
+const usuariosRoutes = require("./routes/usuarios");
 const cargasRoutes = require("./routes/cargas");
 const alertasRoutes = require("./routes/alertas");
 const plantelesRoutes = require("./routes/planteles");
@@ -19,6 +20,7 @@ app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/rac", racRoutes);
+app.use("/api/usuarios", usuariosRoutes);
 app.use("/api/cargas", cargasRoutes);
 app.use("/api/alertas", alertasRoutes);
 app.use("/api/planteles", plantelesRoutes);
