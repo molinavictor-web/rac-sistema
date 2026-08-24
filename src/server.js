@@ -9,6 +9,7 @@ const usuariosRoutes = require("./routes/usuarios");
 const cargasRoutes = require("./routes/cargas");
 const alertasRoutes = require("./routes/alertas");
 const plantelesRoutes = require("./routes/planteles");
+const personalMinisterioRoutes = require("./routes/personalMinisterio");
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use("/api/usuarios", usuariosRoutes);
 app.use("/api/cargas", cargasRoutes);
 app.use("/api/alertas", alertasRoutes);
 app.use("/api/planteles", plantelesRoutes);
+app.use("/api/personal-ministerio", personalMinisterioRoutes);
 
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {
