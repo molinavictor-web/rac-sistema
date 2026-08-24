@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAC Monagas — Consultar RAC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="shell"></div>
+
+  <div class="modal-fondo" id="modalFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:16px;">Editar registro</h2>
+      <div class="error-msg" id="errorModal"></div>
+      <form id="formEditar">
+        <div class="campo">
+          <label>Cédula</label>
+          <input type="text" id="edCedula" disabled>
+        </div>
+        <div class="campo">
+          <label for="edPlantelId">ID del plantel</label>
+          <input type="number" id="edPlantelId" min="1" required>
+        </div>
+        <div class="campo">
+          <label for="edCargo">Cargo</label>
+          <input type="text" id="edCargo">
+        </div>
+        <div class="campo">
+          <label for="edTurno">Turno</label>
+          <select id="edTurno">
+            <option value="">—</option>
+            <option value="mañana">Mañana</option>
+            <option value="tarde">Tarde</option>
+            <option value="noche">Noche</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="edHorasAcademicas">Horas académicas</label>
+          <input type="number" id="edHorasAcademicas" min="0" max="168" step="0.5">
+        </div>
+        <div class="campo">
+          <label for="edHorasAdm">Horas administrativas</label>
+          <input type="number" id="edHorasAdm" min="0" max="168" step="0.5">
+        </div>
+        <div class="campo">
+          <label for="edSituacion">Situación</label>
+          <select id="edSituacion">
+            <option value="activo">Activo</option>
+            <option value="tramite_jubilacion">Trámite de jubilación</option>
+            <option value="reposo">Reposo</option>
+            <option value="tramite_incapacidad">Trámite de incapacidad</option>
+            <option value="fallecido">Fallecido</option>
+            <option value="permiso">Permiso</option>
+            <option value="abandono">Abandono</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarEdicion">Guardar cambios</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarEdicion">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/rac.js"></script>
+</body>
+</html>
