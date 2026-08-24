@@ -9,6 +9,9 @@ const router = express.Router();
  * Consulta general con filtros opcionales. Todos los roles autenticados
  * pueden consultar (el encargado de municipio solo ve resultados que
  * incluyan su municipio, filtrado en el frontend/consulta según convenga).
+ * Devuelve { rac, total } -- total es el conteo real (los resultados
+ * vienen limitados a 200 filas), para que el frontend pueda mostrar
+ * la cifra completa (ej. en el dashboard) sin traer todas las filas.
  */
 router.get("/", requireAuth, async (req, res) => {
   const { cedula, plantel_id, periodo_escolar } = req.query;
@@ -38,7 +41,11 @@ router.get("/", requireAuth, async (req, res) => {
      LIMIT 200`,
     valores
   );
-  res.json(rows);
+  const { rows: totalRows } = await pool.query(
+    `SELECT COUNT(*) FROM rac r ${where}`,
+    valores
+  );
+  res.json({ rac: rows, total: parseInt(totalRows[0].count, 10) });
 });
 
 /**
