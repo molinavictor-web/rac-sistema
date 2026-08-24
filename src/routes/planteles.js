@@ -10,6 +10,8 @@ const router = express.Router();
  * al momento de registrar o trasladar a alguien).
  * Devuelve { planteles, total } -- total es el conteo real, ya que
  * los resultados vienen limitados a 100 filas por consulta.
+ * Incluye municipio_nombre (join con municipios) para mostrarlo
+ * directamente en listas/selects del frontend sin una llamada aparte.
  */
 router.get("/", requireAuth, async (req, res) => {
   const condiciones = [];
@@ -17,20 +19,25 @@ router.get("/", requireAuth, async (req, res) => {
 
   if (req.query.municipio_id) {
     valores.push(req.query.municipio_id);
-    condiciones.push(`municipio_id = $${valores.length}`);
+    condiciones.push(`p.municipio_id = $${valores.length}`);
   }
   if (req.query.q) {
     valores.push(`%${req.query.q}%`);
-    condiciones.push(`(nombre ILIKE $${valores.length} OR codigo_plantel ILIKE $${valores.length})`);
+    condiciones.push(`(p.nombre ILIKE $${valores.length} OR p.codigo_plantel ILIKE $${valores.length})`);
   }
 
   const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
+
   const { rows } = await pool.query(
-    `SELECT * FROM planteles ${where} ORDER BY nombre LIMIT 100`,
+    `SELECT p.*, m.nombre AS municipio_nombre
+     FROM planteles p
+     LEFT JOIN municipios m ON m.id = p.municipio_id
+     ${where}
+     ORDER BY p.nombre LIMIT 100`,
     valores
   );
   const { rows: totalRows } = await pool.query(
-    `SELECT COUNT(*) FROM planteles ${where}`,
+    `SELECT COUNT(*) FROM planteles p ${where}`,
     valores
   );
   res.json({ planteles: rows, total: parseInt(totalRows[0].count, 10) });
