@@ -8,7 +8,7 @@ function renderShell(paginaActiva, tituloTopbar) {
   const enlaces = [
     { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
     { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
-    { id: "cargas", href: "/cargas.html", label: "Cargar personal", roles: ["encargado_municipio", "admin"] },
+    { id: "cargas", href: "/cargas.html", label: "Cargar personal", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
   ];
 
