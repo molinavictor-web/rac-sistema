@@ -6,14 +6,16 @@ const usuario = renderShell("dashboard", "Resumen");
       contenido.innerHTML = `<div class="cargando">Cargando resumen…</div>`;
 
       try {
-        const [alertasResp, plantelesResp] = await Promise.all([
+        const [alertasResp, plantelesResp, racResp] = await Promise.all([
           RAC.get("/api/alertas"),
           RAC.get("/api/planteles"),
+          RAC.get("/api/rac"),
         ]);
 
         const alertas = RAC.lista(alertasResp, "alertas");
         const pendientes = alertas.filter((a) => a.estado === "pendiente");
         const totalPlanteles = plantelesResp.total ?? RAC.lista(plantelesResp, "planteles").length;
+        const totalRac = racResp.total ?? RAC.lista(racResp, "rac").length;
 
         contenido.innerHTML = `
           <div class="stats-grid">
@@ -28,6 +30,10 @@ const usuario = renderShell("dashboard", "Resumen");
             <div class="stat-card acento-sello">
               <div class="num">${totalPlanteles}</div>
               <div class="lbl">Planteles en el catálogo</div>
+            </div>
+            <div class="stat-card">
+              <div class="num">${totalRac}</div>
+              <div class="lbl">Personal registrado en el RAC</div>
             </div>
           </div>
 
