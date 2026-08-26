@@ -21,6 +21,37 @@ function parseNumero(valor) {
   return isNaN(n) ? null : n;
 }
 
+// Límites reales definidos en los CHECK constraints de la tabla rac
+// (rac_horas_academicas_check: 0-53.33, rac_horas_adm_check: 0-168).
+// Si el valor del archivo viene fuera de rango (ej. error de punto decimal
+// del archivo fuente), no se escribe en esa columna -- se deja null y se
+// genera una alerta para que se corrija a mano, en vez de adivinar la
+// corrección o tumbar toda la fila.
+const LIMITE_HORAS_ACADEMICAS = 53.33;
+const LIMITE_HORAS_ADM = 168;
+
+function validarRangoHoras(cedula, codigoPlantelArchivo, nuevo) {
+  const alertasRango = [];
+
+  if (nuevo.horas_academicas !== null && (nuevo.horas_academicas < 0 || nuevo.horas_academicas > LIMITE_HORAS_ACADEMICAS)) {
+    alertasRango.push({
+      tipo: 'valor_fuera_de_rango',
+      detalle: `horas_academicas fuera de rango (valor recibido: ${nuevo.horas_academicas}, máximo permitido: ${LIMITE_HORAS_ACADEMICAS}) en el plantel ${codigoPlantelArchivo} — se guardó vacío, corregir en el archivo fuente`,
+    });
+    nuevo.horas_academicas = null;
+  }
+
+  if (nuevo.horas_adm !== null && (nuevo.horas_adm < 0 || nuevo.horas_adm > LIMITE_HORAS_ADM)) {
+    alertasRango.push({
+      tipo: 'valor_fuera_de_rango',
+      detalle: `horas_adm fuera de rango (valor recibido: ${nuevo.horas_adm}, máximo permitido: ${LIMITE_HORAS_ADM}) en el plantel ${codigoPlantelArchivo} — se guardó vacío, corregir en el archivo fuente`,
+    });
+    nuevo.horas_adm = null;
+  }
+
+  return alertasRango;
+}
+
 // POST /api/rac/cargar-completo  (solo admin)
 // Recibe el archivo CSV completo del RAC (mismas columnas que envía la oficina
 // central) y sincroniza contra la tabla rac:
@@ -136,6 +167,8 @@ router.post(
             situacion: limpiar(cols[idx.situacion]),
           };
 
+          const alertasRango = validarRangoHoras(cedula, codigoPlantelArchivo, nuevo);
+
           const existenteRes = await client.query(
             'SELECT * FROM rac WHERE cedula = $1 AND plantel_id = $2',
             [cedula, plantelId]
@@ -226,6 +259,15 @@ router.post(
               );
               alertasGeneradas++;
             }
+          }
+
+          for (const alerta of alertasRango) {
+            await client.query(
+              `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
+               VALUES ($1, $2, $3, 'pendiente', now())`,
+              [alerta.tipo, cedula, alerta.detalle]
+            );
+            alertasGeneradas++;
           }
         }
 
