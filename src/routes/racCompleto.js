@@ -103,7 +103,7 @@ router.post(
           }
 
           const plantelRes = await client.query(
-            'SELECT id FROM planteles WHERE cod_plantel = $1',
+            'SELECT id FROM planteles WHERE codigo_plantel = $1',
             [codigoPlantelArchivo]
           );
 
