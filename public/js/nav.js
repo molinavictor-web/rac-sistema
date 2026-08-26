@@ -11,6 +11,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
     { id: "cargas", href: "/cargas.html", label: "Cargar personal", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
+    { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
     { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
   ];
 
