@@ -132,6 +132,35 @@ router.post(
         'situacion',
       ];
 
+      // horas_academicas/horas_adm son NUMERIC en Postgres y vuelven como
+      // texto con decimales fijos (ej. "40.00"), mientras que el valor
+      // parseado del archivo es un número simple (40). Comparar con
+      // toString() los marcaría como "cambiados" aunque sean el mismo valor
+      // -- por eso estos dos campos se comparan numéricamente, no como texto.
+      const camposNumericos = new Set(['horas_academicas', 'horas_adm']);
+
+      function huboCambioEnCampo(campo, valorActual, valorPropuesto) {
+        if (camposNumericos.has(campo)) {
+          const actualNum =
+            valorActual === null || valorActual === undefined || valorActual === ''
+              ? null
+              : parseFloat(valorActual);
+          const propuestoNum =
+            valorPropuesto === null || valorPropuesto === undefined || valorPropuesto === ''
+              ? null
+              : parseFloat(valorPropuesto);
+          if (actualNum === null && propuestoNum === null) return false;
+          if (actualNum === null || propuestoNum === null) return true;
+          return Math.abs(actualNum - propuestoNum) > 0.001;
+        }
+
+        const actualStr =
+          valorActual === null || valorActual === undefined ? null : valorActual.toString();
+        const propuestoStr =
+          valorPropuesto === null || valorPropuesto === undefined ? null : valorPropuesto.toString();
+        return actualStr !== propuestoStr;
+      }
+
       const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
         // --- Precarga en memoria (una sola consulta cada una) ---
         const [plantelesRes, personalRes, racRes] = await Promise.all([
@@ -196,15 +225,9 @@ router.post(
           const existente = mapaRac.get(claveExistente);
 
           if (existente) {
-            const huboCambio = camposComparables.some((campo) => {
-              const actual =
-                existente[campo] === null || existente[campo] === undefined
-                  ? null
-                  : existente[campo].toString();
-              const propuesto =
-                nuevo[campo] === null || nuevo[campo] === undefined ? null : nuevo[campo].toString();
-              return actual !== propuesto;
-            });
+            const huboCambio = camposComparables.some((campo) =>
+              huboCambioEnCampo(campo, existente[campo], nuevo[campo])
+            );
 
             if (huboCambio) {
               await client.query(
