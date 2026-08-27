@@ -102,6 +102,7 @@ async function subirRacCompleto(e) {
           <div>Actualizados: <strong>${data.actualizados}</strong></div>
           <div>Sin cambios: <strong>${data.sinCambios}</strong></div>
           <div>Filas con error: <strong>${data.filasConError}</strong></div>
+          <div>Líneas vacías ignoradas (relleno del archivo): <strong>${data.lineasVaciasIgnoradas}</strong></div>
           <div>Alertas generadas: <strong>${data.alertasGeneradas}</strong></div>
         </div>
       </div>
