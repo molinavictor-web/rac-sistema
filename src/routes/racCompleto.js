@@ -181,10 +181,22 @@ router.post(
         let actualizados = 0;
         let sinCambios = 0;
         let filasConError = 0;
+        let lineasVaciasIgnoradas = 0;
         let alertasGeneradas = 0;
 
         for (let i = 1; i < lineas.length; i++) {
           const cols = lineas[i].split(';');
+
+          // Excel suele arrastrar formato mucho más allá de la última fila
+          // con datos reales al exportar a CSV, dejando miles de líneas que
+          // son solo separadores ";;;;;;" sin ningún valor. Esas se saltan
+          // en silencio -- no son un error del archivo, son ruido inofensivo
+          // de la exportación.
+          const lineaCompletamenteVacia = cols.every((c) => limpiar(c) === null);
+          if (lineaCompletamenteVacia) {
+            lineasVaciasIgnoradas++;
+            continue;
+          }
 
           const cedula = limpiar(cols[idx.cedula]);
           const codigoPlantelArchivo = limpiar(cols[idx.codigoPlantel]);
@@ -346,6 +358,7 @@ router.post(
           actualizados,
           sinCambios,
           filasConError,
+          lineasVaciasIgnoradas,
           alertasGeneradas,
         };
       });
