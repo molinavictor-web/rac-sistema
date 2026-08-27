@@ -52,6 +52,14 @@ function validarRangoHoras(cedula, codigoPlantelArchivo, nuevo) {
   return alertasRango;
 }
 
+async function insertarAlerta(client, tipo, cedula, detalle) {
+  await client.query(
+    `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
+     VALUES ($1, $2, $3, 'pendiente', now())`,
+    [tipo, cedula, detalle]
+  );
+}
+
 // POST /api/rac/cargar-completo  (solo admin)
 // Recibe el archivo CSV completo del RAC (mismas columnas que envía la oficina
 // central) y sincroniza contra la tabla rac:
@@ -60,9 +68,19 @@ function validarRangoHoras(cedula, codigoPlantelArchivo, nuevo) {
 //  - cedula + plantel_id no existe             -> INSERT (valida cédula contra
 //                                                  personal_ministerio; si no
 //                                                  existe, alerta "cedula_no_existe_nomina")
-//  - registro que estaba en rac pero no aparece en el archivo nuevo
-//                                               -> alerta "registro_no_encontrado_en_carga"
-//                                                  (NO se borra automáticamente)
+//
+// NOTA: la validación de "registros que estaban en rac pero no aparecieron en
+// esta carga" YA NO corre aquí -- se movió al endpoint separado y manual
+// POST /verificar-obsoletos, porque si el archivo completo se sube partido en
+// varios pedazos, cada pedazo solo trae una fracción de las cédulas y esta
+// carga por sí sola no puede saber qué registros son realmente obsoletos.
+//
+// OPTIMIZACIÓN: en vez de consultar la BD fila por fila (buscar plantel,
+// buscar si ya existe, validar nómina = ~4 consultas x fila), se precargan
+// UNA sola vez en memoria: el catálogo de planteles (código -> id), el set
+// de cédulas de personal_ministerio, y el estado actual completo de la tabla
+// rac (clave cedula|plantel_id -> registro). Así el bucle por fila ya no
+// consulta la BD salvo para el INSERT/UPDATE final.
 router.post(
   '/cargar-completo',
   requireAuth,
@@ -115,7 +133,21 @@ router.post(
       ];
 
       const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
-        const vistos = new Set(); // claves "cedula|plantel_id" que aparecen en el archivo nuevo
+        // --- Precarga en memoria (una sola consulta cada una) ---
+        const [plantelesRes, personalRes, racRes] = await Promise.all([
+          client.query('SELECT id, codigo_plantel FROM planteles'),
+          client.query('SELECT cedula FROM personal_ministerio'),
+          client.query('SELECT * FROM rac'),
+        ]);
+
+        const mapaPlanteles = new Map(
+          plantelesRes.rows.map((p) => [p.codigo_plantel, p.id])
+        );
+        const cedulasNomina = new Set(personalRes.rows.map((p) => p.cedula));
+        const mapaRac = new Map(
+          racRes.rows.map((r) => [`${r.cedula}|${r.plantel_id}`, r])
+        );
+
         let insertados = 0;
         let actualizados = 0;
         let sinCambios = 0;
@@ -133,28 +165,19 @@ router.post(
             continue;
           }
 
-          const plantelRes = await client.query(
-            'SELECT id FROM planteles WHERE codigo_plantel = $1',
-            [codigoPlantelArchivo]
-          );
+          const plantelId = mapaPlanteles.get(codigoPlantelArchivo);
 
-          if (plantelRes.rows.length === 0) {
-            await client.query(
-              `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
-               VALUES ($1, $2, $3, 'pendiente', now())`,
-              [
-                'plantel_no_existe',
-                cedula,
-                `Código de plantel "${codigoPlantelArchivo}" no existe en el catálogo maestro`,
-              ]
+          if (plantelId === undefined) {
+            await insertarAlerta(
+              client,
+              'plantel_no_existe',
+              cedula,
+              `Código de plantel "${codigoPlantelArchivo}" no existe en el catálogo maestro`
             );
             alertasGeneradas++;
             filasConError++;
             continue;
           }
-
-          const plantelId = plantelRes.rows[0].id;
-          vistos.add(`${cedula}|${plantelId}`);
 
           const nuevo = {
             codigo_dependencia: limpiar(cols[idx.codigoDependencia]),
@@ -169,13 +192,10 @@ router.post(
 
           const alertasRango = validarRangoHoras(cedula, codigoPlantelArchivo, nuevo);
 
-          const existenteRes = await client.query(
-            'SELECT * FROM rac WHERE cedula = $1 AND plantel_id = $2',
-            [cedula, plantelId]
-          );
+          const claveExistente = `${cedula}|${plantelId}`;
+          const existente = mapaRac.get(claveExistente);
 
-          if (existenteRes.rows.length > 0) {
-            const existente = existenteRes.rows[0];
+          if (existente) {
             const huboCambio = camposComparables.some((campo) => {
               const actual =
                 existente[campo] === null || existente[campo] === undefined
@@ -212,25 +232,27 @@ router.post(
                 ]
               );
 
-              await client.query(
-                `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
-                 VALUES ($1, $2, $3, 'pendiente', now())`,
-                [
-                  'registro_actualizado',
-                  cedula,
-                  `Se detectaron cambios en el registro del plantel ${codigoPlantelArchivo} para esta cédula (rac.id=${existente.id})`,
-                ]
+              await insertarAlerta(
+                client,
+                'registro_actualizado',
+                cedula,
+                `Se detectaron cambios en el registro del plantel ${codigoPlantelArchivo} para esta cédula (rac.id=${existente.id})`
               );
               actualizados++;
               alertasGeneradas++;
+
+              // Mantiene la copia en memoria al día por si la misma clave
+              // vuelve a aparecer más adelante en el mismo archivo.
+              mapaRac.set(claveExistente, { ...existente, ...nuevo });
             } else {
               sinCambios++;
             }
           } else {
-            await client.query(
+            const insertRes = await client.query(
               `INSERT INTO rac
                 (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno, horas_academicas, horas_adm, situacion, actualizado_en)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+               RETURNING id`,
               [
                 cedula,
                 plantelId,
@@ -246,48 +268,52 @@ router.post(
             );
             insertados++;
 
-            const nominaRes = await client.query(
-              'SELECT 1 FROM personal_ministerio WHERE cedula = $1 LIMIT 1',
-              [cedula]
-            );
+            mapaRac.set(claveExistente, {
+              id: insertRes.rows[0].id,
+              cedula,
+              plantel_id: plantelId,
+              ...nuevo,
+            });
 
-            if (nominaRes.rows.length === 0) {
-              await client.query(
-                `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
-                 VALUES ($1, $2, $3, 'pendiente', now())`,
-                ['cedula_no_existe_nomina', cedula, 'La cédula no existe en la nómina del Ministerio de Educación']
+            if (!cedulasNomina.has(cedula)) {
+              await insertarAlerta(
+                client,
+                'cedula_no_existe_nomina',
+                cedula,
+                'La cédula no existe en la nómina del Ministerio de Educación'
               );
               alertasGeneradas++;
             }
           }
 
           for (const alerta of alertasRango) {
-            await client.query(
-              `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
-               VALUES ($1, $2, $3, 'pendiente', now())`,
-              [alerta.tipo, cedula, alerta.detalle]
-            );
+            await insertarAlerta(client, alerta.tipo, cedula, alerta.detalle);
             alertasGeneradas++;
           }
         }
 
-        // Registros que ya estaban en rac pero NO aparecieron en este archivo -> alerta, sin borrar
-        const existentesRes = await client.query('SELECT id, cedula, plantel_id FROM rac');
-        let noEncontradosEnCarga = 0;
+        // Alerta de incongruencia: una cédula solo debería repetirse en el RAC
+        // si todos sus registros son de tipo_personal = D (docente, con
+        // distintos horarios/planteles). Se revisa la tabla completa cada vez
+        // porque es una validación barata (una sola consulta agrupada) y
+        // segura de repetir aunque el archivo se suba por pedazos.
+        const incongruenciaRes = await client.query(`
+          SELECT cedula, array_agg(DISTINCT tipo_personal) AS tipos
+          FROM rac
+          GROUP BY cedula
+          HAVING count(*) > 1
+        `);
 
-        for (const fila of existentesRes.rows) {
-          const clave = `${fila.cedula}|${fila.plantel_id}`;
-          if (!vistos.has(clave)) {
-            await client.query(
-              `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
-               VALUES ($1, $2, $3, 'pendiente', now())`,
-              [
-                'registro_no_encontrado_en_carga',
-                fila.cedula,
-                `El registro (rac.id=${fila.id}) no apareció en la última carga completa del RAC — revisar si el trabajador debe eliminarse`,
-              ]
+        for (const fila of incongruenciaRes.rows) {
+          const tipos = fila.tipos.filter(Boolean);
+          const todosDocentes = tipos.length > 0 && tipos.every((t) => t === 'D');
+          if (!todosDocentes) {
+            await insertarAlerta(
+              client,
+              'incongruencia_tipo_personal',
+              fila.cedula,
+              `La cédula tiene múltiples registros en el RAC con tipo(s) de personal distinto(s) a docente (${tipos.join(', ')}) — solo se espera repetición para tipo_personal D`
             );
-            noEncontradosEnCarga++;
             alertasGeneradas++;
           }
         }
@@ -297,7 +323,6 @@ router.post(
           actualizados,
           sinCambios,
           filasConError,
-          noEncontradosEnCarga,
           alertasGeneradas,
         };
       });
@@ -312,5 +337,50 @@ router.post(
     }
   }
 );
+
+// POST /api/rac/verificar-obsoletos  (solo admin)
+// Paso manual, a correr UNA vez después de terminar de subir TODOS los
+// pedazos de una carga completa del RAC (si se subió partida en varios
+// archivos). Recibe { desde: fechaISO } -- la hora justo antes de empezar a
+// subir el primer pedazo -- y genera alerta "registro_no_encontrado_en_carga"
+// para todo registro de rac cuyo actualizado_en sea anterior a esa fecha,
+// es decir, que ningún pedazo subido lo tocó. No borra nada automáticamente.
+router.post('/verificar-obsoletos', requireAuth, requireRol('admin'), async (req, res) => {
+  const { desde } = req.body;
+
+  if (!desde) {
+    return res.status(400).json({
+      error: 'Falta el parámetro "desde" (fecha ISO de justo antes de empezar a subir el primer pedazo)',
+    });
+  }
+
+  try {
+    const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
+      const obsoletosRes = await client.query(
+        'SELECT id, cedula FROM rac WHERE actualizado_en < $1',
+        [desde]
+      );
+
+      for (const fila of obsoletosRes.rows) {
+        await insertarAlerta(
+          client,
+          'registro_no_encontrado_en_carga',
+          fila.cedula,
+          `El registro (rac.id=${fila.id}) no fue tocado por ninguna de las cargas realizadas desde ${desde} — revisar si el trabajador debe eliminarse`
+        );
+      }
+
+      return { alertasGeneradas: obsoletosRes.rows.length };
+    });
+
+    res.json({
+      mensaje: 'Verificación de registros obsoletos completada',
+      ...resultado,
+    });
+  } catch (err) {
+    console.error('Error verificando obsoletos:', err);
+    res.status(500).json({ error: 'Error verificando registros obsoletos' });
+  }
+});
 
 module.exports = router;
