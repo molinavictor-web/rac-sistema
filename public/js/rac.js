@@ -74,16 +74,13 @@ async function buscarPorCedula(e) {
 }
 
 function badgeSituacion(situacion) {
+  const s = (situacion || "").toUpperCase();
   const mapa = {
-    activo: "badge-resuelto",
-    tramite_jubilacion: "badge-pendiente",
-    reposo: "badge-pendiente",
-    tramite_incapacidad: "badge-pendiente",
-    fallecido: "badge-descartado",
-    permiso: "badge-revisado",
-    abandono: "badge-descartado",
+    ACTIVO: "badge-resuelto",
+    FALLECIDO: "badge-descartado",
+    ABANDONO: "badge-descartado",
   };
-  const clase = mapa[situacion] || "badge-descartado";
+  const clase = mapa[s] || "badge-pendiente";
   return `<span class="badge ${clase}">${situacion || "—"}</span>`;
 }
 
@@ -96,12 +93,15 @@ function abrirEdicion(registro) {
   registroEnEdicion = registro;
   errorModal.classList.remove("visible");
   document.getElementById("edCedula").value = registro.cedula;
-  document.getElementById("edPlantelId").value = registro.plantel_id;
+  document.getElementById("edCodigoPlantel").value = registro.codigo_plantel || "";
+  document.getElementById("edCodigoDependencia").value = registro.codigo_dependencia || "";
+  document.getElementById("edCodigoCargo").value = registro.codigo_cargo || "";
+  document.getElementById("edTipoPersonal").value = registro.tipo_personal || "";
   document.getElementById("edCargo").value = registro.cargo || "";
   document.getElementById("edTurno").value = registro.turno || "";
   document.getElementById("edHorasAcademicas").value = registro.horas_academicas ?? "";
   document.getElementById("edHorasAdm").value = registro.horas_adm ?? "";
-  document.getElementById("edSituacion").value = registro.situacion || "activo";
+  document.getElementById("edSituacion").value = registro.situacion || "";
   modalFondo.classList.add("visible");
 }
 function cerrarEdicion() { modalFondo.classList.remove("visible"); registroEnEdicion = null; }
@@ -116,13 +116,19 @@ formEditar.addEventListener("submit", async (e) => {
   btn.disabled = true;
   btn.textContent = "Guardando…";
 
+  const horasAcademicas = document.getElementById("edHorasAcademicas").value;
+  const horasAdm = document.getElementById("edHorasAdm").value;
+
   const cambios = {
-    plantel_id: Number(document.getElementById("edPlantelId").value),
-    cargo: document.getElementById("edCargo").value.trim(),
-    turno: document.getElementById("edTurno").value,
-    horas_academicas: Number(document.getElementById("edHorasAcademicas").value) || 0,
-    horas_adm: Number(document.getElementById("edHorasAdm").value) || 0,
-    situacion: document.getElementById("edSituacion").value,
+    codigo_plantel: document.getElementById("edCodigoPlantel").value.trim(),
+    codigo_dependencia: document.getElementById("edCodigoDependencia").value.trim() || null,
+    codigo_cargo: document.getElementById("edCodigoCargo").value.trim() || null,
+    tipo_personal: document.getElementById("edTipoPersonal").value || null,
+    cargo: document.getElementById("edCargo").value.trim() || null,
+    turno: document.getElementById("edTurno").value || null,
+    horas_academicas: horasAcademicas === "" ? null : Number(horasAcademicas),
+    horas_adm: horasAdm === "" ? null : Number(horasAdm),
+    situacion: document.getElementById("edSituacion").value.trim() || null,
   };
 
   try {
