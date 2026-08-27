@@ -163,11 +163,16 @@ router.post(
 
       const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
         // --- Precarga en memoria (una sola consulta cada una) ---
-        const [plantelesRes, personalRes, racRes] = await Promise.all([
-          client.query('SELECT id, codigo_plantel FROM planteles'),
-          client.query('SELECT cedula FROM personal_ministerio'),
-          client.query('SELECT * FROM rac'),
-        ]);
+        // IMPORTANTE: estas 3 consultas van SECUENCIALES (await una por una),
+        // no en paralelo con Promise.all -- el driver "pg" no permite correr
+        // varias queries a la vez sobre el mismo cliente/conexión (eso genera
+        // "client.query() when the client is already executing a query",
+        // y puede tumbar el proceso). Al ir secuenciales cada una tarda lo
+        // mismo, pero solo son 3 consultas en total, así que el costo extra
+        // es mínimo frente al riesgo de correrlas en paralelo.
+        const plantelesRes = await client.query('SELECT id, codigo_plantel FROM planteles');
+        const personalRes = await client.query('SELECT cedula FROM personal_ministerio');
+        const racRes = await client.query('SELECT * FROM rac');
 
         const mapaPlanteles = new Map(
           plantelesRes.rows.map((p) => [p.codigo_plantel, p.id])
