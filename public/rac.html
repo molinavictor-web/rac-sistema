@@ -10,7 +10,6 @@
 </head>
 <body>
   <div id="shell"></div>
-
   <div class="modal-fondo" id="modalFondo">
     <div class="modal" style="max-width:480px;">
       <h2 style="margin-bottom:16px;">Editar registro</h2>
@@ -21,8 +20,25 @@
           <input type="text" id="edCedula" disabled>
         </div>
         <div class="campo">
-          <label for="edPlantelId">ID del plantel</label>
-          <input type="number" id="edPlantelId" min="1" required>
+          <label for="edCodigoPlantel">Código del plantel</label>
+          <input type="text" id="edCodigoPlantel" placeholder="Ej. OD14231608" required>
+        </div>
+        <div class="campo">
+          <label for="edCodigoDependencia">Código dependencia (nómina)</label>
+          <input type="text" id="edCodigoDependencia">
+        </div>
+        <div class="campo">
+          <label for="edCodigoCargo">Código RAC (cod. nómina del cargo)</label>
+          <input type="text" id="edCodigoCargo">
+        </div>
+        <div class="campo">
+          <label for="edTipoPersonal">Tipo de personal</label>
+          <select id="edTipoPersonal">
+            <option value="">—</option>
+            <option value="O">Obrero</option>
+            <option value="A">Administrativo</option>
+            <option value="D">Docente</option>
+          </select>
         </div>
         <div class="campo">
           <label for="edCargo">Cargo</label>
@@ -32,30 +48,25 @@
           <label for="edTurno">Turno</label>
           <select id="edTurno">
             <option value="">—</option>
-            <option value="mañana">Mañana</option>
-            <option value="tarde">Tarde</option>
-            <option value="noche">Noche</option>
+            <option value="MAÑANA">Mañana</option>
+            <option value="TARDE">Tarde</option>
+            <option value="NOCTURNO">Nocturno</option>
+            <option value="MAÑANA Y TARDE">Mañana y tarde</option>
+            <option value="MAÑANA-NOCTURNO">Mañana-Nocturno</option>
+            <option value="TARDE-NOCTURNO">Tarde-Nocturno</option>
           </select>
         </div>
         <div class="campo">
-          <label for="edHorasAcademicas">Horas académicas</label>
-          <input type="number" id="edHorasAcademicas" min="0" max="168" step="0.5">
+          <label for="edHorasAcademicas">Horas académicas (máx. 53.33)</label>
+          <input type="number" id="edHorasAcademicas" min="0" max="53.33" step="0.01">
         </div>
         <div class="campo">
-          <label for="edHorasAdm">Horas administrativas</label>
+          <label for="edHorasAdm">Horas administrativas (máx. 168)</label>
           <input type="number" id="edHorasAdm" min="0" max="168" step="0.5">
         </div>
         <div class="campo">
-          <label for="edSituacion">Situación</label>
-          <select id="edSituacion">
-            <option value="activo">Activo</option>
-            <option value="tramite_jubilacion">Trámite de jubilación</option>
-            <option value="reposo">Reposo</option>
-            <option value="tramite_incapacidad">Trámite de incapacidad</option>
-            <option value="fallecido">Fallecido</option>
-            <option value="permiso">Permiso</option>
-            <option value="abandono">Abandono</option>
-          </select>
+          <label for="edSituacion">Situación del trabajador</label>
+          <input type="text" id="edSituacion" placeholder="Ej. ACTIVO, PERMISO, TRÁMITE DE JUBILACIÓN...">
         </div>
         <div style="display:flex; gap:10px; margin-top:8px;">
           <button type="submit" class="btn btn-primario" id="btnGuardarEdicion">Guardar cambios</button>
@@ -64,7 +75,6 @@
       </form>
     </div>
   </div>
-
   <script src="/js/api.js"></script>
   <script src="/js/nav.js"></script>
   <script src="/js/rac.js"></script>
