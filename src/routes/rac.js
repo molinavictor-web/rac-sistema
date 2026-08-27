@@ -50,19 +50,52 @@ router.get("/", requireAuth, async (req, res) => {
 
 /**
  * PATCH /api/rac/:id
- * Edición de un registro existente -- cubre el caso de TRASLADOS:
- * cambiar el plantel_id (y/o turno, cargo, horas) de una asignación
- * que ya existe. El trigger de auditoría deja registrado el antes/
- * después automáticamente (ver schema.sql).
- * Solo operador/admin.
+ * Edición completa de un registro existente -- cubre traslados (cambio de
+ * plantel), correcciones de cargo/turno/horas/situación, y ajustes a los
+ * códigos que trae la carga completa del RAC (codigo_dependencia,
+ * codigo_cargo, tipo_personal). La cédula NO es editable aquí a propósito
+ * (identifica al trabajador, no al registro de asignación).
+ *
+ * Para cambiar de plantel, el body debe traer `codigo_plantel` (el código
+ * real del plantel, ej. "OD14231608"), NO el id interno -- se busca en la
+ * tabla planteles y, si no existe, se rechaza el guardado con 400 (no se
+ * guarda con alerta, para no dejar el registro apuntando a nada).
+ *
+ * El trigger de auditoría deja registrado el antes/después automáticamente
+ * (ver schema.sql). Solo operador/admin.
  */
 router.patch("/:id", requireAuth, requireRol("operador", "admin"), async (req, res) => {
   const { id } = req.params;
-  const camposPermitidos = ["plantel_id", "cargo", "turno", "horas_academicas", "horas_adm", "situacion"];
+  const camposDirectos = [
+    "cargo",
+    "turno",
+    "horas_academicas",
+    "horas_adm",
+    "situacion",
+    "codigo_dependencia",
+    "codigo_cargo",
+    "tipo_personal",
+  ];
   const sets = [];
   const valores = [];
 
-  for (const campo of camposPermitidos) {
+  // Si viene codigo_plantel, se resuelve primero contra el catálogo maestro
+  if (req.body.codigo_plantel !== undefined) {
+    const codigoPlantel = String(req.body.codigo_plantel).trim();
+    const plantelRes = await pool.query(
+      "SELECT id FROM planteles WHERE codigo_plantel = $1",
+      [codigoPlantel]
+    );
+    if (plantelRes.rows.length === 0) {
+      return res.status(400).json({
+        error: `El código de plantel "${codigoPlantel}" no existe en el catálogo maestro. Verifica el código antes de guardar.`,
+      });
+    }
+    valores.push(plantelRes.rows[0].id);
+    sets.push(`plantel_id = $${valores.length}`);
+  }
+
+  for (const campo of camposDirectos) {
     if (req.body[campo] !== undefined) {
       valores.push(req.body[campo]);
       sets.push(`${campo} = $${valores.length}`);
@@ -80,7 +113,35 @@ router.patch("/:id", requireAuth, requireRol("operador", "admin"), async (req, r
          WHERE id = $${valores.length} RETURNING *`,
         valores
       );
-      return rows[0];
+      const actualizado = rows[0];
+      if (!actualizado) return actualizado;
+
+      // Incongruencia de tipo de personal: la única razón válida para que una
+      // cédula tenga más de un registro en el RAC es que sea docente
+      // (distintos horarios/planteles). Se revisa tras cada edición porque
+      // un cambio manual de tipo_personal o de cédula-plantel puede crearla.
+      const repetidosRes = await client.query(
+        `SELECT tipo_personal, COUNT(*) OVER () AS total
+         FROM rac WHERE cedula = $1`,
+        [actualizado.cedula]
+      );
+      if (repetidosRes.rows.length > 1) {
+        const tiposDistintos = [...new Set(repetidosRes.rows.map((r) => r.tipo_personal))];
+        const soloDocente = tiposDistintos.length === 1 && tiposDistintos[0] === "D";
+        if (!soloDocente) {
+          await client.query(
+            `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
+             VALUES ($1, $2, $3, 'pendiente', now())`,
+            [
+              "incongruencia_tipo_personal",
+              actualizado.cedula,
+              `La cédula tiene ${repetidosRes.rows.length} registros en el RAC con tipo(s) de personal [${tiposDistintos.join(", ")}]. Solo un docente puede tener varios registros (distintos horarios/planteles) — revisar.`,
+            ]
+          );
+        }
+      }
+
+      return actualizado;
     });
 
     if (!resultado) {
