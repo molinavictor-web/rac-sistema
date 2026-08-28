@@ -7,7 +7,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
     { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
     { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
-    { id: "cargas", href: "/cargas.html", label: "Cargar personal", roles: ["encargado_municipio", "operador", "admin"] },
+    { id: "cargas", href: "/cargas.html", label: "Cargar por muncipio", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
     { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
     { id: "planteles-carga", href: "/planteles-carga.html", label: "Cargar planteles", roles: ["admin"] },
