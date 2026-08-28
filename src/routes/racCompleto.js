@@ -257,7 +257,8 @@ router.post(
                   horas_academicas = $6,
                   horas_adm = $7,
                   situacion = $8,
-                  actualizado_en = now()
+                  actualizado_en = now(),
+                  visto_en = now()
                  WHERE id = $9`,
                 [
                   nuevo.codigo_dependencia,
@@ -285,13 +286,19 @@ router.post(
               // vuelve a aparecer más adelante en el mismo archivo.
               mapaRac.set(claveExistente, { ...existente, ...nuevo });
             } else {
+              // Aunque no hubo cambios en los datos, esta fila SÍ apareció en
+              // la carga -- se marca visto_en para que /verificar-obsoletos
+              // no confunda "sin cambios" (sigue vigente) con "no visto"
+              // (candidato real a baja). No se toca actualizado_en porque el
+              // dato en sí no cambió.
+              await client.query('UPDATE rac SET visto_en = now() WHERE id = $1', [existente.id]);
               sinCambios++;
             }
           } else {
             const insertRes = await client.query(
               `INSERT INTO rac
-                (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno, horas_academicas, horas_adm, situacion, actualizado_en)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+                (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno, horas_academicas, horas_adm, situacion, actualizado_en, visto_en)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
                RETURNING id`,
               [
                 cedula,
@@ -394,8 +401,13 @@ router.post(
 // pedazos de una carga completa del RAC (si se subió partida en varios
 // archivos). Recibe { desde: fechaISO } -- la hora justo antes de empezar a
 // subir el primer pedazo -- y genera alerta "registro_no_encontrado_en_carga"
-// para todo registro de rac cuyo actualizado_en sea anterior a esa fecha,
-// es decir, que ningún pedazo subido lo tocó. No borra nada automáticamente.
+// para todo registro de rac cuyo visto_en sea anterior a esa fecha (o nulo,
+// para filas de antes de que existiera esta columna), es decir, que ningún
+// pedazo subido lo tocó -- haya cambiado su dato o no. Se usa visto_en y NO
+// actualizado_en a propósito: actualizado_en solo se mueve cuando el dato
+// realmente cambia, así que una fila "sin cambios" (vigente, solo que igual
+// a como ya estaba) tendría actualizado_en viejo y se marcaría como falsa
+// baja si se comparara contra esa columna. No se borra nada automáticamente.
 router.post('/verificar-obsoletos', requireAuth, requireRol('admin'), async (req, res) => {
   const { desde } = req.body;
 
@@ -408,7 +420,7 @@ router.post('/verificar-obsoletos', requireAuth, requireRol('admin'), async (req
   try {
     const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
       const obsoletosRes = await client.query(
-        'SELECT id, cedula FROM rac WHERE actualizado_en < $1',
+        'SELECT id, cedula FROM rac WHERE visto_en IS NULL OR visto_en < $1',
         [desde]
       );
 
