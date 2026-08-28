@@ -336,7 +336,9 @@ router.post(
         // si todos sus registros son de tipo_personal = D (docente, con
         // distintos horarios/planteles). Se revisa la tabla completa cada vez
         // porque es una validación barata (una sola consulta agrupada) y
-        // segura de repetir aunque el archivo se suba por pedazos.
+        // segura de repetir aunque el archivo se suba por pedazos -- pero
+        // antes de insertar se verifica que no exista ya una alerta pendiente
+        // para esa misma cédula, para no duplicarla en cada pedazo subido.
         const incongruenciaRes = await client.query(`
           SELECT cedula, array_agg(DISTINCT tipo_personal) AS tipos
           FROM rac
@@ -344,10 +346,17 @@ router.post(
           HAVING count(*) > 1
         `);
 
+        const alertasIncongruenciaExistentesRes = await client.query(
+          `SELECT DISTINCT cedula FROM alertas WHERE tipo = 'incongruencia_tipo_personal' AND estado = 'pendiente'`
+        );
+        const cedulasConAlertaIncongruencia = new Set(
+          alertasIncongruenciaExistentesRes.rows.map((f) => f.cedula)
+        );
+
         for (const fila of incongruenciaRes.rows) {
           const tipos = fila.tipos.filter(Boolean);
           const todosDocentes = tipos.length > 0 && tipos.every((t) => t === 'D');
-          if (!todosDocentes) {
+          if (!todosDocentes && !cedulasConAlertaIncongruencia.has(fila.cedula)) {
             await insertarAlerta(
               client,
               'incongruencia_tipo_personal',
@@ -355,6 +364,7 @@ router.post(
               `La cédula tiene múltiples registros en el RAC con tipo(s) de personal distinto(s) a docente (${tipos.join(', ')}) — solo se espera repetición para tipo_personal D`
             );
             alertasGeneradas++;
+            cedulasConAlertaIncongruencia.add(fila.cedula);
           }
         }
 
