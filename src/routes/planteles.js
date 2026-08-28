@@ -80,9 +80,9 @@ router.patch("/:id", requireAuth, requireRol("admin"), async (req, res) => {
   }
   res.json(resultado);
 });
+
 // ============================================================
-// AGREGAR a src/routes/planteles.js
-// Requiere: multer instalado (ya lo usan en personalMinisterio.js)
+// Carga masiva de planteles (upsert por codigo_plantel)
 // ============================================================
 
 const MAX_UPLOAD_PLANTELES_MB = parseInt(process.env.MAX_UPLOAD_PLANTELES_MB || '20', 10);
@@ -152,7 +152,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
 
     // Desactivar auditoría alrededor de la carga masiva (mismo patrón que personalMinisterio.js)
     await client.query('BEGIN');
-    await client.query(`ALTER TABLE planteles DISABLE TRIGGER auditoria_planteles`);
+    await client.query(`ALTER TABLE planteles DISABLE TRIGGER trg_auditoria_planteles`);
 
     let lote = [];
 
@@ -241,7 +241,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
     // Procesar el último lote incompleto
     await procesarLote(lote);
 
-    await client.query(`ALTER TABLE planteles ENABLE TRIGGER auditoria_planteles`);
+    await client.query(`ALTER TABLE planteles ENABLE TRIGGER trg_auditoria_planteles`);
     await client.query('COMMIT');
 
     res.json({
