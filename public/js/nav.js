@@ -1,10 +1,8 @@
 // nav.js — dibuja el shell (sidebar + topbar) igual en todas las páginas,
 // ajustando qué enlaces se ven según el rol del usuario.
-
 function renderShell(paginaActiva, tituloTopbar) {
   const usuario = RAC.exigirSesion();
   if (!usuario) return null;
-
   const enlaces = [
     { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
     { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
@@ -12,20 +10,18 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "cargas", href: "/cargas.html", label: "Cargar personal", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
     { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
+    { id: "planteles-carga", href: "/planteles-carga.html", label: "Cargar planteles", roles: ["admin"] },
     { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
   ];
-
   const rolLabel = {
     admin: "Administrador",
     operador: "Operador",
     encargado_municipio: "Encargado de municipio",
   }[usuario.rol] || usuario.rol;
-
   const navHtml = enlaces
     .filter((e) => !e.roles || e.roles.includes(usuario.rol))
     .map((e) => `<a class="nav-link ${e.id === paginaActiva ? "activo" : ""}" href="${e.href}">${e.label}</a>`)
     .join("");
-
   document.getElementById("shell").innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
@@ -48,7 +44,6 @@ function renderShell(paginaActiva, tituloTopbar) {
       </div>
     </div>
   `;
-
   document.getElementById("btnSalir").addEventListener("click", RAC.cerrarSesion);
   return usuario;
 }
