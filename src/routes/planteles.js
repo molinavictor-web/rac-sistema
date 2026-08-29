@@ -127,8 +127,15 @@ function normalizarTexto(valor) {
 // arriba -- codificación latin1/ANSI, tal como lo exporta Excel con
 // "CSV (delimitado por comas) (*.csv)").
 // Columnas esperadas en el archivo, en este orden:
-// estado, municipio, parroquia, cod_plantel, nombre_plantel,
-// tipo_dependencia, denominacion, direccion
+// estado (geográfico, ej. "MONAGAS"), municipio, parroquia, cod_plantel,
+// nombre_plantel, tipo_dependencia, denominacion, direccion
+//
+// La columna "estado" geográfica del CSV se guarda en
+// planteles.estado_geografico -- NO confundir con planteles.estado,
+// que es el estado OPERATIVO del plantel (activo/cerrado), un campo
+// totalmente distinto que no viene del CSV. Se guarda para poder
+// reconstruir el archivo de exportación del RAC en el mismo formato
+// del CSV de carga (mejora pendiente).
 //
 // Comportamiento: UPSERT por codigo_plantel (no TRUNCATE), porque
 // planteles.id es referenciado por rac.plantel_id.
@@ -177,7 +184,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
 
       const columnas = [
         'codigo_plantel', 'nombre', 'municipio_id', 'dependencia',
-        'parroquia', 'denominacion', 'direccion', 'actualizado_en'
+        'parroquia', 'denominacion', 'direccion', 'estado_geografico', 'actualizado_en'
       ];
 
       const valores = [];
@@ -185,7 +192,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
         const base = i * columnas.length;
         valores.push(
           fila.codigo_plantel, fila.nombre, fila.municipio_id, fila.dependencia,
-          fila.parroquia, fila.denominacion, fila.direccion, new Date()
+          fila.parroquia, fila.denominacion, fila.direccion, fila.estado_geografico, new Date()
         );
         const nums = columnas.map((_, j) => `$${base + j + 1}`);
         return `(${nums.join(', ')})`;
@@ -201,6 +208,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
           parroquia = EXCLUDED.parroquia,
           denominacion = EXCLUDED.denominacion,
           direccion = EXCLUDED.direccion,
+          estado_geografico = EXCLUDED.estado_geografico,
           actualizado_en = EXCLUDED.actualizado_en
         RETURNING (xmax = 0) AS es_insert
       `;
@@ -222,7 +230,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
       }
 
       const campos = parsearLineaCSV(linea, delimitador);
-      const [, municipioTexto, parroquia, codPlantel, nombrePlantel, tipoDependencia, denominacion, direccion] = campos;
+      const [estadoGeografico, municipioTexto, parroquia, codPlantel, nombrePlantel, tipoDependencia, denominacion, direccion] = campos;
 
       const codigoPlantelLimpio = normalizarTexto(codPlantel);
       if (!codigoPlantelLimpio) {
@@ -245,7 +253,8 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
         dependencia: normalizarTexto(tipoDependencia),
         parroquia: normalizarTexto(parroquia),
         denominacion: normalizarTexto(denominacion),
-        direccion: normalizarTexto(direccion)
+        direccion: normalizarTexto(direccion),
+        estado_geografico: normalizarTexto(estadoGeografico)
       });
 
       if (lote.length >= BATCH_SIZE) {
