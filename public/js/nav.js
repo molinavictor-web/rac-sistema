@@ -6,6 +6,7 @@ function renderShell(paginaActiva, tituloTopbar) {
   const enlaces = [
     { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
     { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
+    { id: "exportar-rac", href: "/exportar-rac.html", label: "Exportar RAC", roles: ["admin", "operador"] },
     { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
     { id: "cargas", href: "/cargas.html", label: "Cargar por muncipio", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
