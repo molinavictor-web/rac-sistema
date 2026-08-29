@@ -84,6 +84,17 @@ router.patch("/:id", requireAuth, requireRol("admin"), async (req, res) => {
 // ============================================================
 // Carga masiva de planteles (upsert por codigo_plantel)
 // ============================================================
+//
+// Desde la Mejora 3 (jerarquía geográfica normalizada), la validación
+// de estado/municipio/parroquia ya NO se hace contra un mapa plano de
+// municipios por nombre: se valida la cadena completa
+// estado -> municipio -> parroquia contra el catálogo maestro real
+// (tablas estados/municipios/parroquias), poblado a partir del
+// catálogo nacional de planteles. Política "Opción B" (decidida por
+// el usuario): si el estado, el municipio dentro de ese estado, o la
+// parroquia dentro de ese municipio no existen en el catálogo, la fila
+// se RECHAZA como error -- nunca se auto-crea nada en estados/
+// municipios/parroquias desde esta carga.
 
 const MAX_UPLOAD_PLANTELES_MB = parseInt(process.env.MAX_UPLOAD_PLANTELES_MB || '20', 10);
 
@@ -121,6 +132,13 @@ function normalizarTexto(valor) {
   return limpio.length === 0 ? null : limpio;
 }
 
+// Clave de comparación contra el catálogo: mayúsculas + espacios
+// colapsados, para no fallar por diferencias triviales de formato
+// (doble espacio, minúsculas, espacios al borde).
+function claveCatalogo(valor) {
+  return (valor || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
 // POST /api/planteles/cargar-masiva
 // Solo admin. Carga el CSV completo de planteles (delimitado por coma
 // o punto y coma -- se detecta automáticamente, ver detectarDelimitador
@@ -130,12 +148,16 @@ function normalizarTexto(valor) {
 // estado (geográfico, ej. "MONAGAS"), municipio, parroquia, cod_plantel,
 // nombre_plantel, tipo_dependencia, denominacion, direccion
 //
-// La columna "estado" geográfica del CSV se guarda en
-// planteles.estado_geografico -- NO confundir con planteles.estado,
-// que es el estado OPERATIVO del plantel (activo/cerrado), un campo
-// totalmente distinto que no viene del CSV. Se guarda para poder
-// reconstruir el archivo de exportación del RAC en el mismo formato
-// del CSV de carga (mejora pendiente).
+// La columna "estado" geográfica del CSV se sigue guardando también en
+// planteles.estado_geografico (texto) por compatibilidad con la
+// exportación pendiente -- NO confundir con planteles.estado, que es
+// el estado OPERATIVO del plantel (activo/cerrado), un campo totalmente
+// distinto que no viene del CSV.
+//
+// Estado/municipio/parroquia se validan contra el catálogo maestro
+// (estados/municipios/parroquias). Si la fila no calza en algún nivel
+// de esa cadena, se rechaza como error (Opción B) y NO se inserta ni
+// actualiza el plantel.
 //
 // Comportamiento: UPSERT por codigo_plantel (no TRUNCATE), porque
 // planteles.id es referenciado por rac.plantel_id.
@@ -160,11 +182,30 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
     // Descartar encabezado
     const filasDatos = lineas.slice(1);
 
-    // Precargar municipios: nombre normalizado (mayúsculas, sin espacios extra) -> id
-    const { rows: municipiosRows } = await client.query('SELECT id, nombre FROM municipios');
+    // Precargar el catálogo geográfico completo en memoria, en una
+    // sola consulta con los tres niveles ya unidos, para no consultar
+    // la BD por cada fila del archivo.
+    const { rows: catalogoRows } = await client.query(
+      `SELECT e.nombre AS estado, m.id AS municipio_id, m.nombre AS municipio,
+              pr.id AS parroquia_id, pr.nombre AS parroquia
+       FROM parroquias pr
+       JOIN municipios m ON m.id = pr.municipio_id
+       JOIN estados e ON e.id = m.estado_id`
+    );
+
+    // mapaEstados: clave estado -> true (solo para dar un mensaje de
+    // error específico si el estado ni siquiera existe)
+    const mapaEstados = new Set();
+    // mapaMunicipios: clave "ESTADO||MUNICIPIO" -> municipio_id
     const mapaMunicipios = new Map();
-    for (const m of municipiosRows) {
-      mapaMunicipios.set(m.nombre.trim().toUpperCase(), m.id);
+    // mapaParroquias: clave "MUNICIPIO_ID||PARROQUIA" -> parroquia_id
+    const mapaParroquias = new Map();
+
+    for (const fila of catalogoRows) {
+      const claveEstado = claveCatalogo(fila.estado);
+      mapaEstados.add(claveEstado);
+      mapaMunicipios.set(`${claveEstado}||${claveCatalogo(fila.municipio)}`, fila.municipio_id);
+      mapaParroquias.set(`${fila.municipio_id}||${claveCatalogo(fila.parroquia)}`, fila.parroquia_id);
     }
 
     let insertados = 0;
@@ -184,7 +225,8 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
 
       const columnas = [
         'codigo_plantel', 'nombre', 'municipio_id', 'dependencia',
-        'parroquia', 'denominacion', 'direccion', 'estado_geografico', 'actualizado_en'
+        'parroquia', 'parroquia_id', 'denominacion', 'direccion',
+        'estado_geografico', 'actualizado_en'
       ];
 
       const valores = [];
@@ -192,7 +234,8 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
         const base = i * columnas.length;
         valores.push(
           fila.codigo_plantel, fila.nombre, fila.municipio_id, fila.dependencia,
-          fila.parroquia, fila.denominacion, fila.direccion, fila.estado_geografico, new Date()
+          fila.parroquia, fila.parroquia_id, fila.denominacion, fila.direccion,
+          fila.estado_geografico, new Date()
         );
         const nums = columnas.map((_, j) => `$${base + j + 1}`);
         return `(${nums.join(', ')})`;
@@ -206,6 +249,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
           municipio_id = EXCLUDED.municipio_id,
           dependencia = EXCLUDED.dependencia,
           parroquia = EXCLUDED.parroquia,
+          parroquia_id = EXCLUDED.parroquia_id,
           denominacion = EXCLUDED.denominacion,
           direccion = EXCLUDED.direccion,
           estado_geografico = EXCLUDED.estado_geografico,
@@ -230,7 +274,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
       }
 
       const campos = parsearLineaCSV(linea, delimitador);
-      const [estadoGeografico, municipioTexto, parroquia, codPlantel, nombrePlantel, tipoDependencia, denominacion, direccion] = campos;
+      const [estadoGeografico, municipioTexto, parroquiaTexto, codPlantel, nombrePlantel, tipoDependencia, denominacion, direccion] = campos;
 
       const codigoPlantelLimpio = normalizarTexto(codPlantel);
       if (!codigoPlantelLimpio) {
@@ -239,10 +283,28 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
         continue;
       }
 
-      const municipioId = mapaMunicipios.get((municipioTexto || '').trim().toUpperCase());
+      // Validación en cadena contra el catálogo maestro (Opción B):
+      // estado -> municipio dentro de ese estado -> parroquia dentro
+      // de ese municipio. Si algún nivel no existe, se rechaza la fila
+      // completa con un motivo específico de en qué nivel falló.
+      const claveEstado = claveCatalogo(estadoGeografico);
+      if (!mapaEstados.has(claveEstado)) {
+        filasConError++;
+        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `estado no existe en el catálogo: "${estadoGeografico}"` });
+        continue;
+      }
+
+      const municipioId = mapaMunicipios.get(`${claveEstado}||${claveCatalogo(municipioTexto)}`);
       if (!municipioId) {
         filasConError++;
-        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `municipio no encontrado: "${municipioTexto}"` });
+        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `municipio no existe en el catálogo para el estado "${estadoGeografico}": "${municipioTexto}"` });
+        continue;
+      }
+
+      const parroquiaId = mapaParroquias.get(`${municipioId}||${claveCatalogo(parroquiaTexto)}`);
+      if (!parroquiaId) {
+        filasConError++;
+        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `parroquia no existe en el catálogo para el municipio "${municipioTexto}": "${parroquiaTexto}"` });
         continue;
       }
 
@@ -251,7 +313,8 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
         nombre: normalizarTexto(nombrePlantel),
         municipio_id: municipioId,
         dependencia: normalizarTexto(tipoDependencia),
-        parroquia: normalizarTexto(parroquia),
+        parroquia: normalizarTexto(parroquiaTexto),
+        parroquia_id: parroquiaId,
         denominacion: normalizarTexto(denominacion),
         direccion: normalizarTexto(direccion),
         estado_geografico: normalizarTexto(estadoGeografico)
