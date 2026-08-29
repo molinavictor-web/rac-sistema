@@ -94,12 +94,25 @@ const uploadPlanteles = multer({
 
 const BATCH_SIZE = 1000;
 
-// Parser simple de una línea CSV delimitada por coma.
-// Si en el futuro aparecen campos con comas internas entre comillas,
-// hay que cambiar esto por una librería (ej. csv-parse). Por ahora
-// el archivo real de planteles no trae comillas ni comas dentro de campos.
-function parsearLineaCSV(linea) {
-  return linea.split(',').map(campo => campo.trim());
+// Detecta el delimitador real de la línea de encabezado del CSV.
+// Excel, en configuración regional en español, exporta la opción
+// "CSV (delimitado por comas)" usando en realidad punto y coma (;),
+// porque la coma queda reservada como separador decimal. Por eso no
+// asumimos un delimitador fijo: contamos comas vs. punto y coma en
+// la primera línea y usamos el que más aparece.
+function detectarDelimitador(primeraLinea) {
+  const comas = (primeraLinea.match(/,/g) || []).length;
+  const puntoYComa = (primeraLinea.match(/;/g) || []).length;
+  return puntoYComa > comas ? ';' : ',';
+}
+
+// Parser simple de una línea CSV delimitada por el delimitador detectado.
+// Si en el futuro aparecen campos con comas/punto y coma internos entre
+// comillas, hay que cambiar esto por una librería (ej. csv-parse). Por
+// ahora el archivo real de planteles no trae comillas ni el delimitador
+// dentro de un campo.
+function parsearLineaCSV(linea, delimitador) {
+  return linea.split(delimitador).map(campo => campo.trim());
 }
 
 function normalizarTexto(valor) {
@@ -109,8 +122,9 @@ function normalizarTexto(valor) {
 }
 
 // POST /api/planteles/cargar-masiva
-// Solo admin. Carga el CSV completo de planteles (delimitado por coma,
-// codificación latin1/ANSI, tal como lo exporta Excel con
+// Solo admin. Carga el CSV completo de planteles (delimitado por coma
+// o punto y coma -- se detecta automáticamente, ver detectarDelimitador
+// arriba -- codificación latin1/ANSI, tal como lo exporta Excel con
 // "CSV (delimitado por comas) (*.csv)").
 // Columnas esperadas en el archivo, en este orden:
 // estado, municipio, parroquia, cod_plantel, nombre_plantel,
@@ -133,6 +147,8 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
     if (lineas.length < 2) {
       return res.status(400).json({ error: 'El archivo no tiene datos' });
     }
+
+    const delimitador = detectarDelimitador(lineas[0]);
 
     // Descartar encabezado
     const filasDatos = lineas.slice(1);
@@ -200,12 +216,12 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
       const linea = filasDatos[i];
 
       // Línea vacía o solo separadores (mismo problema que ya se vio en rac completo)
-      if (!linea || linea.replace(/,/g, '').trim().length === 0) {
+      if (!linea || linea.split(delimitador).join('').trim().length === 0) {
         lineasVaciasIgnoradas++;
         continue;
       }
 
-      const campos = parsearLineaCSV(linea);
+      const campos = parsearLineaCSV(linea, delimitador);
       const [, municipioTexto, parroquia, codPlantel, nombrePlantel, tipoDependencia, denominacion, direccion] = campos;
 
       const codigoPlantelLimpio = normalizarTexto(codPlantel);
@@ -246,6 +262,7 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
 
     res.json({
       mensaje: 'Carga de planteles completada',
+      delimitadorDetectado: delimitador,
       insertados,
       actualizados,
       filasConError,
