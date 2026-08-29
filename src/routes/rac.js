@@ -60,7 +60,15 @@ router.get("/", requireAuth, async (req, res) => {
  * Mapeo de columnas confirmado:
  * - Directo desde `rac`: CODIGO DEPENDENCIA, CODIGO RAC(=codigo_cargo),
  *   CARGO, TIPO DE PERSONAL, CEDULA, HORAS ACADEMICAS, HORAS ADM,
- *   TURNO QUE ATIENDE(=turno), SITUACION DEL TRABAJADOR(=situacion)
+ *   TURNO QUE ATIENDE(=turno), SITUACION DEL TRABAJADOR(=situacion),
+ *   CODIGO ESTADISTICO, NIVEL, MODALIDAD, UBICACION GEOGRAFICA, TURNOS
+ *   QUE ATIENDE EL PLANTEL(=turnos_plantel), FECHA DE INGRESO, SEXO,
+ *   GRADO QUE IMPARTE EL DOCENTE(=grado_imparte), SECCION, ESPECIALIDAD
+ *   QUE IMPARTE EL DOCENTE(=especialidad), AÑO(=anio), SECCIONES,
+ *   MATERIA QUE IMPARTE O ESPECIALIDAD(=materia), PERIODO O
+ *   GRUPO(=periodo_grupo), OBSERVACION, EDAD, COMPARATIVA -- estas 17
+ *   columnas se agregaron al schema de `rac` y se llenan desde
+ *   racCompleto.js (antes se leían del CSV y se descartaban)
  * - Vía rac.plantel_id -> planteles: CODIGO DEL PLANTEL, NOMBRE DEL
  *   PLANTEL EN NOMINA
  * - Vía la jerarquía geográfica (planteles.municipio_id/parroquia_id ->
@@ -68,12 +76,8 @@ router.get("/", requireAuth, async (req, res) => {
  * - Vía cruce por cédula contra personal_ministerio.nombres: NOMBRE Y
  *   APELLIDO (solo `nombres`, que ya viene completo; NO se concatena
  *   `apellidos`, que siempre queda NULL en la carga de nómina)
- * - Sin fuente en ninguna tabla hoy, se exportan vacías: COD_EDO,
- *   CODIGO ESTADISTICO, NIVEL, MODALIDAD, UBICACION GEOGRAFICA, TURNOS
- *   QUE ATIENDE EL PLANTEL, FECHA DE INGRESO, SEXO, GRADO QUE IMPARTE EL
- *   DOCENTE, SECCION, ESPECIALIDAD QUE IMPARTE EL DOCENTE, AÑO,
- *   SECCIONES, MATERIA QUE IMPARTE O ESPECIALIDAD, PERIODO O GRUPO,
- *   OBSERVACION, EDAD, COMPARATIVA
+ * - Sin fuente en ninguna tabla hoy, se exporta vacía: COD_EDO (siempre
+ *   "MONAGAS" a nivel de estado, no se guarda por fila)
  */
 router.get(
   "/exportar-general",
@@ -94,7 +98,11 @@ router.get(
       ] = await Promise.all([
         pool.query(`
           SELECT cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo,
-                 tipo_personal, horas_academicas, horas_adm, turno, situacion
+                 tipo_personal, horas_academicas, horas_adm, turno, situacion,
+                 nivel, modalidad, ubicacion_geografica, turnos_plantel,
+                 codigo_estadistico, fecha_ingreso, sexo, grado_imparte,
+                 seccion, especialidad, anio, secciones, materia,
+                 periodo_grupo, observacion, edad, comparativa
           FROM rac
         `),
         pool.query(`
@@ -156,24 +164,24 @@ router.get(
           municipio.nombre || "",          // MUNICIPIO
           parroquia.nombre || "",          // PARROQUIA
           r.codigo_dependencia,            // CODIGO DEPENDENCIA
-          "",                              // CODIGO ESTADISTICO
+          r.codigo_estadistico,            // CODIGO ESTADISTICO
           plantel.codigo_plantel || "",    // CODIGO DEL PLANTEL
           plantel.nombre || "",            // NOMBRE DEL PLANTEL EN NOMINA
-          "", "", "", "",                  // NIVEL, MODALIDAD, UBICACION GEOGRAFICA, TURNOS QUE ATIENDE EL PLANTEL
+          r.nivel, r.modalidad, r.ubicacion_geografica, r.turnos_plantel, // NIVEL, MODALIDAD, UBICACION GEOGRAFICA, TURNOS QUE ATIENDE EL PLANTEL
           r.codigo_cargo,                  // CODIGO RAC
           r.cargo,                         // CARGO
           r.tipo_personal,                 // TIPO DE PERSONAL
           r.cedula,                        // CEDULA
           nombreCompleto,                  // NOMBRE Y APELLIDO
-          "", "",                          // FECHA DE INGRESO, SEXO
+          r.fecha_ingreso, r.sexo,         // FECHA DE INGRESO, SEXO
           r.horas_academicas,              // HORAS ACADEMICAS
           r.horas_adm,                     // HORAS ADM
           r.turno,                         // TURNO QUE ATIENDE
-          "", "", "",                      // GRADO QUE IMPARTE, SECCION, ESPECIALIDAD
-          "", "", "",                      // AÑO, SECCIONES, MATERIA QUE IMPARTE
-          "",                              // PERIODO O GRUPO (sin fuente en la BD)
+          r.grado_imparte, r.seccion, r.especialidad, // GRADO QUE IMPARTE, SECCION, ESPECIALIDAD
+          r.anio, r.secciones, r.materia,  // AÑO, SECCIONES, MATERIA QUE IMPARTE
+          r.periodo_grupo,                 // PERIODO O GRUPO
           r.situacion,                     // SITUACION DEL TRABAJADOR
-          "", "", "",                      // OBSERVACION, EDAD, COMPARATIVA
+          r.observacion, r.edad, r.comparativa, // OBSERVACION, EDAD, COMPARATIVA
         ];
 
         filas.push(fila.map(esc).join(";"));

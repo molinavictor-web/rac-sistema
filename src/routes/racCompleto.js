@@ -81,6 +81,17 @@ async function insertarAlerta(client, tipo, cedula, detalle) {
 // de cédulas de personal_ministerio, y el estado actual completo de la tabla
 // rac (clave cedula|plantel_id -> registro). Así el bucle por fila ya no
 // consulta la BD salvo para el INSERT/UPDATE final.
+//
+// COLUMNAS ADICIONALES (agregadas para soportar la exportación completa del
+// RAC en el mismo formato de carga): el archivo trae varias columnas que
+// antes se leían y se descartaban (NIVEL, MODALIDAD, UBICACION GEOGRAFICA,
+// TURNOS QUE ATIENDE EL PLANTEL, CODIGO ESTADISTICO, FECHA DE INGRESO, SEXO,
+// GRADO QUE IMPARTE EL DOCENTE, SECCION, ESPECIALIDAD QUE IMPARTE EL DOCENTE,
+// AÑO, SECCIONES, MATERIA QUE IMPARTE O ESPECIALIDAD, PERIODO O GRUPO,
+// OBSERVACION, EDAD, COMPARATIVA). Por decisión del usuario (simplicidad),
+// todas se guardan directo en `rac` como texto libre, aunque algunas
+// (NIVEL/MODALIDAD/UBICACION GEOGRAFICA/TURNOS QUE ATIENDE EL PLANTEL) se
+// repitan idénticas en cada fila del mismo plantel.
 router.post(
   '/cargar-completo',
   requireAuth,
@@ -111,6 +122,24 @@ router.post(
         horasAcademicas: encabezados.indexOf('HORAS ACADEMICAS'),
         horasAdm: encabezados.indexOf('HORAS ADM'),
         situacion: encabezados.indexOf('SITUACION DEL TRABAJADOR'),
+        // Columnas adicionales (antes se descartaban)
+        nivel: encabezados.indexOf('NIVEL'),
+        modalidad: encabezados.indexOf('MODALIDAD'),
+        ubicacionGeografica: encabezados.indexOf('UBICACION GEOGRAFICA'),
+        turnosPlantel: encabezados.indexOf('TURNOS QUE ATIENDE EL PLANTEL'),
+        codigoEstadistico: encabezados.indexOf('CODIGO ESTADISTICO'),
+        fechaIngreso: encabezados.indexOf('FECHA DE INGRESO'),
+        sexo: encabezados.indexOf('SEXO'),
+        gradoImparte: encabezados.indexOf('GRADO QUE IMPARTE EL DOCENTE'),
+        seccion: encabezados.indexOf('SECCION'),
+        especialidad: encabezados.indexOf('ESPECIALIDAD QUE IMPARTE EL DOCENTE'),
+        anio: encabezados.indexOf('AÑO'),
+        secciones: encabezados.indexOf('SECCIONES'),
+        materia: encabezados.indexOf('MATERIA QUE IMPARTE O ESPECIALIDAD'),
+        periodoGrupo: encabezados.indexOf('PERIODO O GRUPO'),
+        observacion: encabezados.indexOf('OBSERVACION'),
+        edad: encabezados.indexOf('EDAD'),
+        comparativa: encabezados.indexOf('COMPARATIVA'),
       };
 
       for (const [campo, columna] of Object.entries(idx)) {
@@ -130,6 +159,23 @@ router.post(
         'horas_academicas',
         'horas_adm',
         'situacion',
+        'nivel',
+        'modalidad',
+        'ubicacion_geografica',
+        'turnos_plantel',
+        'codigo_estadistico',
+        'fecha_ingreso',
+        'sexo',
+        'grado_imparte',
+        'seccion',
+        'especialidad',
+        'anio',
+        'secciones',
+        'materia',
+        'periodo_grupo',
+        'observacion',
+        'edad',
+        'comparativa',
       ];
 
       // horas_academicas/horas_adm son NUMERIC en Postgres y vuelven como
@@ -234,6 +280,23 @@ router.post(
             horas_academicas: parseNumero(cols[idx.horasAcademicas]),
             horas_adm: parseNumero(cols[idx.horasAdm]),
             situacion: limpiar(cols[idx.situacion]),
+            nivel: limpiar(cols[idx.nivel]),
+            modalidad: limpiar(cols[idx.modalidad]),
+            ubicacion_geografica: limpiar(cols[idx.ubicacionGeografica]),
+            turnos_plantel: limpiar(cols[idx.turnosPlantel]),
+            codigo_estadistico: limpiar(cols[idx.codigoEstadistico]),
+            fecha_ingreso: limpiar(cols[idx.fechaIngreso]),
+            sexo: limpiar(cols[idx.sexo]),
+            grado_imparte: limpiar(cols[idx.gradoImparte]),
+            seccion: limpiar(cols[idx.seccion]),
+            especialidad: limpiar(cols[idx.especialidad]),
+            anio: limpiar(cols[idx.anio]),
+            secciones: limpiar(cols[idx.secciones]),
+            materia: limpiar(cols[idx.materia]),
+            periodo_grupo: limpiar(cols[idx.periodoGrupo]),
+            observacion: limpiar(cols[idx.observacion]),
+            edad: limpiar(cols[idx.edad]),
+            comparativa: limpiar(cols[idx.comparativa]),
           };
 
           const alertasRango = validarRangoHoras(cedula, codigoPlantelArchivo, nuevo);
@@ -257,9 +320,26 @@ router.post(
                   horas_academicas = $6,
                   horas_adm = $7,
                   situacion = $8,
+                  nivel = $9,
+                  modalidad = $10,
+                  ubicacion_geografica = $11,
+                  turnos_plantel = $12,
+                  codigo_estadistico = $13,
+                  fecha_ingreso = $14,
+                  sexo = $15,
+                  grado_imparte = $16,
+                  seccion = $17,
+                  especialidad = $18,
+                  anio = $19,
+                  secciones = $20,
+                  materia = $21,
+                  periodo_grupo = $22,
+                  observacion = $23,
+                  edad = $24,
+                  comparativa = $25,
                   actualizado_en = now(),
                   visto_en = now()
-                 WHERE id = $9`,
+                 WHERE id = $26`,
                 [
                   nuevo.codigo_dependencia,
                   nuevo.codigo_cargo,
@@ -269,6 +349,23 @@ router.post(
                   nuevo.horas_academicas,
                   nuevo.horas_adm,
                   nuevo.situacion,
+                  nuevo.nivel,
+                  nuevo.modalidad,
+                  nuevo.ubicacion_geografica,
+                  nuevo.turnos_plantel,
+                  nuevo.codigo_estadistico,
+                  nuevo.fecha_ingreso,
+                  nuevo.sexo,
+                  nuevo.grado_imparte,
+                  nuevo.seccion,
+                  nuevo.especialidad,
+                  nuevo.anio,
+                  nuevo.secciones,
+                  nuevo.materia,
+                  nuevo.periodo_grupo,
+                  nuevo.observacion,
+                  nuevo.edad,
+                  nuevo.comparativa,
                   existente.id,
                 ]
               );
@@ -297,8 +394,13 @@ router.post(
           } else {
             const insertRes = await client.query(
               `INSERT INTO rac
-                (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno, horas_academicas, horas_adm, situacion, actualizado_en, visto_en)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
+                (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno,
+                 horas_academicas, horas_adm, situacion, nivel, modalidad, ubicacion_geografica,
+                 turnos_plantel, codigo_estadistico, fecha_ingreso, sexo, grado_imparte, seccion,
+                 especialidad, anio, secciones, materia, periodo_grupo, observacion, edad, comparativa,
+                 actualizado_en, visto_en)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                       $19, $20, $21, $22, $23, $24, $25, $26, now(), now())
                RETURNING id`,
               [
                 cedula,
@@ -311,6 +413,23 @@ router.post(
                 nuevo.horas_academicas,
                 nuevo.horas_adm,
                 nuevo.situacion,
+                nuevo.nivel,
+                nuevo.modalidad,
+                nuevo.ubicacion_geografica,
+                nuevo.turnos_plantel,
+                nuevo.codigo_estadistico,
+                nuevo.fecha_ingreso,
+                nuevo.sexo,
+                nuevo.grado_imparte,
+                nuevo.seccion,
+                nuevo.especialidad,
+                nuevo.anio,
+                nuevo.secciones,
+                nuevo.materia,
+                nuevo.periodo_grupo,
+                nuevo.observacion,
+                nuevo.edad,
+                nuevo.comparativa,
               ]
             );
             insertados++;
