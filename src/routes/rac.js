@@ -49,6 +49,153 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 /**
+ * GET /api/rac/exportar-general
+ * Exporta TODO el RAC en el mismo formato del CSV de carga (33 columnas,
+ * delimitador ";", codificación latin1, saltos de línea CRLF) para que la
+ * sede central pueda reabrir el archivo con la misma estructura del CSV
+ * de carga. Descarga bajo demanda (sin automatización). Disponible para
+ * admin y operador (no solo admin, a diferencia de otras pantallas de
+ * carga/administración del sistema).
+ *
+ * Mapeo de columnas confirmado:
+ * - Directo desde `rac`: CODIGO DEPENDENCIA, CODIGO RAC(=codigo_cargo),
+ *   CARGO, TIPO DE PERSONAL, CEDULA, HORAS ACADEMICAS, HORAS ADM,
+ *   TURNO QUE ATIENDE(=turno), SITUACION DEL TRABAJADOR(=situacion)
+ * - Vía rac.plantel_id -> planteles: CODIGO DEL PLANTEL, NOMBRE DEL
+ *   PLANTEL EN NOMINA
+ * - Vía la jerarquía geográfica (planteles.municipio_id/parroquia_id ->
+ *   municipios/parroquias/estados): ESTADO, MUNICIPIO, PARROQUIA
+ * - Vía cruce por cédula contra personal_ministerio.nombres: NOMBRE Y
+ *   APELLIDO (solo `nombres`, que ya viene completo; NO se concatena
+ *   `apellidos`, que siempre queda NULL en la carga de nómina)
+ * - Sin fuente en ninguna tabla hoy, se exportan vacías: COD_EDO,
+ *   CODIGO ESTADISTICO, NIVEL, MODALIDAD, UBICACION GEOGRAFICA, TURNOS
+ *   QUE ATIENDE EL PLANTEL, FECHA DE INGRESO, SEXO, GRADO QUE IMPARTE EL
+ *   DOCENTE, SECCION, ESPECIALIDAD QUE IMPARTE EL DOCENTE, AÑO,
+ *   SECCIONES, MATERIA QUE IMPARTE O ESPECIALIDAD, PERIODO O GRUPO,
+ *   OBSERVACION, EDAD, COMPARATIVA
+ */
+router.get(
+  "/exportar-general",
+  requireAuth,
+  requireRol("operador", "admin"),
+  async (req, res) => {
+    try {
+      // Precarga en memoria de todo lo necesario para el cruce (mismo
+      // patrón que ya resolvió el 502 por volumen en la carga completa):
+      // una sola consulta por tabla, nada de consultas dentro del bucle.
+      const [
+        racRows,
+        plantelesRows,
+        municipiosRows,
+        parroquiasRows,
+        estadosRows,
+        nominaRows,
+      ] = await Promise.all([
+        pool.query(`
+          SELECT cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo,
+                 tipo_personal, horas_academicas, horas_adm, turno, situacion
+          FROM rac
+        `),
+        pool.query(`
+          SELECT id, codigo_plantel, nombre, municipio_id, parroquia_id
+          FROM planteles
+        `),
+        pool.query(`SELECT id, nombre, estado_id FROM municipios`),
+        pool.query(`SELECT id, nombre, municipio_id FROM parroquias`),
+        pool.query(`SELECT id, nombre FROM estados`),
+        pool.query(`SELECT cedula, nombres FROM personal_ministerio`),
+      ]);
+
+      const mapaEstados = new Map(estadosRows.rows.map((e) => [e.id, e.nombre]));
+      const mapaMunicipios = new Map(
+        municipiosRows.rows.map((m) => [m.id, { nombre: m.nombre, estado_id: m.estado_id }])
+      );
+      const mapaParroquias = new Map(
+        parroquiasRows.rows.map((p) => [p.id, { nombre: p.nombre, municipio_id: p.municipio_id }])
+      );
+      const mapaPlanteles = new Map(plantelesRows.rows.map((p) => [p.id, p]));
+      const mapaNomina = new Map(nominaRows.rows.map((n) => [n.cedula, n.nombres]));
+
+      // Encabezado exacto, mismo orden que trae el CSV de carga real
+      // (01-RAC_MONAGAS_.csv, 33 columnas).
+      const encabezado = [
+        "COD_EDO", "ESTADO", "MUNICIPIO", "PARROQUIA", "CODIGO DEPENDENCIA",
+        "CODIGO ESTADISTICO", "CODIGO DEL PLANTEL", "NOMBRE DEL PLANTEL EN NOMINA",
+        "NIVEL", "MODALIDAD", "UBICACION GEOGRAFICA", "TURNOS QUE ATIENDE EL PLANTEL",
+        "CODIGO RAC", "CARGO", "TIPO DE PERSONAL", "CEDULA", "NOMBRE Y APELLIDO",
+        "FECHA DE INGRESO", "SEXO", "HORAS ACADEMICAS", "HORAS ADM", "TURNO QUE ATIENDE",
+        "GRADO QUE IMPARTE EL DOCENTE", "SECCION", "ESPECIALIDAD QUE IMPARTE EL DOCENTE",
+        "AÑO", "SECCIONES", "MATERIA QUE IMPARTE O ESPECIALIDAD", "PERIODO O GRUPO",
+        "SITUACION DEL TRABAJADOR", "OBSERVACION", "EDAD", "COMPARATIVA",
+      ];
+
+      // Escapa un valor para CSV delimitado por ";" (comillas si el valor
+      // trae ";", comillas dobles, o saltos de línea).
+      const esc = (val) => {
+        if (val === null || val === undefined) return "";
+        const s = String(val);
+        if (s.includes(";") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const filas = [encabezado.map(esc).join(";")];
+
+      for (const r of racRows.rows) {
+        const plantel = mapaPlanteles.get(r.plantel_id) || {};
+        const municipio = mapaMunicipios.get(plantel.municipio_id) || {};
+        const parroquia = mapaParroquias.get(plantel.parroquia_id) || {};
+        const estadoNombre = mapaEstados.get(municipio.estado_id) || "";
+        const nombreCompleto = mapaNomina.get(r.cedula) || "";
+
+        const fila = [
+          "",                              // COD_EDO
+          estadoNombre,                    // ESTADO
+          municipio.nombre || "",          // MUNICIPIO
+          parroquia.nombre || "",          // PARROQUIA
+          r.codigo_dependencia,            // CODIGO DEPENDENCIA
+          "",                              // CODIGO ESTADISTICO
+          plantel.codigo_plantel || "",    // CODIGO DEL PLANTEL
+          plantel.nombre || "",            // NOMBRE DEL PLANTEL EN NOMINA
+          "", "", "", "",                  // NIVEL, MODALIDAD, UBICACION GEOGRAFICA, TURNOS QUE ATIENDE EL PLANTEL
+          r.codigo_cargo,                  // CODIGO RAC
+          r.cargo,                         // CARGO
+          r.tipo_personal,                 // TIPO DE PERSONAL
+          r.cedula,                        // CEDULA
+          nombreCompleto,                  // NOMBRE Y APELLIDO
+          "", "",                          // FECHA DE INGRESO, SEXO
+          r.horas_academicas,              // HORAS ACADEMICAS
+          r.horas_adm,                     // HORAS ADM
+          r.turno,                         // TURNO QUE ATIENDE
+          "", "", "",                      // GRADO QUE IMPARTE, SECCION, ESPECIALIDAD
+          "", "", "",                      // AÑO, SECCIONES, MATERIA QUE IMPARTE
+          "",                              // PERIODO O GRUPO (sin fuente en la BD)
+          r.situacion,                     // SITUACION DEL TRABAJADOR
+          "", "", "",                      // OBSERVACION, EDAD, COMPARATIVA
+        ];
+
+        filas.push(fila.map(esc).join(";"));
+      }
+
+      const csv = filas.join("\r\n") + "\r\n";
+      const buffer = Buffer.from(csv, "latin1");
+
+      res.setHeader("Content-Type", "text/csv; charset=ISO-8859-1");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="RAC_GENERAL_${new Date().toISOString().slice(0, 10)}.csv"`
+      );
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error en /exportar-general:", error);
+      res.status(500).json({ error: "Error al generar la exportación general del RAC" });
+    }
+  }
+);
+
+/**
  * PATCH /api/rac/:id
  * Edición completa de un registro existente -- cubre traslados (cambio de
  * plantel), correcciones de cargo/turno/horas/situación, y ajustes a los
