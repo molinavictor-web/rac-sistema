@@ -52,11 +52,15 @@ function validarRangoHoras(cedula, codigoPlantelArchivo, nuevo) {
   return alertasRango;
 }
 
-async function insertarAlerta(client, tipo, cedula, detalle) {
+// MEJORA 5: insertarAlerta ahora acepta un 5to parámetro opcional
+// detalleFila (objeto JS) que se guarda como JSONB en alertas.detalle_fila.
+// Todas las llamadas que no lo pasan siguen funcionando igual, guardando
+// null en esa columna -- no rompe nada de lo existente.
+async function insertarAlerta(client, tipo, cedula, detalle, detalleFila = null) {
   await client.query(
-    `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
-     VALUES ($1, $2, $3, 'pendiente', now())`,
-    [tipo, cedula, detalle]
+    `INSERT INTO alertas (tipo, cedula, detalle, detalle_fila, estado, creado_en)
+     VALUES ($1, $2, $3, $4, 'pendiente', now())`,
+    [tipo, cedula, detalle, detalleFila ? JSON.stringify(detalleFila) : null]
   );
 }
 
@@ -257,20 +261,11 @@ router.post(
             continue;
           }
 
-          const plantelId = mapaPlanteles.get(codigoPlantelArchivo);
-
-          if (plantelId === undefined) {
-            await insertarAlerta(
-              client,
-              'plantel_no_existe',
-              cedula,
-              `Código de plantel "${codigoPlantelArchivo}" no existe en el catálogo maestro`
-            );
-            alertasGeneradas++;
-            filasConError++;
-            continue;
-          }
-
+          // MEJORA 5: el objeto `nuevo` se arma ANTES de validar si el
+          // plantel existe (antes se armaba después), para poder guardar la
+          // fila completa en la alerta "plantel_no_existe" y así precargar
+          // el formulario de alta manual con todos los datos, no solo la
+          // cédula.
           const nuevo = {
             codigo_dependencia: limpiar(cols[idx.codigoDependencia]),
             codigo_cargo: limpiar(cols[idx.codigoRac]),
@@ -298,6 +293,25 @@ router.post(
             edad: limpiar(cols[idx.edad]),
             comparativa: limpiar(cols[idx.comparativa]),
           };
+
+          const plantelId = mapaPlanteles.get(codigoPlantelArchivo);
+
+          if (plantelId === undefined) {
+            // MEJORA 5: se guarda la fila completa (más el código de plantel
+            // que vino en el archivo, como referencia) en detalle_fila, para
+            // que el botón "Revisar" de la bandeja de alertas pueda abrir un
+            // formulario de alta manual precargado con todos estos datos.
+            await insertarAlerta(
+              client,
+              'plantel_no_existe',
+              cedula,
+              `Código de plantel "${codigoPlantelArchivo}" no existe en el catálogo maestro`,
+              { ...nuevo, codigo_plantel_intentado: codigoPlantelArchivo }
+            );
+            alertasGeneradas++;
+            filasConError++;
+            continue;
+          }
 
           const alertasRango = validarRangoHoras(cedula, codigoPlantelArchivo, nuevo);
 
