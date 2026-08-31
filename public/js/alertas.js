@@ -1,6 +1,7 @@
 const usuario = renderShell("alertas", "Alertas");
     let todasLasAlertas = [];
     let filtroActual = "pendiente";
+    let alertaEnAlta = null;
 
     if (usuario) cargarAlertas();
 
@@ -74,10 +75,26 @@ const usuario = renderShell("alertas", "Alertas");
       cont.querySelectorAll("[data-accion]").forEach((btn) => {
         btn.addEventListener("click", () => resolverAlerta(btn.dataset.id, btn.dataset.accion));
       });
+      cont.querySelectorAll("[data-revisar]").forEach((btn) => {
+        const alerta = todasLasAlertas.find((a) => String(a.id) === btn.dataset.revisar);
+        btn.addEventListener("click", () => abrirAlta(alerta));
+      });
     }
 
     function accionesFila(a) {
       if (a.estado !== "pendiente") return "";
+
+      // Las alertas "plantel_no_existe" no se pueden marcar resueltas a
+      // secas -- esa fila nunca llegó a insertarse en el RAC, así que la
+      // única forma real de resolverla es dando de alta el registro
+      // (botón "Revisar", MEJORA 5). Sí se puede descartar, si aplica.
+      if (a.tipo === "plantel_no_existe") {
+        return `
+          <button class="btn btn-primario btn-sm" data-revisar="${a.id}">Revisar</button>
+          <button class="btn btn-fantasma btn-sm" data-id="${a.id}" data-accion="descartado">Descartar</button>
+        `;
+      }
+
       return `
         <button class="btn btn-fantasma btn-sm" data-id="${a.id}" data-accion="resuelto">Marcar resuelta</button>
         <button class="btn btn-fantasma btn-sm" data-id="${a.id}" data-accion="descartado">Descartar</button>
@@ -109,8 +126,86 @@ const usuario = renderShell("alertas", "Alertas");
     function etiquetaTipo(tipo) {
       const mapa = {
         no_existe_ministerio: "No está en nómina del Ministerio",
+        cedula_no_existe_nomina: "No está en nómina del Ministerio",
         plantel_no_existe: "Plantel no existe",
         horas_invalidas: "Horas fuera de rango",
+        valor_fuera_de_rango: "Valor fuera de rango",
+        registro_actualizado: "Registro actualizado",
+        registro_no_encontrado_en_carga: "No encontrado en la última carga",
+        incongruencia_tipo_personal: "Incongruencia de tipo de personal",
       };
       return mapa[tipo] || tipo || "—";
     }
+
+    // ---- Modal de alta manual (MEJORA 5) ----
+    const modalAltaFondo = document.getElementById("modalAltaFondo");
+    const formAlta = document.getElementById("formAlta");
+    const errorModalAlta = document.getElementById("errorModalAlta");
+
+    function abrirAlta(alerta) {
+      if (!alerta) return;
+      alertaEnAlta = alerta;
+      errorModalAlta.classList.remove("visible");
+
+      const fila = alerta.detalle_fila || {};
+
+      document.getElementById("alCedula").value = alerta.cedula || "";
+      document.getElementById("alCodigoPlantel").value = "";
+      document.getElementById("alCodigoIntentadoHint").textContent = fila.codigo_plantel_intentado
+        ? `Código que venía en el archivo (no existe en el catálogo): ${fila.codigo_plantel_intentado}`
+        : "";
+      document.getElementById("alCodigoDependencia").value = fila.codigo_dependencia || "";
+      document.getElementById("alCodigoCargo").value = fila.codigo_cargo || "";
+      document.getElementById("alTipoPersonal").value = fila.tipo_personal || "";
+      document.getElementById("alCargo").value = fila.cargo || "";
+      document.getElementById("alTurno").value = fila.turno || "";
+      document.getElementById("alHorasAcademicas").value = fila.horas_academicas ?? "";
+      document.getElementById("alHorasAdm").value = fila.horas_adm ?? "";
+      document.getElementById("alSituacion").value = fila.situacion || "";
+
+      modalAltaFondo.classList.add("visible");
+    }
+
+    function cerrarAlta() {
+      modalAltaFondo.classList.remove("visible");
+      alertaEnAlta = null;
+    }
+
+    document.getElementById("btnCancelarAlta").addEventListener("click", cerrarAlta);
+
+    formAlta.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!alertaEnAlta) return;
+      errorModalAlta.classList.remove("visible");
+      const btn = document.getElementById("btnGuardarAlta");
+      btn.disabled = true;
+      btn.textContent = "Guardando…";
+
+      const horasAcademicas = document.getElementById("alHorasAcademicas").value;
+      const horasAdm = document.getElementById("alHorasAdm").value;
+
+      const datos = {
+        codigo_plantel: document.getElementById("alCodigoPlantel").value.trim(),
+        codigo_dependencia: document.getElementById("alCodigoDependencia").value.trim() || null,
+        codigo_cargo: document.getElementById("alCodigoCargo").value.trim() || null,
+        tipo_personal: document.getElementById("alTipoPersonal").value || null,
+        cargo: document.getElementById("alCargo").value.trim() || null,
+        turno: document.getElementById("alTurno").value || null,
+        horas_academicas: horasAcademicas === "" ? null : Number(horasAcademicas),
+        horas_adm: horasAdm === "" ? null : Number(horasAdm),
+        situacion: document.getElementById("alSituacion").value.trim() || null,
+      };
+
+      try {
+        await RAC.post(`/api/rac/resolver-alta/${alertaEnAlta.id}`, datos);
+        mostrarToast("Registro dado de alta y alerta resuelta.");
+        cerrarAlta();
+        await cargarAlertas();
+      } catch (err) {
+        errorModalAlta.textContent = err.message;
+        errorModalAlta.classList.add("visible");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Dar de alta";
+      }
+    });
