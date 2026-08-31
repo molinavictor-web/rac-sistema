@@ -516,8 +516,8 @@ router.post(
         }
 
         await client.query(
-          `UPDATE alertas SET estado = 'resuelta' WHERE id = $1`,
-          [alertaId]
+          `UPDATE alertas SET estado = 'resuelto', revisado_por = $2, fecha_revision = now() WHERE id = $1`,
+          [alertaId, req.usuario.id]
         );
 
         return { registro: nuevoRegistro };
