@@ -3,17 +3,27 @@ const usuario = renderShell("alertas", "Alertas");
     let filtroActual = "pendiente";
     let alertaEnAlta = null;
 
-    if (usuario) cargarAlertas();
+    if (usuario) dibujarPanel();
 
+    // CORRECCIÓN: antes se pedía /api/alertas UNA sola vez (sin filtro) y el
+    // combo solo re-filtraba ese mismo arreglo en el navegador -- como el
+    // backend por defecto solo devolvía "pendiente", el combo nunca podía
+    // mostrar Revisadas/Resueltas/Descartadas, sin importar cuántas hubiera
+    // realmente. Ahora cada cambio de filtro vuelve a pedirle al servidor
+    // justo el estado elegido (o todas, sin filtro, si se elige "Todas").
     async function cargarAlertas() {
       const contenido = document.getElementById("contenido");
-      contenido.innerHTML = `<div class="cargando">Cargando alertas…</div>`;
+      const tabla = document.getElementById("tablaAlertas");
+      if (tabla) tabla.innerHTML = `<div class="cargando">Cargando alertas…</div>`;
+      else contenido.innerHTML = `<div class="cargando">Cargando alertas…</div>`;
       try {
-        const resp = await RAC.get("/api/alertas");
+        const query = filtroActual === "todas" ? "" : `?estado=${encodeURIComponent(filtroActual)}`;
+        const resp = await RAC.get(`/api/alertas${query}`);
         todasLasAlertas = RAC.lista(resp, "alertas");
-        dibujarPanel();
+        dibujarTabla();
       } catch (err) {
-        contenido.innerHTML = `<div class="vacio"><strong>No se pudieron cargar las alertas</strong>${err.message}</div>`;
+        const destino = document.getElementById("tablaAlertas") || contenido;
+        destino.innerHTML = `<div class="vacio"><strong>No se pudieron cargar las alertas</strong>${err.message}</div>`;
       }
     }
 
@@ -39,16 +49,14 @@ const usuario = renderShell("alertas", "Alertas");
       document.getElementById("filtroEstado").value = filtroActual;
       document.getElementById("filtroEstado").addEventListener("change", (e) => {
         filtroActual = e.target.value;
-        dibujarTabla();
+        cargarAlertas();
       });
-      dibujarTabla();
+      cargarAlertas();
     }
 
     function dibujarTabla() {
       const cont = document.getElementById("tablaAlertas");
-      const items = filtroActual === "todas"
-        ? todasLasAlertas
-        : todasLasAlertas.filter((a) => a.estado === filtroActual);
+      const items = todasLasAlertas;
 
       if (!items.length) {
         cont.innerHTML = `<div class="vacio"><strong>No hay alertas en esta vista</strong>Cambia el filtro para ver otras.</div>`;
