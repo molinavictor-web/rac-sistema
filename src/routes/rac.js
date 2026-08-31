@@ -354,4 +354,184 @@ router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) 
   }
 });
 
+/**
+ * POST /api/rac/resolver-alta/:alertaId
+ * MEJORA 5: resuelve una alerta "plantel_no_existe" haciendo el INSERT real
+ * en `rac` que nunca llegó a ocurrir durante la carga (esas filas se
+ * rechazan sin insertarse, solo queda la alerta con el detalle completo de
+ * la fila en `alertas.detalle_fila`).
+ *
+ * Body esperado: { codigo_plantel, ...camposEditados } -- el frontend
+ * precarga el formulario con `detalle_fila` y el usuario corrige el código
+ * de plantel (con el autocomplete de /api/planteles) más lo que haga falta;
+ * solo hay que enviar los campos que el usuario efectivamente tocó, el resto
+ * se completa con lo que ya traía `detalle_fila`.
+ *
+ * La cédula NUNCA se toma del body -- siempre la de la alerta original, por
+ * la misma razón que en el PATCH normal (identifica al trabajador, no es
+ * editable aquí).
+ *
+ * Al completar el alta:
+ *  1. Se valida el código de plantel corregido contra el catálogo maestro.
+ *  2. Se hace el INSERT en `rac` combinando detalle_fila + lo enviado en el
+ *     body (el body gana si un campo viene en ambos).
+ *  3. Si la cédula no existe en personal_ministerio, se genera la alerta
+ *     "cedula_no_existe_nomina" (mismo comportamiento que la carga normal).
+ *  4. La alerta original se marca 'resuelta' automáticamente (decisión del
+ *     usuario), todo dentro de la misma transacción.
+ */
+const CAMPOS_RAC_EDITABLES = [
+  "codigo_dependencia",
+  "codigo_cargo",
+  "cargo",
+  "tipo_personal",
+  "turno",
+  "horas_academicas",
+  "horas_adm",
+  "situacion",
+  "nivel",
+  "modalidad",
+  "ubicacion_geografica",
+  "turnos_plantel",
+  "codigo_estadistico",
+  "fecha_ingreso",
+  "sexo",
+  "grado_imparte",
+  "seccion",
+  "especialidad",
+  "anio",
+  "secciones",
+  "materia",
+  "periodo_grupo",
+  "observacion",
+  "edad",
+  "comparativa",
+];
+
+router.post(
+  "/resolver-alta/:alertaId",
+  requireAuth,
+  requireRol("operador", "admin"),
+  async (req, res) => {
+    const { alertaId } = req.params;
+    const { codigo_plantel } = req.body;
+
+    if (!codigo_plantel) {
+      return res.status(400).json({ error: "Falta el código de plantel corregido." });
+    }
+
+    try {
+      const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
+        const alertaRes = await client.query(
+          `SELECT * FROM alertas WHERE id = $1 AND tipo = 'plantel_no_existe' AND estado = 'pendiente'`,
+          [alertaId]
+        );
+        const alerta = alertaRes.rows[0];
+        if (!alerta) {
+          return { error: "No se encontró una alerta pendiente de tipo plantel_no_existe con ese id." };
+        }
+
+        const plantelRes = await client.query(
+          "SELECT id FROM planteles WHERE codigo_plantel = $1",
+          [String(codigo_plantel).trim()]
+        );
+        if (plantelRes.rows.length === 0) {
+          return { error: `El código de plantel "${codigo_plantel}" tampoco existe en el catálogo maestro. Verifica el código.` };
+        }
+        const plantelId = plantelRes.rows[0].id;
+        const cedula = alerta.cedula;
+
+        // Ya existe en rac esta cédula+plantel corregido? (caso borde: otra
+        // carga o alta manual ya cubrió este registro mientras tanto)
+        const existeRes = await client.query(
+          "SELECT id FROM rac WHERE cedula = $1 AND plantel_id = $2",
+          [cedula, plantelId]
+        );
+        if (existeRes.rows.length > 0) {
+          return { error: `Ya existe un registro en el RAC para esta cédula en el plantel ${codigo_plantel} (rac.id=${existeRes.rows[0].id}). Resuelve la alerta manualmente en vez de dar de alta.` };
+        }
+
+        // detalle_fila trae todos los datos de la fila original rechazada;
+        // el body puede traer correcciones puntuales que el usuario haya
+        // hecho en el formulario -- el body gana si el campo viene en ambos.
+        const detalleFila = alerta.detalle_fila || {};
+        const datos = {};
+        for (const campo of CAMPOS_RAC_EDITABLES) {
+          datos[campo] =
+            req.body[campo] !== undefined ? req.body[campo] : detalleFila[campo] !== undefined ? detalleFila[campo] : null;
+        }
+
+        const insertRes = await client.query(
+          `INSERT INTO rac
+            (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno,
+             horas_academicas, horas_adm, situacion, nivel, modalidad, ubicacion_geografica,
+             turnos_plantel, codigo_estadistico, fecha_ingreso, sexo, grado_imparte, seccion,
+             especialidad, anio, secciones, materia, periodo_grupo, observacion, edad, comparativa,
+             actualizado_en, visto_en)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                   $19, $20, $21, $22, $23, $24, $25, $26, $27, now(), now())
+           RETURNING *`,
+          [
+            cedula,
+            plantelId,
+            datos.codigo_dependencia,
+            datos.codigo_cargo,
+            datos.cargo,
+            datos.tipo_personal,
+            datos.turno,
+            datos.horas_academicas,
+            datos.horas_adm,
+            datos.situacion,
+            datos.nivel,
+            datos.modalidad,
+            datos.ubicacion_geografica,
+            datos.turnos_plantel,
+            datos.codigo_estadistico,
+            datos.fecha_ingreso,
+            datos.sexo,
+            datos.grado_imparte,
+            datos.seccion,
+            datos.especialidad,
+            datos.anio,
+            datos.secciones,
+            datos.materia,
+            datos.periodo_grupo,
+            datos.observacion,
+            datos.edad,
+            datos.comparativa,
+          ]
+        );
+        const nuevoRegistro = insertRes.rows[0];
+
+        const nominaRes = await client.query(
+          "SELECT 1 FROM personal_ministerio WHERE cedula = $1",
+          [cedula]
+        );
+        if (nominaRes.rows.length === 0) {
+          await client.query(
+            `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
+             VALUES ($1, $2, $3, 'pendiente', now())`,
+            ["cedula_no_existe_nomina", cedula, "La cédula no existe en la nómina del Ministerio de Educación"]
+          );
+        }
+
+        await client.query(
+          `UPDATE alertas SET estado = 'resuelta' WHERE id = $1`,
+          [alertaId]
+        );
+
+        return { registro: nuevoRegistro };
+      });
+
+      if (resultado.error) {
+        return res.status(400).json({ error: resultado.error });
+      }
+      res.status(201).json(resultado.registro);
+    } catch (err) {
+      console.error("Error en /resolver-alta:", err);
+      res.status(500).json({ error: "No se pudo resolver la alerta con alta manual.", detalle: err.message });
+    }
+  }
+);
+
 module.exports = router;
