@@ -8,15 +8,22 @@ function dibujarPanel() {
     <div class="panel">
       <div class="panel-cabecera">
         <h2>Buscar por cédula</h2>
-        <form id="formBuscar" class="filtros">
-          <input type="text" id="cedulaBusqueda" placeholder="Ej. 12345678" required>
-          <button type="submit" class="btn btn-primario btn-sm">Buscar</button>
-        </form>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <form id="formBuscar" class="filtros">
+            <input type="text" id="cedulaBusqueda" placeholder="Ej. 12345678" required>
+            <button type="submit" class="btn btn-primario btn-sm">Buscar</button>
+          </form>
+          ${(usuario.rol === "operador" || usuario.rol === "admin")
+            ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnAbrirNuevo">+ Agregar registro</button>`
+            : ""}
+        </div>
       </div>
       <div id="tablaRac"></div>
     </div>
   `;
   document.getElementById("formBuscar").addEventListener("submit", buscarPorCedula);
+  const btnNuevo = document.getElementById("btnAbrirNuevo");
+  if (btnNuevo) btnNuevo.addEventListener("click", abrirNuevo);
 }
 
 async function buscarPorCedula(e) {
@@ -102,6 +109,23 @@ function abrirEdicion(registro) {
   document.getElementById("edHorasAcademicas").value = registro.horas_academicas ?? "";
   document.getElementById("edHorasAdm").value = registro.horas_adm ?? "";
   document.getElementById("edSituacion").value = registro.situacion || "";
+  document.getElementById("edNivel").value = registro.nivel || "";
+  document.getElementById("edModalidad").value = registro.modalidad || "";
+  document.getElementById("edUbicacionGeografica").value = registro.ubicacion_geografica || "";
+  document.getElementById("edTurnosPlantel").value = registro.turnos_plantel || "";
+  document.getElementById("edCodigoEstadistico").value = registro.codigo_estadistico || "";
+  document.getElementById("edFechaIngreso").value = registro.fecha_ingreso || "";
+  document.getElementById("edSexo").value = registro.sexo || "";
+  document.getElementById("edGradoImparte").value = registro.grado_imparte || "";
+  document.getElementById("edSeccion").value = registro.seccion || "";
+  document.getElementById("edEspecialidad").value = registro.especialidad || "";
+  document.getElementById("edAnio").value = registro.anio || "";
+  document.getElementById("edSecciones").value = registro.secciones || "";
+  document.getElementById("edMateria").value = registro.materia || "";
+  document.getElementById("edPeriodoGrupo").value = registro.periodo_grupo || "";
+  document.getElementById("edEdad").value = registro.edad ?? "";
+  document.getElementById("edComparativa").value = registro.comparativa || "";
+  document.getElementById("edObservacion").value = registro.observacion || "";
   modalFondo.classList.add("visible");
 }
 function cerrarEdicion() { modalFondo.classList.remove("visible"); registroEnEdicion = null; }
@@ -118,6 +142,7 @@ formEditar.addEventListener("submit", async (e) => {
 
   const horasAcademicas = document.getElementById("edHorasAcademicas").value;
   const horasAdm = document.getElementById("edHorasAdm").value;
+  const edad = document.getElementById("edEdad").value;
 
   const cambios = {
     codigo_plantel: document.getElementById("edCodigoPlantel").value.trim(),
@@ -129,6 +154,23 @@ formEditar.addEventListener("submit", async (e) => {
     horas_academicas: horasAcademicas === "" ? null : Number(horasAcademicas),
     horas_adm: horasAdm === "" ? null : Number(horasAdm),
     situacion: document.getElementById("edSituacion").value.trim() || null,
+    nivel: document.getElementById("edNivel").value.trim() || null,
+    modalidad: document.getElementById("edModalidad").value.trim() || null,
+    ubicacion_geografica: document.getElementById("edUbicacionGeografica").value.trim() || null,
+    turnos_plantel: document.getElementById("edTurnosPlantel").value.trim() || null,
+    codigo_estadistico: document.getElementById("edCodigoEstadistico").value.trim() || null,
+    fecha_ingreso: document.getElementById("edFechaIngreso").value.trim() || null,
+    sexo: document.getElementById("edSexo").value || null,
+    grado_imparte: document.getElementById("edGradoImparte").value.trim() || null,
+    seccion: document.getElementById("edSeccion").value.trim() || null,
+    especialidad: document.getElementById("edEspecialidad").value.trim() || null,
+    anio: document.getElementById("edAnio").value.trim() || null,
+    secciones: document.getElementById("edSecciones").value.trim() || null,
+    materia: document.getElementById("edMateria").value.trim() || null,
+    periodo_grupo: document.getElementById("edPeriodoGrupo").value.trim() || null,
+    edad: edad === "" ? null : Number(edad),
+    comparativa: document.getElementById("edComparativa").value.trim() || null,
+    observacion: document.getElementById("edObservacion").value.trim() || null,
   };
 
   try {
@@ -157,3 +199,58 @@ async function eliminarRegistro(id, cedulaActual) {
     mostrarToast(err.message, true);
   }
 }
+
+// ---- Modal de alta manual (registro nuevo) ----
+const modalNuevoFondo = document.getElementById("modalNuevoFondo");
+const formNuevo = document.getElementById("formNuevo");
+const errorModalNuevo = document.getElementById("errorModalNuevo");
+
+function abrirNuevo() {
+  errorModalNuevo.classList.remove("visible");
+  formNuevo.reset();
+  document.getElementById("nvPeriodoEscolar").value = "2025-2026";
+  modalNuevoFondo.classList.add("visible");
+}
+function cerrarNuevo() { modalNuevoFondo.classList.remove("visible"); }
+
+document.getElementById("btnCancelarNuevo").addEventListener("click", cerrarNuevo);
+
+formNuevo.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorModalNuevo.classList.remove("visible");
+  const btn = document.getElementById("btnGuardarNuevo");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+
+  const horasAcademicas = document.getElementById("nvHorasAcademicas").value;
+  const horasAdm = document.getElementById("nvHorasAdm").value;
+  const cedulaNueva = document.getElementById("nvCedula").value.trim();
+
+  const datos = {
+    cedula: cedulaNueva,
+    periodo_escolar: document.getElementById("nvPeriodoEscolar").value.trim(),
+    codigo_plantel: document.getElementById("nvCodigoPlantel").value.trim(),
+    codigo_dependencia: document.getElementById("nvCodigoDependencia").value.trim() || null,
+    codigo_cargo: document.getElementById("nvCodigoCargo").value.trim() || null,
+    tipo_personal: document.getElementById("nvTipoPersonal").value || null,
+    cargo: document.getElementById("nvCargo").value.trim() || null,
+    turno: document.getElementById("nvTurno").value || null,
+    horas_academicas: horasAcademicas === "" ? null : Number(horasAcademicas),
+    horas_adm: horasAdm === "" ? null : Number(horasAdm),
+    situacion: document.getElementById("nvSituacion").value.trim() || null,
+  };
+
+  try {
+    await RAC.post("/api/rac", datos);
+    mostrarToast("Registro agregado.");
+    cerrarNuevo();
+    document.getElementById("cedulaBusqueda").value = cedulaNueva;
+    document.getElementById("formBuscar").requestSubmit();
+  } catch (err) {
+    errorModalNuevo.textContent = err.message;
+    errorModalNuevo.classList.add("visible");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Agregar registro";
+  }
+});
