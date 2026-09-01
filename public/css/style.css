@@ -307,6 +307,43 @@ tr:hover td { background: #fafbf9; }
   width: 100%; max-width: 420px; box-shadow: var(--sombra);
 }
 
+/* Variante de modal a pantalla completa -- para formularios largos (ej.
+   edición del RAC con todas sus columnas) donde el modal centrado chico
+   se queda corto. Se agrega la clase "pantalla-completa" junto a
+   "modal-fondo" en el HTML; el resto del comportamiento (mostrar/ocultar
+   con .visible) es igual. */
+.modal-fondo.pantalla-completa {
+  padding: 0;
+  align-items: stretch;
+  background: var(--papel);
+}
+.modal-fondo.pantalla-completa .modal {
+  max-width: none;
+  width: 100%;
+  height: 100vh;
+  border-radius: 0;
+  overflow-y: auto;
+  padding: 28px 40px 60px;
+}
+
+/* Formulario en columnas (2-3, según ancho disponible) en vez de la lista
+   vertical de un solo campo por fila -- pensado para el modal a pantalla
+   completa, pero reutilizable en cualquier formulario largo. */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 24px;
+}
+.form-grid .campo-ancho { grid-column: 1 / -1; }
+.form-grid .acciones-form { grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 12px; }
+
+@media (max-width: 900px) {
+  .form-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
 .filtros { display: flex; gap: 10px; flex-wrap: wrap; }
 .filtros select, .filtros input { padding: 7px 10px; border: 1px solid var(--borde); border-radius: var(--radio); background: var(--papel-2); }
 
