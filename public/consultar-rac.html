@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAC Monagas — Consultar RAC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="shell"></div>
+  <div class="modal-fondo pantalla-completa" id="modalFondo">
+    <div class="modal">
+      <h2 style="margin-bottom:16px;">Editar registro</h2>
+      <div class="error-msg" id="errorModal"></div>
+      <form id="formEditar" class="form-grid">
+        <div class="campo">
+          <label>Cédula</label>
+          <input type="text" id="edCedula" disabled>
+        </div>
+        <div class="campo">
+          <label for="edCodigoPlantel">Código del plantel</label>
+          <input type="text" id="edCodigoPlantel" placeholder="Ej. OD14231608" required>
+        </div>
+        <div class="campo">
+          <label for="edCodigoDependencia">Código dependencia (nómina)</label>
+          <input type="text" id="edCodigoDependencia">
+        </div>
+        <div class="campo">
+          <label for="edCodigoCargo">Código RAC (cod. nómina del cargo)</label>
+          <input type="text" id="edCodigoCargo">
+        </div>
+        <div class="campo">
+          <label for="edTipoPersonal">Tipo de personal</label>
+          <select id="edTipoPersonal">
+            <option value="">—</option>
+            <option value="O">Obrero</option>
+            <option value="A">Administrativo</option>
+            <option value="D">Docente</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="edCargo">Cargo</label>
+          <input type="text" id="edCargo">
+        </div>
+        <div class="campo">
+          <label for="edTurno">Turno</label>
+          <select id="edTurno">
+            <option value="">—</option>
+            <option value="MAÑANA">Mañana</option>
+            <option value="TARDE">Tarde</option>
+            <option value="NOCTURNO">Nocturno</option>
+            <option value="MAÑANA Y TARDE">Mañana y tarde</option>
+            <option value="MAÑANA-NOCTURNO">Mañana-Nocturno</option>
+            <option value="TARDE-NOCTURNO">Tarde-Nocturno</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="edHorasAcademicas">Horas académicas (máx. 53.33)</label>
+          <input type="number" id="edHorasAcademicas" min="0" max="53.33" step="0.01">
+        </div>
+        <div class="campo">
+          <label for="edHorasAdm">Horas administrativas (máx. 168)</label>
+          <input type="number" id="edHorasAdm" min="0" max="168" step="0.5">
+        </div>
+        <div class="campo">
+          <label for="edSituacion">Situación del trabajador</label>
+          <input type="text" id="edSituacion" placeholder="Ej. ACTIVO, PERMISO, TRÁMITE DE JUBILACIÓN...">
+        </div>
+
+        <!-- Columnas agregadas en la Mejora 4b (antes se leían del CSV y se
+             descartaban; ahora son editables también desde aquí) -->
+        <div class="campo">
+          <label for="edNivel">Nivel</label>
+          <input type="text" id="edNivel">
+        </div>
+        <div class="campo">
+          <label for="edModalidad">Modalidad</label>
+          <input type="text" id="edModalidad">
+        </div>
+        <div class="campo">
+          <label for="edUbicacionGeografica">Ubicación geográfica</label>
+          <input type="text" id="edUbicacionGeografica" placeholder="Ej. URBANA, RURAL">
+        </div>
+        <div class="campo">
+          <label for="edTurnosPlantel">Turnos que atiende el plantel</label>
+          <input type="text" id="edTurnosPlantel">
+        </div>
+        <div class="campo">
+          <label for="edCodigoEstadistico">Código estadístico</label>
+          <input type="text" id="edCodigoEstadistico">
+        </div>
+        <div class="campo">
+          <label for="edFechaIngreso">Fecha de ingreso</label>
+          <input type="text" id="edFechaIngreso" placeholder="Ej. 01/01/2020">
+        </div>
+        <div class="campo">
+          <label for="edSexo">Sexo</label>
+          <select id="edSexo">
+            <option value="">—</option>
+            <option value="M">M</option>
+            <option value="F">F</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="edGradoImparte">Grado que imparte el docente</label>
+          <input type="text" id="edGradoImparte">
+        </div>
+        <div class="campo">
+          <label for="edSeccion">Sección</label>
+          <input type="text" id="edSeccion">
+        </div>
+        <div class="campo">
+          <label for="edEspecialidad">Especialidad que imparte el docente</label>
+          <input type="text" id="edEspecialidad">
+        </div>
+        <div class="campo">
+          <label for="edAnio">Año</label>
+          <input type="text" id="edAnio">
+        </div>
+        <div class="campo">
+          <label for="edSecciones">Secciones</label>
+          <input type="text" id="edSecciones">
+        </div>
+        <div class="campo">
+          <label for="edMateria">Materia que imparte o especialidad</label>
+          <input type="text" id="edMateria">
+        </div>
+        <div class="campo">
+          <label for="edPeriodoGrupo">Período o grupo</label>
+          <input type="text" id="edPeriodoGrupo">
+        </div>
+        <div class="campo">
+          <label for="edEdad">Edad</label>
+          <input type="number" id="edEdad" min="0">
+        </div>
+        <div class="campo">
+          <label for="edComparativa">Comparativa</label>
+          <input type="text" id="edComparativa">
+        </div>
+        <div class="campo campo-ancho">
+          <label for="edObservacion">Observación</label>
+          <input type="text" id="edObservacion">
+        </div>
+
+        <div class="acciones-form">
+          <button type="submit" class="btn btn-primario" id="btnGuardarEdicion">Guardar cambios</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarEdicion">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-fondo" id="modalNuevoFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:16px;">Agregar registro nuevo</h2>
+      <div class="error-msg" id="errorModalNuevo"></div>
+      <form id="formNuevo">
+        <div class="campo">
+          <label for="nvCedula">Cédula</label>
+          <input type="text" id="nvCedula" placeholder="Ej. 12345678" required>
+        </div>
+        <div class="campo">
+          <label for="nvPeriodoEscolar">Período escolar</label>
+          <input type="text" id="nvPeriodoEscolar" value="2025-2026" required>
+        </div>
+        <div class="campo">
+          <label for="nvCodigoPlantel">Código del plantel</label>
+          <input type="text" id="nvCodigoPlantel" placeholder="Ej. OD14231608" required>
+        </div>
+        <div class="campo">
+          <label for="nvCodigoDependencia">Código dependencia (nómina)</label>
+          <input type="text" id="nvCodigoDependencia">
+        </div>
+        <div class="campo">
+          <label for="nvCodigoCargo">Código RAC (cod. nómina del cargo)</label>
+          <input type="text" id="nvCodigoCargo">
+        </div>
+        <div class="campo">
+          <label for="nvTipoPersonal">Tipo de personal</label>
+          <select id="nvTipoPersonal">
+            <option value="">—</option>
+            <option value="O">Obrero</option>
+            <option value="A">Administrativo</option>
+            <option value="D">Docente</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="nvCargo">Cargo</label>
+          <input type="text" id="nvCargo">
+        </div>
+        <div class="campo">
+          <label for="nvTurno">Turno</label>
+          <select id="nvTurno">
+            <option value="">—</option>
+            <option value="MAÑANA">Mañana</option>
+            <option value="TARDE">Tarde</option>
+            <option value="NOCTURNO">Nocturno</option>
+            <option value="MAÑANA Y TARDE">Mañana y tarde</option>
+            <option value="MAÑANA-NOCTURNO">Mañana-Nocturno</option>
+            <option value="TARDE-NOCTURNO">Tarde-Nocturno</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="nvHorasAcademicas">Horas académicas (máx. 53.33)</label>
+          <input type="number" id="nvHorasAcademicas" min="0" max="53.33" step="0.01">
+        </div>
+        <div class="campo">
+          <label for="nvHorasAdm">Horas administrativas (máx. 168)</label>
+          <input type="number" id="nvHorasAdm" min="0" max="168" step="0.5">
+        </div>
+        <div class="campo">
+          <label for="nvSituacion">Situación del trabajador</label>
+          <input type="text" id="nvSituacion" placeholder="Ej. ACTIVO, PERMISO, TRÁMITE DE JUBILACIÓN...">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarNuevo">Agregar registro</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarNuevo">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/rac.js"></script>
+</body>
+</html>
