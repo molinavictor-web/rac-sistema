@@ -12,6 +12,10 @@ const router = express.Router();
  * Devuelve { rac, total } -- total es el conteo real (los resultados
  * vienen limitados a 200 filas), para que el frontend pueda mostrar
  * la cifra completa (ej. en el dashboard) sin traer todas las filas.
+ *
+ * NOTA: nombres/apellidos ahora son columnas reales de `rac` (ya no se
+ * cruzan en vivo contra personal_ministerio), así que vienen incluidas
+ * automáticamente en r.* sin necesidad de JOIN adicional.
  */
 router.get("/", requireAuth, async (req, res) => {
   const { cedula, plantel_id, periodo_escolar } = req.query;
@@ -49,6 +53,34 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 /**
+ * GET /api/rac/verificar-nomina?cedula=...
+ * Consulta rápida contra personal_ministerio para el flujo de alta manual
+ * desde "Consultar RAC": el frontend la llama apenas el usuario escribe la
+ * cédula, ANTES de mostrar el resto del formulario de alta, para:
+ *  - Si existe: prellenar nombres/apellidos (editable igual, por si la
+ *    nómina trae un dato mal escrito).
+ *  - Si no existe: mostrar una confirmación explícita ("esta cédula no está
+ *    en la nómina del Ministerio, ¿deseas continuar de todas formas?")
+ *    antes de dejar que el usuario complete y envíe el alta.
+ * No crea nada, no genera alertas -- es de solo lectura.
+ */
+router.get("/verificar-nomina", requireAuth, async (req, res) => {
+  const { cedula } = req.query;
+  if (!cedula) {
+    return res.status(400).json({ error: "Falta el parámetro cedula." });
+  }
+  const cedulaLimpia = cedula.trim().replace(/^0+/, "");
+  const { rows } = await pool.query(
+    "SELECT nombres, apellidos FROM personal_ministerio WHERE cedula = $1 LIMIT 1",
+    [cedulaLimpia]
+  );
+  if (rows.length === 0) {
+    return res.json({ existe: false, nombres: null, apellidos: null });
+  }
+  res.json({ existe: true, nombres: rows[0].nombres, apellidos: rows[0].apellidos });
+});
+
+/**
  * GET /api/rac/exportar-general
  * Exporta TODO el RAC en el mismo formato del CSV de carga (33 columnas,
  * delimitador ";", codificación latin1, saltos de línea CRLF) para que la
@@ -73,9 +105,8 @@ router.get("/", requireAuth, async (req, res) => {
  *   PLANTEL EN NOMINA
  * - Vía la jerarquía geográfica (planteles.municipio_id/parroquia_id ->
  *   municipios/parroquias/estados): ESTADO, MUNICIPIO, PARROQUIA
- * - Vía cruce por cédula contra personal_ministerio.nombres: NOMBRE Y
- *   APELLIDO (solo `nombres`, que ya viene completo; NO se concatena
- *   `apellidos`, que siempre queda NULL en la carga de nómina)
+ * - Directo desde `rac.nombres`/`rac.apellidos` (ya no se cruza en vivo
+ *   contra personal_ministerio): NOMBRE Y APELLIDO
  * - Sin fuente en ninguna tabla hoy, se exporta vacía: COD_EDO (siempre
  *   "MONAGAS" a nivel de estado, no se guarda por fila)
  */
@@ -88,32 +119,26 @@ router.get(
       // Precarga en memoria de todo lo necesario para el cruce (mismo
       // patrón que ya resolvió el 502 por volumen en la carga completa):
       // una sola consulta por tabla, nada de consultas dentro del bucle.
-      const [
-        racRows,
-        plantelesRows,
-        municipiosRows,
-        parroquiasRows,
-        estadosRows,
-        nominaRows,
-      ] = await Promise.all([
-        pool.query(`
-          SELECT cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo,
-                 tipo_personal, horas_academicas, horas_adm, turno, situacion,
-                 nivel, modalidad, ubicacion_geografica, turnos_plantel,
-                 codigo_estadistico, fecha_ingreso, sexo, grado_imparte,
-                 seccion, especialidad, anio, secciones, materia,
-                 periodo_grupo, observacion, edad, comparativa
-          FROM rac
-        `),
-        pool.query(`
-          SELECT id, codigo_plantel, nombre, municipio_id, parroquia_id
-          FROM planteles
-        `),
-        pool.query(`SELECT id, nombre, estado_id FROM municipios`),
-        pool.query(`SELECT id, nombre, municipio_id FROM parroquias`),
-        pool.query(`SELECT id, nombre FROM estados`),
-        pool.query(`SELECT cedula, nombres FROM personal_ministerio`),
-      ]);
+      const [racRows, plantelesRows, municipiosRows, parroquiasRows, estadosRows] =
+        await Promise.all([
+          pool.query(`
+            SELECT cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo,
+                   tipo_personal, horas_academicas, horas_adm, turno, situacion,
+                   nivel, modalidad, ubicacion_geografica, turnos_plantel,
+                   codigo_estadistico, fecha_ingreso, sexo, grado_imparte,
+                   seccion, especialidad, anio, secciones, materia,
+                   periodo_grupo, observacion, edad, comparativa,
+                   nombres, apellidos
+            FROM rac
+          `),
+          pool.query(`
+            SELECT id, codigo_plantel, nombre, municipio_id, parroquia_id
+            FROM planteles
+          `),
+          pool.query(`SELECT id, nombre, estado_id FROM municipios`),
+          pool.query(`SELECT id, nombre, municipio_id FROM parroquias`),
+          pool.query(`SELECT id, nombre FROM estados`),
+        ]);
 
       const mapaEstados = new Map(estadosRows.rows.map((e) => [e.id, e.nombre]));
       const mapaMunicipios = new Map(
@@ -123,7 +148,6 @@ router.get(
         parroquiasRows.rows.map((p) => [p.id, { nombre: p.nombre, municipio_id: p.municipio_id }])
       );
       const mapaPlanteles = new Map(plantelesRows.rows.map((p) => [p.id, p]));
-      const mapaNomina = new Map(nominaRows.rows.map((n) => [n.cedula, n.nombres]));
 
       // Encabezado exacto, mismo orden que trae el CSV de carga real
       // (01-RAC_MONAGAS_.csv, 33 columnas).
@@ -156,7 +180,7 @@ router.get(
         const municipio = mapaMunicipios.get(plantel.municipio_id) || {};
         const parroquia = mapaParroquias.get(plantel.parroquia_id) || {};
         const estadoNombre = mapaEstados.get(municipio.estado_id) || "";
-        const nombreCompleto = mapaNomina.get(r.cedula) || "";
+        const nombreCompleto = [r.nombres, r.apellidos].filter(Boolean).join(" ");
 
         const fila = [
           "",                              // COD_EDO
@@ -211,6 +235,10 @@ router.get(
  * codigo_cargo, tipo_personal). La cédula NO es editable aquí a propósito
  * (identifica al trabajador, no al registro de asignación).
  *
+ * nombres/apellidos son ahora columnas normales de `rac` (ya no se cruzan
+ * ni se propagan a personal_ministerio): editarlas aquí solo cambia este
+ * registro de asignación, igual que cualquier otro campo directo.
+ *
  * Para cambiar de plantel, el body debe traer `codigo_plantel` (el código
  * real del plantel, ej. "OD14231608"), NO el id interno -- se busca en la
  * tabla planteles y, si no existe, se rechaza el guardado con 400 (no se
@@ -230,6 +258,27 @@ router.patch("/:id", requireAuth, requireRol("operador", "admin"), async (req, r
     "codigo_dependencia",
     "codigo_cargo",
     "tipo_personal",
+    "nombres",
+    "apellidos",
+    // Columnas agregadas en la Mejora 4b -- editables desde el formulario
+    // de "Consultar RAC" (antes solo se llenaban por carga).
+    "nivel",
+    "modalidad",
+    "ubicacion_geografica",
+    "turnos_plantel",
+    "codigo_estadistico",
+    "fecha_ingreso",
+    "sexo",
+    "grado_imparte",
+    "seccion",
+    "especialidad",
+    "anio",
+    "secciones",
+    "materia",
+    "periodo_grupo",
+    "observacion",
+    "edad",
+    "comparativa",
   ];
   const sets = [];
   const valores = [];
@@ -323,32 +372,125 @@ router.delete("/:id", requireAuth, requireRol("admin"), async (req, res) => {
 /**
  * POST /api/rac
  * Alta manual de un registro (fuera del flujo de carga masiva de Excel).
- * Útil para correcciones puntuales de un operador.
+ * Útil para dar de alta a alguien que aún no aparece en ningún archivo, o
+ * para correcciones puntuales de un operador.
+ *
+ * Recibe `codigo_plantel` (el código real, ej. "OD14231608"), NO el id
+ * interno -- se resuelve contra el catálogo maestro igual que el PATCH.
+ *
+ * nombres/apellidos: si el frontend los manda (típicamente ya prellenados
+ * por GET /verificar-nomina y confirmados/editados por el usuario), se usan
+ * tal cual. Si no vienen, se completan automáticamente consultando
+ * personal_ministerio por cédula -- así el alta nunca depende de que el
+ * frontend haga bien la consulta previa.
  */
 router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) => {
-  const { cedula, plantel_id, cargo, turno, horas_academicas, horas_adm, periodo_escolar } = req.body;
-  if (!cedula || !plantel_id || !periodo_escolar) {
-    return res.status(400).json({ error: "Faltan campos obligatorios: cedula, plantel_id, periodo_escolar." });
+  const {
+    cedula,
+    codigo_plantel,
+    periodo_escolar,
+    codigo_dependencia,
+    codigo_cargo,
+    tipo_personal,
+    cargo,
+    turno,
+    horas_academicas,
+    horas_adm,
+    situacion,
+    nombres,
+    apellidos,
+  } = req.body;
+
+  if (!cedula || !codigo_plantel || !periodo_escolar) {
+    return res.status(400).json({ error: "Faltan campos obligatorios: cedula, codigo_plantel, periodo_escolar." });
   }
+
+  const cedulaLimpia = cedula.trim().replace(/^0+/, "");
 
   try {
     const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
+      const plantelRes = await client.query(
+        "SELECT id FROM planteles WHERE codigo_plantel = $1",
+        [String(codigo_plantel).trim()]
+      );
+      if (plantelRes.rows.length === 0) {
+        return {
+          error: `El código de plantel "${codigo_plantel}" no existe en el catálogo maestro. Verifica el código antes de guardar.`,
+        };
+      }
+      const plantelId = plantelRes.rows[0].id;
+
+      const existeRes = await client.query(
+        "SELECT id FROM rac WHERE cedula = $1 AND plantel_id = $2",
+        [cedulaLimpia, plantelId]
+      );
+      if (existeRes.rows.length > 0) {
+        return {
+          error: `Ya existe un registro en el RAC para esta cédula en este plantel (rac.id=${existeRes.rows[0].id}).`,
+        };
+      }
+
+      // Completa nombres/apellidos desde la nómina si el frontend no los mandó.
+      let nombresFinal = nombres || null;
+      let apellidosFinal = apellidos || null;
+      if (!nombresFinal && !apellidosFinal) {
+        const nominaRes = await client.query(
+          "SELECT nombres, apellidos FROM personal_ministerio WHERE cedula = $1 LIMIT 1",
+          [cedulaLimpia]
+        );
+        if (nominaRes.rows.length > 0) {
+          nombresFinal = nominaRes.rows[0].nombres;
+          apellidosFinal = nominaRes.rows[0].apellidos;
+        }
+      }
+
       const { rows } = await client.query(
-        `INSERT INTO rac (cedula, plantel_id, cargo, turno, horas_academicas, horas_adm, periodo_escolar)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        `INSERT INTO rac
+          (cedula, plantel_id, codigo_dependencia, codigo_cargo, tipo_personal, cargo, turno,
+           horas_academicas, horas_adm, situacion, periodo_escolar, nombres, apellidos,
+           actualizado_en, visto_en)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), now())
+         RETURNING *`,
         [
-          cedula.trim().replace(/^0+/, ""),
-          plantel_id,
+          cedulaLimpia,
+          plantelId,
+          codigo_dependencia || null,
+          codigo_cargo || null,
+          tipo_personal || null,
           cargo || null,
           turno || null,
           horas_academicas || 0,
           horas_adm || 0,
+          situacion || null,
           periodo_escolar,
+          nombresFinal,
+          apellidosFinal,
         ]
       );
-      return rows[0];
+      const nuevoRegistro = rows[0];
+
+      // Mismo chequeo que hace el resto de los flujos de alta: si la cédula
+      // no está en la nómina del Ministerio, se genera la alerta -- alguien
+      // fue asignado a un cargo del estado sin estar aprobado ahí.
+      const nominaCheckRes = await client.query(
+        "SELECT 1 FROM personal_ministerio WHERE cedula = $1",
+        [cedulaLimpia]
+      );
+      if (nominaCheckRes.rows.length === 0) {
+        await client.query(
+          `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
+           VALUES ($1, $2, $3, 'pendiente', now())`,
+          ["cedula_no_existe_nomina", cedulaLimpia, "La cédula no existe en la nómina del Ministerio de Educación"]
+        );
+      }
+
+      return { registro: nuevoRegistro };
     });
-    res.status(201).json(resultado);
+
+    if (resultado.error) {
+      return res.status(400).json({ error: resultado.error });
+    }
+    res.status(201).json(resultado.registro);
   } catch (err) {
     res.status(500).json({ error: "No se pudo crear el registro.", detalle: err.message });
   }
@@ -370,6 +512,11 @@ router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) 
  * La cédula NUNCA se toma del body -- siempre la de la alerta original, por
  * la misma razón que en el PATCH normal (identifica al trabajador, no es
  * editable aquí).
+ *
+ * nombres/apellidos: se completan automáticamente consultando
+ * personal_ministerio por la cédula de la alerta, igual que en el alta
+ * manual desde "Consultar RAC" -- detalle_fila trae la fila cruda del CSV
+ * rechazado, que no tiene estas columnas separadas.
  *
  * Al completar el alta:
  *  1. Se valida el código de plantel corregido contra el catálogo maestro.
@@ -461,15 +608,24 @@ router.post(
             req.body[campo] !== undefined ? req.body[campo] : detalleFila[campo] !== undefined ? detalleFila[campo] : null;
         }
 
+        // nombres/apellidos: no vienen en detalle_fila (la fila cruda del
+        // CSV no separa estas columnas) -- se completan desde la nómina.
+        const nominaDatosRes = await client.query(
+          "SELECT nombres, apellidos FROM personal_ministerio WHERE cedula = $1 LIMIT 1",
+          [cedula]
+        );
+        const nombresFinal = nominaDatosRes.rows[0]?.nombres || null;
+        const apellidosFinal = nominaDatosRes.rows[0]?.apellidos || null;
+
         const insertRes = await client.query(
           `INSERT INTO rac
             (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno,
              horas_academicas, horas_adm, situacion, nivel, modalidad, ubicacion_geografica,
              turnos_plantel, codigo_estadistico, fecha_ingreso, sexo, grado_imparte, seccion,
              especialidad, anio, secciones, materia, periodo_grupo, observacion, edad, comparativa,
-             actualizado_en, visto_en)
+             nombres, apellidos, actualizado_en, visto_en)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                   $19, $20, $21, $22, $23, $24, $25, $26, $27, now(), now())
+                   $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, now(), now())
            RETURNING *`,
           [
             cedula,
@@ -499,15 +655,13 @@ router.post(
             datos.observacion,
             datos.edad,
             datos.comparativa,
+            nombresFinal,
+            apellidosFinal,
           ]
         );
         const nuevoRegistro = insertRes.rows[0];
 
-        const nominaRes = await client.query(
-          "SELECT 1 FROM personal_ministerio WHERE cedula = $1",
-          [cedula]
-        );
-        if (nominaRes.rows.length === 0) {
+        if (!nominaDatosRes.rows.length) {
           await client.query(
             `INSERT INTO alertas (tipo, cedula, detalle, estado, creado_en)
              VALUES ($1, $2, $3, 'pendiente', now())`,
