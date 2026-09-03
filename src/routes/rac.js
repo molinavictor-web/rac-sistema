@@ -384,6 +384,30 @@ router.delete("/:id", requireAuth, requireRol("admin"), async (req, res) => {
  * personal_ministerio por cédula -- así el alta nunca depende de que el
  * frontend haga bien la consulta previa.
  */
+// Las mismas 17 columnas de la Mejora 4b que ya acepta el PATCH -- se
+// declaran una sola vez para no repetir la lista en POST / y en
+// /resolver-alta/:alertaId (ver CAMPOS_RAC_EDITABLES más abajo, que las
+// reutiliza junto con los 8 campos originales).
+const CAMPOS_EXTRA_MEJORA_4B = [
+  "nivel",
+  "modalidad",
+  "ubicacion_geografica",
+  "turnos_plantel",
+  "codigo_estadistico",
+  "fecha_ingreso",
+  "sexo",
+  "grado_imparte",
+  "seccion",
+  "especialidad",
+  "anio",
+  "secciones",
+  "materia",
+  "periodo_grupo",
+  "observacion",
+  "edad",
+  "comparativa",
+];
+
 router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) => {
   const {
     cedula,
@@ -406,6 +430,14 @@ router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) 
   }
 
   const cedulaLimpia = cedula.trim().replace(/^0+/, "");
+
+  // Las 17 columnas de la Mejora 4b son opcionales -- si no vienen en el
+  // body, se guardan como null (igual que el resto de los campos opcionales
+  // de este endpoint).
+  const extra = {};
+  for (const campo of CAMPOS_EXTRA_MEJORA_4B) {
+    extra[campo] = req.body[campo] !== undefined && req.body[campo] !== "" ? req.body[campo] : null;
+  }
 
   try {
     const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
@@ -448,8 +480,13 @@ router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) 
         `INSERT INTO rac
           (cedula, plantel_id, codigo_dependencia, codigo_cargo, tipo_personal, cargo, turno,
            horas_academicas, horas_adm, situacion, periodo_escolar, nombres, apellidos,
+           nivel, modalidad, ubicacion_geografica, turnos_plantel, codigo_estadistico,
+           fecha_ingreso, sexo, grado_imparte, seccion, especialidad, anio, secciones,
+           materia, periodo_grupo, observacion, edad, comparativa,
            actualizado_en, visto_en)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), now())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                 $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+                 now(), now())
          RETURNING *`,
         [
           cedulaLimpia,
@@ -465,6 +502,23 @@ router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) 
           periodo_escolar,
           nombresFinal,
           apellidosFinal,
+          extra.nivel,
+          extra.modalidad,
+          extra.ubicacion_geografica,
+          extra.turnos_plantel,
+          extra.codigo_estadistico,
+          extra.fecha_ingreso,
+          extra.sexo,
+          extra.grado_imparte,
+          extra.seccion,
+          extra.especialidad,
+          extra.anio,
+          extra.secciones,
+          extra.materia,
+          extra.periodo_grupo,
+          extra.observacion,
+          extra.edad,
+          extra.comparativa,
         ]
       );
       const nuevoRegistro = rows[0];
