@@ -10,9 +10,34 @@ const usuario = renderShell("usuarios", "Usuarios");
           </div>
           <div id="tablaUsuarios"></div>
         </div>
+        ${usuario.rol === "admin" ? `
+        <div class="panel" style="margin-top:24px;">
+          <div class="panel-cabecera">
+            <h2>Mantenimiento</h2>
+          </div>
+          <div id="mantenimiento">
+            <p style="margin-bottom:12px;">
+              La tabla <code>auditoria</code> crece todos los días y puede llenar
+              el espacio disponible de la base de datos. Los registros de más
+              de 3 días pueden borrarse de forma definitiva para liberar espacio.
+            </p>
+            <div id="estadoAuditoria" class="cargando">Consultando estado…</div>
+            <div style="display:flex; gap:10px; margin-top:14px;">
+              <button class="btn btn-fantasma btn-sm" id="btnVerEstado">Actualizar estado</button>
+              <button class="btn btn-primario btn-sm" id="btnPurgar">Purgar auditoría (&gt;3 días)</button>
+            </div>
+          </div>
+        </div>
+        ` : ""}
       `;
       document.getElementById("btnNuevo").addEventListener("click", abrirModal);
       cargarUsuarios();
+
+      if (usuario.rol === "admin") {
+        document.getElementById("btnVerEstado").addEventListener("click", cargarEstadoAuditoria);
+        document.getElementById("btnPurgar").addEventListener("click", purgarAuditoria);
+        cargarEstadoAuditoria();
+      }
     }
 
     async function cargarUsuarios() {
@@ -65,6 +90,54 @@ const usuario = renderShell("usuarios", "Usuarios");
     function etiquetaRol(rol) {
       const mapa = { admin: "Administrador", operador: "Operador", encargado_municipio: "Encargado de municipio" };
       return mapa[rol] || rol;
+    }
+
+    // ---- Mantenimiento (solo admin) ----
+    async function cargarEstadoAuditoria() {
+      const cont = document.getElementById("estadoAuditoria");
+      if (!cont) return;
+      cont.className = "cargando";
+      cont.textContent = "Consultando estado…";
+      try {
+        const data = await RAC.get("/api/mantenimiento/estado-auditoria");
+        const fecha = data.fecha_mas_antigua
+          ? new Date(data.fecha_mas_antigua).toLocaleString("es-VE")
+          : "—";
+        cont.className = "";
+        cont.innerHTML = `
+          <table>
+            <tbody>
+              <tr><td>Registros totales</td><td><strong>${data.total_registros.toLocaleString("es-VE")}</strong></td></tr>
+              <tr><td>Tamaño actual</td><td><strong>${data.tamano_actual}</strong></td></tr>
+              <tr><td>Registro más antiguo</td><td>${fecha}</td></tr>
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        cont.className = "vacio";
+        cont.innerHTML = `<strong>No se pudo consultar el estado</strong>${err.message}`;
+      }
+    }
+
+    async function purgarAuditoria() {
+      const ok = window.confirm(
+        "Esto borrará de forma DEFINITIVA todos los registros de auditoría con más de 3 días de antigüedad y no se pueden recuperar. ¿Continuar?"
+      );
+      if (!ok) return;
+
+      const btn = document.getElementById("btnPurgar");
+      btn.disabled = true;
+      btn.textContent = "Purgando…";
+      try {
+        const data = await RAC.post("/api/mantenimiento/purgar-auditoria", {});
+        mostrarToast(`Auditoría purgada: ${data.registros_borrados.toLocaleString("es-VE")} registros borrados. Tamaño actual: ${data.tamano_actual}.`);
+        cargarEstadoAuditoria();
+      } catch (err) {
+        mostrarToast(err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Purgar auditoría (>3 días)";
+      }
     }
 
     // ---- Modal de creación ----
