@@ -11,6 +11,7 @@ const plantelesRoutes = require("./routes/planteles");
 const personalMinisterioRoutes = require("./routes/personalMinisterio");
 const racCompletoRoutes = require('./routes/racCompleto');
 const mantenimientoRoutes = require('./routes/mantenimiento');
+const credencialesRoutes = require('./routes/credenciales');
 const app = express();
 app.use(helmet());
 app.use(cors());
@@ -26,6 +27,8 @@ app.use("/api/planteles", plantelesRoutes);
 app.use("/api/personal-ministerio", personalMinisterioRoutes);
 app.use('/api/rac', racCompletoRoutes);
 app.use('/api/mantenimiento', mantenimientoRoutes);
+app.use('/api/credenciales', credencialesRoutes.router);
+app.use('/', credencialesRoutes.publico);
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {
   console.error(err);
