@@ -129,11 +129,50 @@ router.get(
 
 /**
  * POST /api/mantenimiento/reiniciar-datos
- * Vacía por completo las tablas `alertas`, `rac`, `planteles` y
- * `personal_ministerio` (TRUNCATE + reinicio de contadores de ID),
+ * Vacía por completo las tablas alertas, rac, planteles y
+ * personal_ministerio (TRUNCATE + reinicio de contadores de ID),
  * para dejar el sistema listo y recibir datos nuevos desde cero.
  *
- * Acción IRREVERSIBLE y sin respaldo -- por eso exige que el cliente
- * mande exactamente la palabra "REINICIAR" en el body, además de la
- * doble confirmación que ya hace el frontend. No basta con estar
- * autenticado como
+ * Accion IRREVERSIBLE y sin respaldo -- por eso exige que el cliente
+ * mande exactamente la palabra "REINICIAR" en el body, ademas de la
+ * doble confirmacion que ya hace el frontend. No basta con estar
+ * autenticado como admin: hace falta esta confirmacion explicita.
+ *
+ * Body requerido: { "confirmacion": "REINICIAR" }
+ *
+ * Se truncan las 4 tablas en un solo TRUNCATE (mismo statement) para
+ * que Postgres resuelva correctamente las llaves foraneas entre ellas
+ * (rac -> planteles, alertas -> rac/planteles) sin importar el orden.
+ * CASCADE cubre cualquier otra tabla que tenga FK hacia estas cuatro.
+ *
+ * Protegido: solo usuarios con rol admin.
+ */
+router.post(
+  "/reiniciar-datos",
+  requireAuth,
+  requireRol("admin"),
+  async (req, res) => {
+    if (req.body?.confirmacion !== "REINICIAR") {
+      return res.status(400).json({
+        error: 'Falta la confirmacion. Envia { "confirmacion": "REINICIAR" } para ejecutar esta accion.',
+      });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query(
+        `TRUNCATE TABLE alertas, rac, planteles, personal_ministerio RESTART IDENTITY CASCADE`
+      );
+      res.json({
+        ok: true,
+        mensaje: "Las tablas alertas, rac, planteles y personal_ministerio fueron vaciadas. El sistema esta listo para cargar datos nuevos.",
+      });
+    } catch (err) {
+      console.error("Error reiniciando datos:", err);
+      res.status(500).json({ error: "No se pudo reiniciar las tablas." });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+module.exports = router;
