@@ -406,6 +406,13 @@ router.post(
               sinCambios++;
             }
           } else {
+            // FIX: el INSERT tiene 29 columnas (cedula...comparativa +
+            // actualizado_en + visto_en) pero antes la lista de VALUES solo
+            // llegaba a $26 y saltaba directo a now(), now() -- le faltaba
+            // el placeholder $27 para "comparativa". Eso hacía que Postgres
+            // rechazara SIEMPRE este INSERT con "INSERT has more target
+            // columns than expressions" (código 42601), sin importar el
+            // contenido del archivo ni el tamaño del pedazo subido.
             const insertRes = await client.query(
               `INSERT INTO rac
                 (cedula, plantel_id, codigo_dependencia, codigo_cargo, cargo, tipo_personal, turno,
@@ -414,7 +421,7 @@ router.post(
                  especialidad, anio, secciones, materia, periodo_grupo, observacion, edad, comparativa,
                  actualizado_en, visto_en)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                       $19, $20, $21, $22, $23, $24, $25, $26, now(), now())
+                       $19, $20, $21, $22, $23, $24, $25, $26, $27, now(), now())
                RETURNING id`,
               [
                 cedula,
