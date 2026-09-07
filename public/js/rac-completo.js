@@ -7,7 +7,67 @@ if (usuario && usuario.rol !== "admin") {
 } else if (usuario) {
   dibujar();
 }
+
+// Clave de sessionStorage donde se guarda el progreso de una carga en curso,
+// para poder reanudarla si el navegador descarta o recarga la pestaña a
+// mitad de camino (por bloqueo de pantalla, cambio de pestaña prolongado,
+// laptop en reposo, etc.). Se borra al terminar con éxito o si el usuario
+// decide empezar de nuevo.
+const CLAVE_PROGRESO = "rac_completo_progreso_v1";
+
+function guardarProgreso(estado) {
+  try {
+    sessionStorage.setItem(CLAVE_PROGRESO, JSON.stringify(estado));
+  } catch (_) {
+    // Si sessionStorage falla (modo privado, cuota llena, etc.) simplemente
+    // no se podrá reanudar; no es motivo para interrumpir la carga.
+  }
+}
+function leerProgreso() {
+  try {
+    const raw = sessionStorage.getItem(CLAVE_PROGRESO);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+function borrarProgreso() {
+  try {
+    sessionStorage.removeItem(CLAVE_PROGRESO);
+  } catch (_) {}
+}
+
+// ---------- Wake Lock: intenta evitar que la pantalla se apague sola ----------
+// No hay forma de impedir que el navegador descarte una pestaña en segundo
+// plano al cambiar de pestaña; esto solo ayuda cuando el problema es que la
+// pantalla/laptop entra en reposo mientras esta misma pestaña sigue activa.
+let wakeLock = null;
+async function solicitarWakeLock() {
+  try {
+    if ("wakeLock" in navigator) {
+      wakeLock = await navigator.wakeLock.request("screen");
+    }
+  } catch (_) {
+    // No soportado o permiso denegado: se ignora silenciosamente.
+  }
+}
+function liberarWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+// El navegador libera el wake lock automáticamente cuando la pestaña deja de
+// estar visible; si vuelve a estar visible durante la carga, se reintenta.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && cargaEnCurso) {
+    solicitarWakeLock();
+  }
+});
+let cargaEnCurso = false;
+
 function dibujar() {
+  const progresoPrevio = leerProgreso();
   document.getElementById("contenido").innerHTML = `
     <div class="panel" style="max-width:640px;">
       <div class="panel-cabecera"><h2>Cargar la última versión completa del RAC</h2></div>
@@ -27,6 +87,30 @@ function dibujar() {
           ("Revisar registros no encontrados") una sola vez para detectar
           quiénes del RAC actual no aparecieron en esta carga.
         </p>
+        <p style="background:#fff8e1; border:1px solid #f0d98c; border-radius:8px; padding:10px 12px; font-size:0.9rem;">
+          <strong>Importante:</strong> esta carga puede tardar varios minutos.
+          No cambies de pestaña, no bloquees la pantalla ni dejes que la
+          laptop/PC entre en reposo mientras corre — si el navegador descarta
+          la pestaña, la carga se corta a mitad de camino sin avisar.
+        </p>
+        ${
+          progresoPrevio
+            ? `<div class="stat-card" style="border-color:#f0d98c; margin-bottom:14px;">
+                 <div class="lbl">Carga incompleta detectada</div>
+                 <div style="margin-top:6px; font-size:0.9rem;">
+                   Archivo <strong>${progresoPrevio.nombreArchivo}</strong>,
+                   quedó subida hasta la parte
+                   <strong>${progresoPrevio.pedazoSiguiente - 1}</strong> de
+                   <strong>${progresoPrevio.totalPedazos}</strong>.
+                   Selecciona el mismo archivo abajo para poder reanudarla,
+                   o descarta este aviso si quieres empezar de nuevo.
+                 </div>
+                 <button type="button" class="btn btn-fantasma btn-sm" id="btnDescartarProgreso" style="margin-top:8px;">
+                   Descartar y empezar de cero
+                 </button>
+               </div>`
+            : ""
+        }
         <form id="formRacCompleto">
           <div class="campo">
             <label for="archivo">Archivo (.csv)</label>
@@ -66,6 +150,14 @@ function dibujar() {
     </div>
   `;
   document.getElementById("formRacCompleto").addEventListener("submit", subirRacCompleto);
+
+  const btnDescartarProgreso = document.getElementById("btnDescartarProgreso");
+  if (btnDescartarProgreso) {
+    btnDescartarProgreso.addEventListener("click", () => {
+      borrarProgreso();
+      dibujar();
+    });
+  }
 
   // Se precarga con la hora actual como valor por defecto; el usuario debe
   // ajustarla a la hora real de justo antes de empezar a subir el primer
@@ -131,35 +223,69 @@ async function subirRacCompleto(e) {
   const resultado = document.getElementById("resultadoRacCompleto");
   if (!input.files.length) return;
 
-  const confirmado = confirm(
-    "Esto sincroniza el RAC completo con el contenido de este archivo (actualiza existentes, agrega nuevos y genera alertas). ¿Continuar?"
-  );
-  if (!confirmado) return;
-
+  const archivo = input.files[0];
   const filasPorPedazo = Math.max(parseInt(inputFilas.value, 10) || 3000, 200);
+
+  // ¿Hay una carga incompleta guardada? Si el archivo elegido coincide
+  // (nombre + tamaño), se ofrece reanudar desde donde se quedó.
+  let pedazoInicial = 1;
+  let totales = {
+    insertados: 0,
+    actualizados: 0,
+    sinCambios: 0,
+    filasConError: 0,
+    lineasVaciasIgnoradas: 0,
+    alertasGeneradas: 0,
+  };
+
+  const progresoPrevio = leerProgreso();
+  if (
+    progresoPrevio &&
+    progresoPrevio.nombreArchivo === archivo.name &&
+    progresoPrevio.tamanioArchivo === archivo.size &&
+    progresoPrevio.filasPorPedazo === filasPorPedazo
+  ) {
+    const reanudar = confirm(
+      `Se detectó una carga incompleta de este mismo archivo, subida hasta la parte ${progresoPrevio.pedazoSiguiente - 1} de ${progresoPrevio.totalPedazos}.\n\nAceptar = reanudar desde ahí.\nCancelar = empezar de nuevo desde cero (se perderá el conteo previo, aunque los datos ya insertados no se duplican).`
+    );
+    if (reanudar) {
+      pedazoInicial = progresoPrevio.pedazoSiguiente;
+      totales = progresoPrevio.totales;
+    } else {
+      borrarProgreso();
+    }
+  } else if (progresoPrevio) {
+    const descartar = confirm(
+      `Hay una carga incompleta guardada de otro archivo (${progresoPrevio.nombreArchivo}). Si continúas con este archivo, se descartará ese progreso guardado. ¿Continuar?`
+    );
+    if (!descartar) return;
+    borrarProgreso();
+  } else {
+    const confirmado = confirm(
+      "Esto sincroniza el RAC completo con el contenido de este archivo (actualiza existentes, agrega nuevos y genera alertas). ¿Continuar?"
+    );
+    if (!confirmado) return;
+  }
+
   btn.disabled = true;
   progreso.innerHTML = "";
   resultado.innerHTML = "";
+  cargaEnCurso = true;
+  await solicitarWakeLock();
 
   try {
     btn.textContent = "Leyendo archivo…";
-    const textoCompleto = await leerArchivoComoLatin1(input.files[0]);
+    const textoCompleto = await leerArchivoComoLatin1(archivo);
     const pedazos = partirCsvEnPedazos(textoCompleto, filasPorPedazo);
 
     if (pedazos.length === 0) {
       throw new Error("El archivo no tiene filas de datos para procesar.");
     }
+    if (pedazoInicial > pedazos.length) {
+      throw new Error("El progreso guardado no coincide con este archivo (ya se habían subido todas las partes). Se descarta.");
+    }
 
-    const totales = {
-      insertados: 0,
-      actualizados: 0,
-      sinCambios: 0,
-      filasConError: 0,
-      lineasVaciasIgnoradas: 0,
-      alertasGeneradas: 0,
-    };
-
-    for (let i = 0; i < pedazos.length; i++) {
+    for (let i = pedazoInicial - 1; i < pedazos.length; i++) {
       const numeroPedazo = i + 1;
       btn.textContent = `Subiendo parte ${numeroPedazo} de ${pedazos.length}…`;
       progreso.innerHTML = `
@@ -173,7 +299,7 @@ async function subirRacCompleto(e) {
 
       const bytes = textoLatin1ABytes(pedazos[i]);
       const blob = new Blob([bytes], { type: "text/csv" });
-      const nombrePedazo = input.files[0].name.replace(/\.csv$/i, "") + `_parte${numeroPedazo}.csv`;
+      const nombrePedazo = archivo.name.replace(/\.csv$/i, "") + `_parte${numeroPedazo}.csv`;
 
       const datos = new FormData();
       datos.append("archivo", blob, nombrePedazo);
@@ -196,8 +322,20 @@ async function subirRacCompleto(e) {
       totales.filasConError += data.filasConError || 0;
       totales.lineasVaciasIgnoradas += data.lineasVaciasIgnoradas || 0;
       totales.alertasGeneradas += data.alertasGeneradas || 0;
+
+      // Guarda el avance por si el navegador corta la ejecución antes de
+      // llegar a la siguiente parte.
+      guardarProgreso({
+        nombreArchivo: archivo.name,
+        tamanioArchivo: archivo.size,
+        filasPorPedazo,
+        pedazoSiguiente: numeroPedazo + 1,
+        totalPedazos: pedazos.length,
+        totales,
+      });
     }
 
+    borrarProgreso();
     progreso.innerHTML = "";
     resultado.innerHTML = `
       <div class="stat-card" style="border-color:var(--tiza-clara);">
@@ -220,6 +358,8 @@ async function subirRacCompleto(e) {
     btn.disabled = false;
     btn.textContent = "Sincronizar RAC";
     input.value = "";
+    cargaEnCurso = false;
+    liberarWakeLock();
   }
 }
 
