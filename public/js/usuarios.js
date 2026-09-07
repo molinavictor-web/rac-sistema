@@ -119,7 +119,12 @@ const usuario = renderShell("usuarios", "Usuarios");
     }
 
     function etiquetaRol(rol) {
-      const mapa = { admin: "Administrador", operador: "Operador", encargado_municipio: "Encargado de municipio" };
+      const mapa = {
+        admin: "Administrador",
+        operador: "Operador",
+        encargado_municipio: "Encargado de municipio",
+        operador_credenciales: "Operador de credenciales",
+      };
       return mapa[rol] || rol;
     }
 
