@@ -28,6 +28,29 @@ const usuario = renderShell("usuarios", "Usuarios");
             </div>
           </div>
         </div>
+        <div class="panel" style="margin-top:24px; border:1px solid #b3261e;">
+          <div class="panel-cabecera">
+            <h2 style="color:#b3261e;">Zona de peligro — Reiniciar datos</h2>
+          </div>
+          <div id="reinicioDatos">
+            <p style="margin-bottom:12px;">
+              Esta acción borra de forma <strong>DEFINITIVA e IRREVERSIBLE</strong> todos
+              los registros de <code>alertas</code>, <code>rac</code>, <code>planteles</code>
+              y <code>personal_ministerio</code>, dejando el sistema en cero para
+              cargar datos nuevos desde el principio. No hay respaldo automático.
+            </p>
+            <div id="estadoDatos" class="cargando">Consultando estado…</div>
+            <div style="margin-top:14px;">
+              <label for="confirmacionReinicio" style="display:block; margin-bottom:6px; font-size:0.9rem;">
+                Escribe <strong>REINICIAR</strong> para habilitar el botón:
+              </label>
+              <div style="display:flex; gap:10px;">
+                <input type="text" id="confirmacionReinicio" placeholder="REINICIAR" style="flex:1; padding:10px 14px; font-size:1rem; border:1px solid #ccc; border-radius:6px;">
+                <button class="btn btn-sm" id="btnReiniciar" disabled style="background:#b3261e; color:#fff;">Reiniciar datos</button>
+              </div>
+            </div>
+          </div>
+        </div>
         ` : ""}
       `;
       document.getElementById("btnNuevo").addEventListener("click", abrirModal);
@@ -37,6 +60,14 @@ const usuario = renderShell("usuarios", "Usuarios");
         document.getElementById("btnVerEstado").addEventListener("click", cargarEstadoAuditoria);
         document.getElementById("btnPurgar").addEventListener("click", purgarAuditoria);
         cargarEstadoAuditoria();
+
+        const inputConfirmacion = document.getElementById("confirmacionReinicio");
+        const btnReiniciar = document.getElementById("btnReiniciar");
+        inputConfirmacion.addEventListener("input", () => {
+          btnReiniciar.disabled = inputConfirmacion.value.trim() !== "REINICIAR";
+        });
+        btnReiniciar.addEventListener("click", reiniciarDatos);
+        cargarEstadoDatos();
       }
     }
 
@@ -92,7 +123,7 @@ const usuario = renderShell("usuarios", "Usuarios");
       return mapa[rol] || rol;
     }
 
-    // ---- Mantenimiento (solo admin) ----
+    // ---- Mantenimiento: purga de auditoría (solo admin) ----
     async function cargarEstadoAuditoria() {
       const cont = document.getElementById("estadoAuditoria");
       if (!cont) return;
@@ -137,6 +168,54 @@ const usuario = renderShell("usuarios", "Usuarios");
       } finally {
         btn.disabled = false;
         btn.textContent = "Purgar auditoría (>3 días)";
+      }
+    }
+
+    // ---- Zona de peligro: reinicio de datos (solo admin) ----
+    async function cargarEstadoDatos() {
+      const cont = document.getElementById("estadoDatos");
+      if (!cont) return;
+      cont.className = "cargando";
+      cont.textContent = "Consultando estado…";
+      try {
+        const data = await RAC.get("/api/mantenimiento/estado-datos");
+        cont.className = "";
+        cont.innerHTML = `
+          <table>
+            <tbody>
+              <tr><td>RAC</td><td><strong>${data.rac.toLocaleString("es-VE")}</strong> registros</td></tr>
+              <tr><td>Planteles</td><td><strong>${data.planteles.toLocaleString("es-VE")}</strong> registros</td></tr>
+              <tr><td>Nómina (personal_ministerio)</td><td><strong>${data.personal_ministerio.toLocaleString("es-VE")}</strong> registros</td></tr>
+              <tr><td>Alertas</td><td><strong>${data.alertas.toLocaleString("es-VE")}</strong> registros</td></tr>
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        cont.className = "vacio";
+        cont.innerHTML = `<strong>No se pudo consultar el estado</strong>${err.message}`;
+      }
+    }
+
+    async function reiniciarDatos() {
+      const ok = window.confirm(
+        "Esto borrará de forma DEFINITIVA e IRREVERSIBLE todos los registros de RAC, Planteles, Nómina y Alertas. No hay forma de deshacer esto. ¿Confirmas que quieres continuar?"
+      );
+      if (!ok) return;
+
+      const btn = document.getElementById("btnReiniciar");
+      const input = document.getElementById("confirmacionReinicio");
+      btn.disabled = true;
+      btn.textContent = "Reiniciando…";
+      try {
+        const data = await RAC.post("/api/mantenimiento/reiniciar-datos", { confirmacion: "REINICIAR" });
+        mostrarToast(data.mensaje);
+        input.value = "";
+        cargarEstadoDatos();
+      } catch (err) {
+        mostrarToast(err.message, true);
+      } finally {
+        btn.textContent = "Reiniciar datos";
+        btn.disabled = input.value.trim() !== "REINICIAR";
       }
     }
 
