@@ -3,6 +3,15 @@ let registroEnEdicion = null;
 
 if (usuario) dibujarPanel();
 
+// MEJORA 6 (2026-09-07): si se llega desde el botón "Revisar" de la bandeja
+// de Alertas (/rac.html?cedula=...), precarga esa cédula en el buscador y
+// dispara la búsqueda sola, para no obligar al usuario a volver a escribirla.
+const cedulaDesdeUrl = new URLSearchParams(window.location.search).get("cedula");
+if (cedulaDesdeUrl) {
+  document.getElementById("cedulaBusqueda").value = cedulaDesdeUrl;
+  document.getElementById("formBuscar").requestSubmit();
+}
+
 function dibujarPanel() {
   document.getElementById("contenido").innerHTML = `
     <div class="panel">

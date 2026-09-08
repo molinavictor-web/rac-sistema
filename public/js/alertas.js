@@ -89,16 +89,40 @@ const usuario = renderShell("alertas", "Alertas");
       });
     }
 
+    // MEJORA 6 (2026-09-07): todo tipo de alerta pendiente ahora tiene un
+    // botón "Revisar" que lleva a la acción que corresponda:
+    //  - "plantel_no_existe" / "fila_incompleta": la fila nunca llegó a
+    //    insertarse en el RAC -- la única forma real de resolverla es dando
+    //    de alta el registro (abre el modal de alta, MEJORA 5/6).
+    //  - el resto de tipos son sobre un registro que YA existe en el RAC
+    //    (se insertó o actualizó igual, o es un aviso sobre uno existente)
+    //    -- "Revisar" lleva a verlo/editarlo en "Consultar RAC" con la
+    //    cédula ya precargada.
+    const TIPOS_ALTA_MANUAL = ["plantel_no_existe", "fila_incompleta"];
+    const TIPOS_VER_EN_RAC = [
+      "cedula_no_existe_nomina",
+      "no_existe_ministerio",
+      "valor_fuera_de_rango",
+      "horas_invalidas",
+      "registro_actualizado",
+      "registro_no_encontrado_en_carga",
+      "incongruencia_tipo_personal",
+    ];
+
     function accionesFila(a) {
       if (a.estado !== "pendiente") return "";
 
-      // Las alertas "plantel_no_existe" no se pueden marcar resueltas a
-      // secas -- esa fila nunca llegó a insertarse en el RAC, así que la
-      // única forma real de resolverla es dando de alta el registro
-      // (botón "Revisar", MEJORA 5). Sí se puede descartar, si aplica.
-      if (a.tipo === "plantel_no_existe") {
+      if (TIPOS_ALTA_MANUAL.includes(a.tipo)) {
         return `
           <button class="btn btn-primario btn-sm" data-revisar="${a.id}">Revisar</button>
+          <button class="btn btn-fantasma btn-sm" data-id="${a.id}" data-accion="descartado">Descartar</button>
+        `;
+      }
+
+      if (TIPOS_VER_EN_RAC.includes(a.tipo) && a.cedula) {
+        return `
+          <a class="btn btn-primario btn-sm" href="/rac.html?cedula=${encodeURIComponent(a.cedula)}">Revisar</a>
+          <button class="btn btn-fantasma btn-sm" data-id="${a.id}" data-accion="resuelto">Marcar resuelta</button>
           <button class="btn btn-fantasma btn-sm" data-id="${a.id}" data-accion="descartado">Descartar</button>
         `;
       }
@@ -136,6 +160,7 @@ const usuario = renderShell("alertas", "Alertas");
         no_existe_ministerio: "No está en nómina del Ministerio",
         cedula_no_existe_nomina: "No está en nómina del Ministerio",
         plantel_no_existe: "Plantel no existe",
+        fila_incompleta: "Fila incompleta (sin cédula y/o plantel)",
         horas_invalidas: "Horas fuera de rango",
         valor_fuera_de_rango: "Valor fuera de rango",
         registro_actualizado: "Registro actualizado",
@@ -145,10 +170,11 @@ const usuario = renderShell("alertas", "Alertas");
       return mapa[tipo] || tipo || "—";
     }
 
-    // ---- Modal de alta manual (MEJORA 5) ----
+    // ---- Modal de alta manual (MEJORA 5, ampliado en MEJORA 6) ----
     const modalAltaFondo = document.getElementById("modalAltaFondo");
     const formAlta = document.getElementById("formAlta");
     const errorModalAlta = document.getElementById("errorModalAlta");
+    const alCedula = document.getElementById("alCedula");
 
     function abrirAlta(alerta) {
       if (!alerta) return;
@@ -156,8 +182,21 @@ const usuario = renderShell("alertas", "Alertas");
       errorModalAlta.classList.remove("visible");
 
       const fila = alerta.detalle_fila || {};
+      // MEJORA 6: en "fila_incompleta" la cédula puede faltar del todo --
+      // en ese caso se deja editable para completarla a mano. Para
+      // "plantel_no_existe" (y "fila_incompleta" cuando sí traía cédula,
+      // solo le faltaba el plantel) se mantiene bloqueada como antes.
+      const faltaCedula = Array.isArray(fila.camposFaltantes) && fila.camposFaltantes.includes("CEDULA");
+      if (faltaCedula) {
+        alCedula.disabled = false;
+        alCedula.value = "";
+        alCedula.placeholder = "Escribe la cédula (no venía en el archivo)";
+      } else {
+        alCedula.disabled = true;
+        alCedula.placeholder = "";
+        alCedula.value = alerta.cedula || "";
+      }
 
-      document.getElementById("alCedula").value = alerta.cedula || "";
       document.getElementById("alCodigoPlantel").value = "";
       document.getElementById("alCodigoIntentadoHint").textContent = fila.codigo_plantel_intentado
         ? `Código que venía en el archivo (no existe en el catálogo): ${fila.codigo_plantel_intentado}`
@@ -177,6 +216,11 @@ const usuario = renderShell("alertas", "Alertas");
     function cerrarAlta() {
       modalAltaFondo.classList.remove("visible");
       alertaEnAlta = null;
+      // Deja el campo cédula en su estado por defecto para la próxima vez
+      // que se abra el modal (evita que quede editable si la última
+      // revisión fue una fila_incompleta sin cédula).
+      alCedula.disabled = true;
+      alCedula.placeholder = "";
     }
 
     document.getElementById("btnCancelarAlta").addEventListener("click", cerrarAlta);
@@ -203,6 +247,20 @@ const usuario = renderShell("alertas", "Alertas");
         horas_adm: horasAdm === "" ? null : Number(horasAdm),
         situacion: document.getElementById("alSituacion").value.trim() || null,
       };
+
+      // MEJORA 6: si la cédula estaba editable (fila_incompleta sin cédula),
+      // se manda la corregida en el body.
+      if (!alCedula.disabled) {
+        const cedulaCorregida = alCedula.value.trim();
+        if (!cedulaCorregida) {
+          errorModalAlta.textContent = "Debes escribir la cédula.";
+          errorModalAlta.classList.add("visible");
+          btn.disabled = false;
+          btn.textContent = "Dar de alta";
+          return;
+        }
+        datos.cedula = cedulaCorregida;
+      }
 
       try {
         await RAC.post(`/api/rac/resolver-alta/${alertaEnAlta.id}`, datos);
