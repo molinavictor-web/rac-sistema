@@ -1,6 +1,11 @@
 const usuario = renderShell("alertas", "Alertas");
     let todasLasAlertas = [];
     let filtroActual = "pendiente";
+    // MEJORA 7 (2026-09-07): filtro por tipo de alerta, aplicado en el
+    // navegador sobre lo que ya trajo el filtro de estado (no hace falta
+    // pedirle esto al backend -- la cantidad de alertas cargadas de una vez
+    // es manejable). "todos" no filtra nada.
+    let filtroTipo = "todos";
     let alertaEnAlta = null;
 
     if (usuario) dibujarPanel();
@@ -41,6 +46,16 @@ const usuario = renderShell("alertas", "Alertas");
                 <option value="descartado">Descartadas</option>
                 <option value="todas">Todas</option>
               </select>
+              <select id="filtroTipo">
+                <option value="todos">Todos los tipos</option>
+                <option value="plantel_no_existe">Plantel no existe</option>
+                <option value="fila_incompleta">Fila incompleta (sin cédula/plantel)</option>
+                <option value="cedula_no_existe_nomina">No está en nómina del Ministerio</option>
+                <option value="valor_fuera_de_rango">Valor fuera de rango</option>
+                <option value="registro_actualizado">Registro actualizado</option>
+                <option value="registro_no_encontrado_en_carga">No encontrado en la última carga</option>
+                <option value="incongruencia_tipo_personal">Incongruencia de tipo de personal</option>
+              </select>
             </div>
           </div>
           <div id="tablaAlertas"></div>
@@ -51,12 +66,19 @@ const usuario = renderShell("alertas", "Alertas");
         filtroActual = e.target.value;
         cargarAlertas();
       });
+      document.getElementById("filtroTipo").value = filtroTipo;
+      document.getElementById("filtroTipo").addEventListener("change", (e) => {
+        filtroTipo = e.target.value;
+        dibujarTabla();
+      });
       cargarAlertas();
     }
 
     function dibujarTabla() {
       const cont = document.getElementById("tablaAlertas");
-      const items = todasLasAlertas;
+      const items = filtroTipo === "todos"
+        ? todasLasAlertas
+        : todasLasAlertas.filter((a) => a.tipo === filtroTipo);
 
       if (!items.length) {
         cont.innerHTML = `<div class="vacio"><strong>No hay alertas en esta vista</strong>Cambia el filtro para ver otras.</div>`;
