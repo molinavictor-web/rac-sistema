@@ -23,6 +23,21 @@ const router = express.Router();
  *  - Respuesta ahora es { alertas, total } en vez del arreglo plano -- el
  *    frontend ya soporta ambas formas (RAC.lista busca la clave "alertas"
  *    si no es un arreglo directo), así que esto no rompe nada existente.
+ *
+ * MEJORA 8 (2026-09-09):
+ *  - La tabla `alertas` solo guarda la cédula, nunca nombre/apellido -- la
+ *    bandeja se veía como una lista de números sin contexto de a quién
+ *    corresponde cada fila. Se completan `nombres`/`apellidos` por cédula,
+ *    cruzando primero contra `personal_ministerio` (fuente principal) y,
+ *    si la cédula no aparece ahí (ej. alertas "cedula_no_existe_nomina"),
+ *    contra `rac` como respaldo.
+ *  - IMPORTANTE: esto se hace con un mapa en memoria (2 consultas extra,
+ *    una vez, con las cédulas ya deduplicadas) y NO con un JOIN directo a
+ *    estas tablas en la consulta principal -- una cédula puede tener varias
+ *    filas en `rac` (docentes con varios planteles), y un JOIN ahí
+ *    duplicaría cada alerta de esa cédula una vez por cada fila suya en
+ *    `rac`. `personal_ministerio` sí es 1 fila por cédula, pero se optó
+ *    por el mismo patrón en ambas para mantenerlo consistente.
  */
 router.get("/", requireAuth, async (req, res) => {
   const estadoParam = req.query.estado;
@@ -52,7 +67,46 @@ router.get("/", requireAuth, async (req, res) => {
      ORDER BY a.creado_en DESC`,
     valores
   );
-  res.json({ alertas: rows, total: rows.length });
+
+  // MEJORA 8: completa nombres/apellidos por cédula (ver nota arriba).
+  const cedulas = [...new Set(rows.map((a) => a.cedula).filter(Boolean))];
+  const mapaNombres = new Map();
+  if (cedulas.length) {
+    const nominaRes = await pool.query(
+      `SELECT cedula, nombres, apellidos FROM personal_ministerio WHERE cedula = ANY($1)`,
+      [cedulas]
+    );
+    for (const fila of nominaRes.rows) {
+      mapaNombres.set(fila.cedula, { nombres: fila.nombres, apellidos: fila.apellidos });
+    }
+
+    const cedulasSinNomina = cedulas.filter((c) => !mapaNombres.has(c));
+    if (cedulasSinNomina.length) {
+      // DISTINCT ON (cedula) para no traer más de una fila por cédula aunque
+      // esa cédula tenga varios registros en rac (docentes multi-plantel).
+      const racRes = await pool.query(
+        `SELECT DISTINCT ON (cedula) cedula, nombres, apellidos
+         FROM rac
+         WHERE cedula = ANY($1)
+         ORDER BY cedula, actualizado_en DESC`,
+        [cedulasSinNomina]
+      );
+      for (const fila of racRes.rows) {
+        mapaNombres.set(fila.cedula, { nombres: fila.nombres, apellidos: fila.apellidos });
+      }
+    }
+  }
+
+  const alertasConNombre = rows.map((a) => {
+    const datos = mapaNombres.get(a.cedula);
+    return {
+      ...a,
+      nombres: datos ? datos.nombres : null,
+      apellidos: datos ? datos.apellidos : null,
+    };
+  });
+
+  res.json({ alertas: alertasConNombre, total: alertasConNombre.length });
 });
 /**
  * PATCH /api/alertas/:id
@@ -79,3 +133,4 @@ router.patch("/:id", requireAuth, requireRol("operador", "admin"), async (req, r
   res.json(resultado);
 });
 module.exports = router;
+
