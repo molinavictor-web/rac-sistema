@@ -140,6 +140,7 @@ const usuario = renderShell("alertas", "Alertas");
       const filas = items.map((a) => `
         <tr>
           <td><span class="cod">${a.cedula || "—"}</span></td>
+          <td>${[a.nombres, a.apellidos].filter(Boolean).join(" ") || "—"}</td>
           <td>${etiquetaTipo(a.tipo)}</td>
           <td>${a.detalle || "—"}</td>
           <td>${badgeEstado(a.estado)}</td>
@@ -149,7 +150,7 @@ const usuario = renderShell("alertas", "Alertas");
 
       cont.innerHTML = `
         <table>
-          <thead><tr><th>Cédula</th><th>Tipo</th><th>Detalle</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Cédula</th><th>Nombre y Apellido</th><th>Tipo</th><th>Detalle</th><th>Estado</th><th></th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
       `;
