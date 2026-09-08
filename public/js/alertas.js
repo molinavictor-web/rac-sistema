@@ -25,6 +25,7 @@ const usuario = renderShell("alertas", "Alertas");
         const query = filtroActual === "todas" ? "" : `?estado=${encodeURIComponent(filtroActual)}`;
         const resp = await RAC.get(`/api/alertas${query}`);
         todasLasAlertas = RAC.lista(resp, "alertas");
+        pintarResumenTipos();
         dibujarTabla();
       } catch (err) {
         const destino = document.getElementById("tablaAlertas") || contenido;
@@ -58,6 +59,7 @@ const usuario = renderShell("alertas", "Alertas");
               </select>
             </div>
           </div>
+          <div id="resumenTipos" style="margin:12px 0;"></div>
           <div id="tablaAlertas"></div>
         </div>
       `;
@@ -69,9 +71,55 @@ const usuario = renderShell("alertas", "Alertas");
       document.getElementById("filtroTipo").value = filtroTipo;
       document.getElementById("filtroTipo").addEventListener("change", (e) => {
         filtroTipo = e.target.value;
+        pintarResumenTipos();
         dibujarTabla();
       });
       cargarAlertas();
+    }
+
+    // MEJORA 7 (2026-09-07): resumen de cantidades por tipo, sobre lo que
+    // trajo el filtro de estado actual (ej. en "Pendientes", cuántas
+    // pendientes hay de cada tipo). Cada chip es clicable y actúa como
+    // atajo del combo "filtroTipo" -- clic de nuevo sobre el ya activo lo
+    // quita (vuelve a "todos").
+    function pintarResumenTipos() {
+      const cont = document.getElementById("resumenTipos");
+      if (!cont) return;
+      if (!todasLasAlertas.length) {
+        cont.innerHTML = "";
+        return;
+      }
+
+      const conteos = {};
+      for (const a of todasLasAlertas) {
+        conteos[a.tipo] = (conteos[a.tipo] || 0) + 1;
+      }
+
+      const chips = Object.entries(conteos)
+        .sort((a, b) => b[1] - a[1])
+        .map(([tipo, cantidad]) => `
+          <button type="button" class="badge ${filtroTipo === tipo ? "badge-pendiente" : "badge-descartado"}"
+                  data-chip-tipo="${tipo}" style="cursor:pointer; border:none;">
+            ${etiquetaTipo(tipo)}: <strong>${cantidad}</strong>
+          </button>
+        `).join(" ");
+
+      cont.innerHTML = `
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+          <span style="color:var(--tinta-suave); font-size:0.85rem;">Total: <strong>${todasLasAlertas.length}</strong></span>
+          ${chips}
+        </div>
+      `;
+
+      cont.querySelectorAll("[data-chip-tipo]").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const tipo = chip.dataset.chipTipo;
+          filtroTipo = filtroTipo === tipo ? "todos" : tipo;
+          document.getElementById("filtroTipo").value = filtroTipo;
+          pintarResumenTipos();
+          dibujarTabla();
+        });
+      });
     }
 
     function dibujarTabla() {
