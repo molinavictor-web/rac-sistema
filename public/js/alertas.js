@@ -22,7 +22,11 @@ const usuario = renderShell("alertas", "Alertas");
       if (tabla) tabla.innerHTML = `<div class="cargando">Cargando alertas…</div>`;
       else contenido.innerHTML = `<div class="cargando">Cargando alertas…</div>`;
       try {
-        const query = filtroActual === "todas" ? "" : `?estado=${encodeURIComponent(filtroActual)}`;
+        // MEJORA 7: antes se omitía el parámetro para "todas" y el backend
+        // interpretaba la ausencia como "pendiente" -- ahora se manda el
+        // valor literal "todas" y el backend sabe que significa "sin
+        // filtro de estado".
+        const query = `?estado=${encodeURIComponent(filtroActual)}`;
         const resp = await RAC.get(`/api/alertas${query}`);
         todasLasAlertas = RAC.lista(resp, "alertas");
         pintarResumenTipos();
