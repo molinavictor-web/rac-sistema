@@ -256,16 +256,11 @@ router.post(
           const cedula = limpiar(cols[idx.cedula]);
           const codigoPlantelArchivo = limpiar(cols[idx.codigoPlantel]);
 
-          if (!cedula || !codigoPlantelArchivo) {
-            filasConError++;
-            continue;
-          }
-
-          // MEJORA 5: el objeto `nuevo` se arma ANTES de validar si el
-          // plantel existe (antes se armaba después), para poder guardar la
-          // fila completa en la alerta "plantel_no_existe" y así precargar
-          // el formulario de alta manual con todos los datos, no solo la
-          // cédula.
+          // MEJORA 6 (2026-09-07): `nuevo` se arma AQUÍ, antes de chequear si
+          // falta cédula/plantel (antes se armaba después), para que la
+          // alerta "fila_incompleta" también pueda guardar la fila completa
+          // y editable en detalle_fila -- igual que ya hace "plantel_no_existe" --
+          // en vez de solo la línea cruda del CSV.
           const nuevo = {
             codigo_dependencia: limpiar(cols[idx.codigoDependencia]),
             codigo_cargo: limpiar(cols[idx.codigoRac]),
@@ -293,6 +288,27 @@ router.post(
             edad: limpiar(cols[idx.edad]),
             comparativa: limpiar(cols[idx.comparativa]),
           };
+
+          if (!cedula || !codigoPlantelArchivo) {
+            // MEJORA 6 (2026-09-07): antes esta fila se descartaba en
+            // silencio (solo sumaba a filasConError, sin dejar rastro de
+            // cuál era ni por qué). Ahora se genera una alerta trazable,
+            // con la fila ya parseada (editable desde el modal de alta) y
+            // la línea cruda como respaldo.
+            const camposFaltantes = [];
+            if (!cedula) camposFaltantes.push('CEDULA');
+            if (!codigoPlantelArchivo) camposFaltantes.push('CODIGO DEL PLANTEL');
+            await insertarAlerta(
+              client,
+              'fila_incompleta',
+              cedula || '(sin cédula)',
+              `Fila del archivo sin ${camposFaltantes.join(' y ')} — no se pudo procesar`,
+              { ...nuevo, codigo_plantel_intentado: codigoPlantelArchivo, camposFaltantes, filaCruda: lineas[i] }
+            );
+            alertasGeneradas++;
+            filasConError++;
+            continue;
+          }
 
           const plantelId = mapaPlanteles.get(codigoPlantelArchivo);
 

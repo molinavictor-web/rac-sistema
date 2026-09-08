@@ -557,28 +557,32 @@ router.post("/", requireAuth, requireRol("operador", "admin"), async (req, res) 
  * rechazan sin insertarse, solo queda la alerta con el detalle completo de
  * la fila en `alertas.detalle_fila`).
  *
- * Body esperado: { codigo_plantel, ...camposEditados } -- el frontend
- * precarga el formulario con `detalle_fila` y el usuario corrige el código
- * de plantel (con el autocomplete de /api/planteles) más lo que haga falta;
- * solo hay que enviar los campos que el usuario efectivamente tocó, el resto
- * se completa con lo que ya traía `detalle_fila`.
+ * MEJORA 6 (2026-09-07): ahora también resuelve alertas "fila_incompleta"
+ * (filas del archivo a las que les faltaba la cédula y/o el código de
+ * plantel). Para ese tipo, si la alerta no tenía cédula real (se guardó con
+ * el placeholder "(sin cédula)"), el body PUEDE traer `cedula` con la
+ * corregida a mano en el modal -- para "plantel_no_existe" la cédula sigue
+ * sin ser editable, siempre se usa la de la alerta original.
  *
- * La cédula NUNCA se toma del body -- siempre la de la alerta original, por
- * la misma razón que en el PATCH normal (identifica al trabajador, no es
- * editable aquí).
+ * Body esperado: { codigo_plantel, cedula?, ...camposEditados } -- el
+ * frontend precarga el formulario con `detalle_fila` y el usuario corrige
+ * el código de plantel (con el autocomplete de /api/planteles), la cédula
+ * si hacía falta, más lo que haga falta; solo hay que enviar los campos que
+ * el usuario efectivamente tocó, el resto se completa con lo que ya traía
+ * `detalle_fila`.
  *
  * nombres/apellidos: se completan automáticamente consultando
- * personal_ministerio por la cédula de la alerta, igual que en el alta
- * manual desde "Consultar RAC" -- detalle_fila trae la fila cruda del CSV
- * rechazado, que no tiene estas columnas separadas.
+ * personal_ministerio por la cédula final -- detalle_fila trae la fila
+ * cruda del CSV rechazado, que no tiene estas columnas separadas.
  *
  * Al completar el alta:
- *  1. Se valida el código de plantel corregido contra el catálogo maestro.
- *  2. Se hace el INSERT en `rac` combinando detalle_fila + lo enviado en el
+ *  1. Se determina la cédula final (ver arriba) y se valida que exista.
+ *  2. Se valida el código de plantel corregido contra el catálogo maestro.
+ *  3. Se hace el INSERT en `rac` combinando detalle_fila + lo enviado en el
  *     body (el body gana si un campo viene en ambos).
- *  3. Si la cédula no existe en personal_ministerio, se genera la alerta
+ *  4. Si la cédula no existe en personal_ministerio, se genera la alerta
  *     "cedula_no_existe_nomina" (mismo comportamiento que la carga normal).
- *  4. La alerta original se marca 'resuelta' automáticamente (decisión del
+ *  5. La alerta original se marca 'resuelta' automáticamente (decisión del
  *     usuario), todo dentro de la misma transacción.
  */
 const CAMPOS_RAC_EDITABLES = [
@@ -624,12 +628,23 @@ router.post(
     try {
       const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
         const alertaRes = await client.query(
-          `SELECT * FROM alertas WHERE id = $1 AND tipo = 'plantel_no_existe' AND estado = 'pendiente'`,
+          `SELECT * FROM alertas WHERE id = $1 AND tipo IN ('plantel_no_existe', 'fila_incompleta') AND estado = 'pendiente'`,
           [alertaId]
         );
         const alerta = alertaRes.rows[0];
         if (!alerta) {
-          return { error: "No se encontró una alerta pendiente de tipo plantel_no_existe con ese id." };
+          return { error: "No se encontró una alerta pendiente de tipo plantel_no_existe o fila_incompleta con ese id." };
+        }
+
+        // MEJORA 6: para "fila_incompleta" la cédula puede venir corregida
+        // en el body (cuando la alerta original no tenía cédula real).
+        // Para "plantel_no_existe" se sigue usando siempre la de la alerta.
+        let cedula = alerta.cedula;
+        if (alerta.tipo === "fila_incompleta" && req.body.cedula) {
+          cedula = String(req.body.cedula).trim().replace(/^0+/, "");
+        }
+        if (!cedula || cedula === "(sin cédula)") {
+          return { error: "Falta indicar la cédula para poder dar de alta este registro." };
         }
 
         const plantelRes = await client.query(
@@ -640,7 +655,6 @@ router.post(
           return { error: `El código de plantel "${codigo_plantel}" tampoco existe en el catálogo maestro. Verifica el código.` };
         }
         const plantelId = plantelRes.rows[0].id;
-        const cedula = alerta.cedula;
 
         // Ya existe en rac esta cédula+plantel corregido? (caso borde: otra
         // carga o alta manual ya cubrió este registro mientras tanto)
