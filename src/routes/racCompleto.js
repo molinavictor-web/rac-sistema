@@ -221,7 +221,26 @@ router.post(
         // mismo, pero solo son 3 consultas en total, así que el costo extra
         // es mínimo frente al riesgo de correrlas en paralelo.
         const plantelesRes = await client.query('SELECT id, codigo_plantel FROM planteles');
-        const personalRes = await client.query('SELECT cedula, nombres, apellidos FROM personal_ministerio');
+        // FIX (2026-09-09): esta consulta antes traía TODA `personal_ministerio`
+        // (~789.559 filas) con cedula+nombres+apellidos, para poder sincronizar
+        // nombres/apellidos (Mejora 8). Eso reventó la memoria del proceso en
+        // Render ("JavaScript heap out of memory", 502) -- antes solo se traía
+        // la columna `cedula` (liviana), y agregar nombres/apellidos para las
+        // 789 mil filas multiplicó el uso de memoria varias veces.
+        // Se corrige acotando la consulta SOLO a las cédulas que vienen en
+        // ESTE pedazo del archivo (unas pocas miles, no 789 mil) -- es lo
+        // único que este pedazo puede llegar a necesitar.
+        const cedulasEnEstePedazo = [...new Set(
+          lineas.slice(1)
+            .map((linea) => limpiar(linea.split(';')[idx.cedula]))
+            .filter(Boolean)
+        )];
+        const personalRes = cedulasEnEstePedazo.length
+          ? await client.query(
+              'SELECT cedula, nombres, apellidos FROM personal_ministerio WHERE cedula = ANY($1)',
+              [cedulasEnEstePedazo]
+            )
+          : { rows: [] };
         const racRes = await client.query('SELECT * FROM rac');
 
         const mapaPlanteles = new Map(
