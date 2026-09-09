@@ -221,13 +221,20 @@ router.post(
         // mismo, pero solo son 3 consultas en total, así que el costo extra
         // es mínimo frente al riesgo de correrlas en paralelo.
         const plantelesRes = await client.query('SELECT id, codigo_plantel FROM planteles');
-        const personalRes = await client.query('SELECT cedula FROM personal_ministerio');
+        const personalRes = await client.query('SELECT cedula, nombres, apellidos FROM personal_ministerio');
         const racRes = await client.query('SELECT * FROM rac');
 
         const mapaPlanteles = new Map(
           plantelesRes.rows.map((p) => [p.codigo_plantel, p.id])
         );
-        const cedulasNomina = new Set(personalRes.rows.map((p) => p.cedula));
+        // MEJORA 8 (2026-09-09): antes era un Set (solo existencia). Ahora
+        // guarda también nombres/apellidos, porque la nómina del Ministerio
+        // es la fuente confiable (se exporta directo de su sistema) frente
+        // al RAC (armado a mano en Excel, más propenso a errores de dedo en
+        // la cédula) -- ver razonamiento completo más abajo, donde se usa.
+        const mapaNomina = new Map(
+          personalRes.rows.map((p) => [p.cedula, { nombres: p.nombres, apellidos: p.apellidos }])
+        );
         const mapaRac = new Map(
           racRes.rows.map((r) => [`${r.cedula}|${r.plantel_id}`, r])
         );
@@ -287,6 +294,13 @@ router.post(
             observacion: limpiar(cols[idx.observacion]),
             edad: limpiar(cols[idx.edad]),
             comparativa: limpiar(cols[idx.comparativa]),
+            // MEJORA 8 (2026-09-09): si la cédula está en la nómina del
+            // Ministerio, se traen sus nombres/apellidos aquí mismo (fuente
+            // confiable). Si no está, quedan en null -- el INSERT/UPDATE más
+            // abajo decide qué hacer con ese null (nunca sobrescribe lo que
+            // ya tuviera `rac` cuando no hay match).
+            nombres: mapaNomina.get(cedula)?.nombres ?? null,
+            apellidos: mapaNomina.get(cedula)?.apellidos ?? null,
           };
 
           if (!cedula || !codigoPlantelArchivo) {
@@ -339,6 +353,19 @@ router.post(
               huboCambioEnCampo(campo, existente[campo], nuevo[campo])
             );
 
+            // MEJORA 8 (2026-09-09): nombres/apellidos se sincronizan
+            // SIEMPRE que la cédula esté en la nómina (fuente confiable,
+            // autocorrige con el tiempo nombres que hayan quedado mal por
+            // errores de dedo en cargas anteriores), INDEPENDIENTE de si
+            // hubo cambios en camposComparables -- si no fuera así, una
+            // fila sin ningún otro cambio ese día nunca llegaría a
+            // corregir su nombre. Si la cédula NO está en la nómina, se
+            // deja tal cual lo que ya tenía `rac` (nunca se pisa con null
+            // ni se inventa nada) -- la alerta cedula_no_existe_nomina es
+            // la que avisa que hace falta revisar esa cédula a mano.
+            const nombresFinal = mapaNomina.has(cedula) ? nuevo.nombres : existente.nombres;
+            const apellidosFinal = mapaNomina.has(cedula) ? nuevo.apellidos : existente.apellidos;
+
             if (huboCambio) {
               await client.query(
                 `UPDATE rac SET
@@ -367,9 +394,11 @@ router.post(
                   observacion = $23,
                   edad = $24,
                   comparativa = $25,
+                  nombres = $26,
+                  apellidos = $27,
                   actualizado_en = now(),
                   visto_en = now()
-                 WHERE id = $26`,
+                 WHERE id = $28`,
                 [
                   nuevo.codigo_dependencia,
                   nuevo.codigo_cargo,
@@ -396,6 +425,8 @@ router.post(
                   nuevo.observacion,
                   nuevo.edad,
                   nuevo.comparativa,
+                  nombresFinal,
+                  apellidosFinal,
                   existente.id,
                 ]
               );
@@ -411,7 +442,19 @@ router.post(
 
               // Mantiene la copia en memoria al día por si la misma clave
               // vuelve a aparecer más adelante en el mismo archivo.
-              mapaRac.set(claveExistente, { ...existente, ...nuevo });
+              mapaRac.set(claveExistente, { ...existente, ...nuevo, nombres: nombresFinal, apellidos: apellidosFinal });
+            } else if (nombresFinal !== existente.nombres || apellidosFinal !== existente.apellidos) {
+              // MEJORA 8: no hubo cambios en los campos "normales", pero sí
+              // hace falta sincronizar nombres/apellidos desde la nómina
+              // (ver comentario arriba). Se aprovecha la misma consulta
+              // para marcar visto_en, igual que el caso sin cambios de
+              // abajo.
+              await client.query(
+                'UPDATE rac SET nombres = $1, apellidos = $2, visto_en = now() WHERE id = $3',
+                [nombresFinal, apellidosFinal, existente.id]
+              );
+              mapaRac.set(claveExistente, { ...existente, nombres: nombresFinal, apellidos: apellidosFinal });
+              sinCambios++;
             } else {
               // Aunque no hubo cambios en los datos, esta fila SÍ apareció en
               // la carga -- se marca visto_en para que /verificar-obsoletos
@@ -435,9 +478,9 @@ router.post(
                  horas_academicas, horas_adm, situacion, nivel, modalidad, ubicacion_geografica,
                  turnos_plantel, codigo_estadistico, fecha_ingreso, sexo, grado_imparte, seccion,
                  especialidad, anio, secciones, materia, periodo_grupo, observacion, edad, comparativa,
-                 actualizado_en, visto_en)
+                 nombres, apellidos, actualizado_en, visto_en)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                       $19, $20, $21, $22, $23, $24, $25, $26, $27, now(), now())
+                       $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, now(), now())
                RETURNING id`,
               [
                 cedula,
@@ -467,6 +510,8 @@ router.post(
                 nuevo.observacion,
                 nuevo.edad,
                 nuevo.comparativa,
+                nuevo.nombres,
+                nuevo.apellidos,
               ]
             );
             insertados++;
@@ -478,7 +523,7 @@ router.post(
               ...nuevo,
             });
 
-            if (!cedulasNomina.has(cedula)) {
+            if (!mapaNomina.has(cedula)) {
               await insertarAlerta(
                 client,
                 'cedula_no_existe_nomina',
