@@ -154,6 +154,16 @@ router.post(
         }
       }
 
+      // MEJORA 8b (2026-09-09): el archivo real del RAC trae una columna
+      // "NOMBRE Y APELLIDO" que hasta ahora nunca se leía -- todo el nombre
+      // dependía solo del cruce contra la nómina del Ministerio, así que
+      // una cédula que no estuviera ahí se quedaba SIEMPRE sin nombre,
+      // aunque el archivo del RAC sí lo trajera escrito. Se lee aparte de
+      // `idx` (NO es obligatoria) para no romper cargas de archivos que no
+      // la traigan -- si no está, idxNombreApellido queda en -1 y
+      // simplemente no se usa.
+      const idxNombreApellido = encabezados.indexOf('NOMBRE Y APELLIDO');
+
       const camposComparables = [
         'codigo_dependencia',
         'codigo_cargo',
@@ -281,6 +291,11 @@ router.post(
 
           const cedula = limpiar(cols[idx.cedula]);
           const codigoPlantelArchivo = limpiar(cols[idx.codigoPlantel]);
+          // MEJORA 8b: valor crudo de "NOMBRE Y APELLIDO" tal como viene en
+          // esta fila del archivo (null si la columna no existe en este
+          // archivo, o si la celda viene vacía).
+          const nombreApellidoArchivo =
+            idxNombreApellido !== -1 ? limpiar(cols[idxNombreApellido]) : null;
 
           // MEJORA 6 (2026-09-07): `nuevo` se arma AQUÍ, antes de chequear si
           // falta cédula/plantel (antes se armaba después), para que la
@@ -315,10 +330,16 @@ router.post(
             comparativa: limpiar(cols[idx.comparativa]),
             // MEJORA 8 (2026-09-09): si la cédula está en la nómina del
             // Ministerio, se traen sus nombres/apellidos aquí mismo (fuente
-            // confiable). Si no está, quedan en null -- el INSERT/UPDATE más
-            // abajo decide qué hacer con ese null (nunca sobrescribe lo que
-            // ya tuviera `rac` cuando no hay match).
-            nombres: mapaNomina.get(cedula)?.nombres ?? null,
+            // más confiable, siempre manda si hay match).
+            // MEJORA 8b: si NO está en la nómina, se usa como respaldo la
+            // columna "NOMBRE Y APELLIDO" del propio archivo del RAC (menos
+            // confiable -- se escribe a mano -- pero mejor que dejarlo
+            // vacío). Se guarda todo en `nombres` (un solo campo de texto
+            // libre en el archivo, sin separar apellidos). Si tampoco hay
+            // nada ahí, queda en null -- el INSERT/UPDATE más abajo decide
+            // qué hacer con ese null (nunca sobrescribe con null lo que ya
+            // tuviera `rac` cuando no hay ningún match).
+            nombres: mapaNomina.get(cedula)?.nombres ?? nombreApellidoArchivo ?? null,
             apellidos: mapaNomina.get(cedula)?.apellidos ?? null,
           };
 
@@ -382,7 +403,16 @@ router.post(
             // deja tal cual lo que ya tenía `rac` (nunca se pisa con null
             // ni se inventa nada) -- la alerta cedula_no_existe_nomina es
             // la que avisa que hace falta revisar esa cédula a mano.
-            const nombresFinal = mapaNomina.has(cedula) ? nuevo.nombres : existente.nombres;
+            // MEJORA 8b: si la cédula está en la nómina, esa manda siempre
+            // (igual que antes). Si NO está, se usa el respaldo del propio
+            // archivo del RAC SOLO si el registro todavía no tenía nombre
+            // guardado -- así no se pisa una corrección manual hecha desde
+            // "Consultar RAC" con un valor menos confiable del archivo.
+            const nombresFinal = mapaNomina.has(cedula)
+              ? nuevo.nombres
+              : nombreApellidoArchivo && !existente.nombres
+              ? nombreApellidoArchivo
+              : existente.nombres;
             const apellidosFinal = mapaNomina.has(cedula) ? nuevo.apellidos : existente.apellidos;
 
             if (huboCambio) {
