@@ -86,6 +86,16 @@ async function insertarAlerta(client, tipo, cedula, detalle, detalleFila = null)
 // rac (clave cedula|plantel_id -> registro). Así el bucle por fila ya no
 // consulta la BD salvo para el INSERT/UPDATE final.
 //
+// MEJORA (2026-09-10): se agrega la tabla mapeo_codigos_plantel, precargada
+// en memoria igual que el catálogo de planteles. Antes de darse por vencido
+// con un código que no matchea, se revisa si ese código exacto tiene un
+// mapeo conocido (típicamente typos de un carácter en el código de plantel
+// del archivo fuente); si lo tiene, se usa el código correcto de forma
+// transparente y la fila se procesa normal, SIN generar la alerta
+// plantel_no_existe. El código real usado (ya corregido) es el que se
+// guarda en `rac.plantel_id` -- el archivo fuente sigue trayendo el código
+// viejo, pero eso ya no importa para futuras cargas del mismo archivo.
+//
 // COLUMNAS ADICIONALES (agregadas para soportar la exportación completa del
 // RAC en el mismo formato de carga): el archivo trae varias columnas que
 // antes se leían y se descartaban (NIVEL, MODALIDAD, UBICACION GEOGRAFICA,
@@ -223,14 +233,20 @@ router.post(
 
       const resultado = await conTransaccionAuditada(req.usuario.id, async (client) => {
         // --- Precarga en memoria (una sola consulta cada una) ---
-        // IMPORTANTE: estas 3 consultas van SECUENCIALES (await una por una),
+        // IMPORTANTE: estas consultas van SECUENCIALES (await una por una),
         // no en paralelo con Promise.all -- el driver "pg" no permite correr
         // varias queries a la vez sobre el mismo cliente/conexión (eso genera
         // "client.query() when the client is already executing a query",
         // y puede tumbar el proceso). Al ir secuenciales cada una tarda lo
-        // mismo, pero solo son 3 consultas en total, así que el costo extra
-        // es mínimo frente al riesgo de correrlas en paralelo.
+        // mismo, pero solo son unas pocas consultas en total, así que el
+        // costo extra es mínimo frente al riesgo de correrlas en paralelo.
         const plantelesRes = await client.query('SELECT id, codigo_plantel FROM planteles');
+        // MEJORA (2026-09-10): tabla de mapeo de códigos de plantel con
+        // errores conocidos (típicamente typos de un carácter), curada a
+        // mano por el usuario tras auditar las alertas plantel_no_existe.
+        const mapeoRes = await client.query(
+          'SELECT codigo_incorrecto, codigo_correcto FROM mapeo_codigos_plantel'
+        );
         // FIX (2026-09-09): esta consulta antes traía TODA `personal_ministerio`
         // (~789.559 filas) con cedula+nombres+apellidos, para poder sincronizar
         // nombres/apellidos (Mejora 8). Eso reventó la memoria del proceso en
@@ -255,6 +271,9 @@ router.post(
 
         const mapaPlanteles = new Map(
           plantelesRes.rows.map((p) => [p.codigo_plantel, p.id])
+        );
+        const mapaMapeoCodigos = new Map(
+          mapeoRes.rows.map((m) => [m.codigo_incorrecto, m.codigo_correcto])
         );
         // MEJORA 8 (2026-09-09): antes era un Set (solo existencia). Ahora
         // guarda también nombres/apellidos, porque la nómina del Ministerio
@@ -364,7 +383,18 @@ router.post(
             continue;
           }
 
-          const plantelId = mapaPlanteles.get(codigoPlantelArchivo);
+          // MEJORA (2026-09-10): si el código tal como viene en el archivo
+          // no matchea directo contra el catálogo, se revisa si existe un
+          // mapeo conocido para ese código exacto (typo curado a mano) antes
+          // de darse por vencido. Si lo hay, se usa el código correcto de
+          // forma transparente -- la fila se procesa como si el archivo
+          // hubiera traído el código bueno desde el principio.
+          let codigoPlantelUsado = codigoPlantelArchivo;
+          if (!mapaPlanteles.has(codigoPlantelUsado) && mapaMapeoCodigos.has(codigoPlantelUsado)) {
+            codigoPlantelUsado = mapaMapeoCodigos.get(codigoPlantelUsado);
+          }
+
+          const plantelId = mapaPlanteles.get(codigoPlantelUsado);
 
           if (plantelId === undefined) {
             // MEJORA 5: se guarda la fila completa (más el código de plantel
@@ -484,7 +514,7 @@ router.post(
                 client,
                 'registro_actualizado',
                 cedula,
-                `Se detectaron cambios en el registro del plantel ${codigoPlantelArchivo} para esta cédula (rac.id=${existente.id})`
+                `Se detectaron cambios en el registro del plantel ${codigoPlantelUsado} para esta cédula (rac.id=${existente.id})`
               );
               actualizados++;
               alertasGeneradas++;
