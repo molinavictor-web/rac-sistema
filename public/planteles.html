@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAC Monagas — Planteles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="shell"></div>
+
+  <!-- Modal: Nuevo plantel (alta manual) -->
+  <div class="modal-fondo" id="modalNuevoFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:4px;">Nuevo plantel</h2>
+      <p style="margin-bottom:16px; color: var(--texto-tenue, #667085); font-size: 0.9em;">
+        El código y los datos geográficos no se podrán modificar después de guardar — son la identidad del plantel (hay planteles con el mismo nombre en municipios distintos).
+      </p>
+      <div class="error-msg" id="errorModalNuevo"></div>
+      <form id="formNuevo">
+        <div class="campo">
+          <label for="nvCodigoPlantel">Código del plantel</label>
+          <input type="text" id="nvCodigoPlantel" placeholder="Ej. OD14231608" required>
+        </div>
+        <div class="campo">
+          <label for="nvNombre">Nombre / epónimo</label>
+          <input type="text" id="nvNombre" placeholder="Ej. Liceo Nacional Félix Armando Núñez Beaupertuy" required>
+        </div>
+        <div class="campo">
+          <label for="nvEstadoGeografico">Estado (geográfico)</label>
+          <input type="text" id="nvEstadoGeografico" placeholder="Ej. MONAGAS" required>
+        </div>
+        <div class="campo">
+          <label for="nvMunicipio">Municipio</label>
+          <input type="text" id="nvMunicipio" placeholder="Ej. ACOSTA" required>
+        </div>
+        <div class="campo">
+          <label for="nvParroquia">Parroquia</label>
+          <input type="text" id="nvParroquia" placeholder="Ej. CAPITAL ACOSTA" required>
+        </div>
+        <div class="campo">
+          <label for="nvDependencia">Tipo de dependencia</label>
+          <input type="text" id="nvDependencia" placeholder="Ej. Nacional, Estadal">
+        </div>
+        <div class="campo">
+          <label for="nvDenominacion">Denominación</label>
+          <input type="text" id="nvDenominacion">
+        </div>
+        <div class="campo">
+          <label for="nvDireccion">Dirección</label>
+          <input type="text" id="nvDireccion">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarNuevo">Guardar</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarNuevo">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Editar plantel -->
+  <div class="modal-fondo" id="modalEditarFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:4px;">Editar plantel</h2>
+      <div id="edContextoGeografico" style="margin-bottom:16px; padding:10px; background: var(--fondo-suave, #f5f5f5); border-radius:6px; font-size:0.85em; color: var(--texto-tenue, #667085);"></div>
+      <div class="error-msg" id="errorModalEditar"></div>
+      <form id="formEditar">
+        <div class="campo">
+          <label for="edNombre">Nombre / epónimo</label>
+          <input type="text" id="edNombre" required>
+        </div>
+        <div class="campo">
+          <label for="edDependencia">Tipo de dependencia</label>
+          <input type="text" id="edDependencia">
+        </div>
+        <div class="campo">
+          <label for="edDenominacion">Denominación</label>
+          <input type="text" id="edDenominacion">
+        </div>
+        <div class="campo">
+          <label for="edDireccion">Dirección</label>
+          <input type="text" id="edDireccion">
+        </div>
+        <div class="campo">
+          <label for="edEstado">Estado</label>
+          <select id="edEstado">
+            <option value="activo">Activo</option>
+            <option value="cerrado">Inactivo / Cerrado</option>
+          </select>
+        </div>
+        <div class="campo" id="edCampoFechaCierre" style="display:none;">
+          <label for="edFechaCierre">Fecha de cierre</label>
+          <input type="date" id="edFechaCierre">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarEditar">Guardar cambios</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarEditar">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/planteles.js"></script>
+</body>
+</html>
