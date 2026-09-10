@@ -12,6 +12,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
     { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
     { id: "planteles-carga", href: "/planteles-carga.html", label: "Cargar planteles", roles: ["admin"] },
+    { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
     { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador", "operador_credenciales"] },
     { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
   ];
