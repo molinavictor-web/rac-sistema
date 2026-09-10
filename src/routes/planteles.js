@@ -329,3 +329,197 @@ function parsearLineaCSV(linea, delimitador) {
 // (estados/municipios/parroquias). Si la fila no calza en algún nivel
 // de esa cadena, se rechaza como error (Opción B) y NO se inserta ni
 // actualiza el plantel.
+//
+// Comportamiento: UPSERT por codigo_plantel (no TRUNCATE), porque
+// planteles.id es referenciado por rac.plantel_id.
+router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.single('archivo'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No se recibió ningún archivo' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    // Decodificar el buffer como latin1 (ANSI), igual que personalMinisterio.js
+    const contenido = req.file.buffer.toString('latin1');
+    const lineas = contenido.split(/\r?\n/);
+
+    if (lineas.length < 2) {
+      return res.status(400).json({ error: 'El archivo no tiene datos' });
+    }
+
+    const delimitador = detectarDelimitador(lineas[0]);
+
+    // Descartar encabezado
+    const filasDatos = lineas.slice(1);
+
+    // Precargar el catálogo geográfico completo en memoria, en una
+    // sola consulta con los tres niveles ya unidos, para no consultar
+    // la BD por cada fila del archivo.
+    const { rows: catalogoRows } = await client.query(
+      `SELECT e.nombre AS estado, m.id AS municipio_id, m.nombre AS municipio,
+              pr.id AS parroquia_id, pr.nombre AS parroquia
+       FROM parroquias pr
+       JOIN municipios m ON m.id = pr.municipio_id
+       JOIN estados e ON e.id = m.estado_id`
+    );
+
+    // mapaEstados: clave estado -> true (solo para dar un mensaje de
+    // error específico si el estado ni siquiera existe)
+    const mapaEstados = new Set();
+    // mapaMunicipios: clave "ESTADO||MUNICIPIO" -> municipio_id
+    const mapaMunicipios = new Map();
+    // mapaParroquias: clave "MUNICIPIO_ID||PARROQUIA" -> parroquia_id
+    const mapaParroquias = new Map();
+
+    for (const fila of catalogoRows) {
+      const claveEstado = claveCatalogo(fila.estado);
+      mapaEstados.add(claveEstado);
+      mapaMunicipios.set(`${claveEstado}||${claveCatalogo(fila.municipio)}`, fila.municipio_id);
+      mapaParroquias.set(`${fila.municipio_id}||${claveCatalogo(fila.parroquia)}`, fila.parroquia_id);
+    }
+
+    let insertados = 0;
+    let actualizados = 0;
+    let filasConError = 0;
+    let lineasVaciasIgnoradas = 0;
+    const errores = [];
+
+    // Desactivar auditoría alrededor de la carga masiva (mismo patrón que personalMinisterio.js)
+    await client.query('BEGIN');
+    await client.query(`ALTER TABLE planteles DISABLE TRIGGER trg_auditoria_planteles`);
+
+    let lote = [];
+
+    async function procesarLote(lote) {
+      if (lote.length === 0) return;
+
+      const columnas = [
+        'codigo_plantel', 'nombre', 'municipio_id', 'dependencia',
+        'parroquia', 'parroquia_id', 'denominacion', 'direccion',
+        'estado_geografico', 'actualizado_en'
+      ];
+
+      const valores = [];
+      const placeholders = lote.map((fila, i) => {
+        const base = i * columnas.length;
+        valores.push(
+          fila.codigo_plantel, fila.nombre, fila.municipio_id, fila.dependencia,
+          fila.parroquia, fila.parroquia_id, fila.denominacion, fila.direccion,
+          fila.estado_geografico, new Date()
+        );
+        const nums = columnas.map((_, j) => `$${base + j + 1}`);
+        return `(${nums.join(', ')})`;
+      }).join(', ');
+
+      const sql = `
+        INSERT INTO planteles (${columnas.join(', ')})
+        VALUES ${placeholders}
+        ON CONFLICT (codigo_plantel) DO UPDATE SET
+          nombre = EXCLUDED.nombre,
+          municipio_id = EXCLUDED.municipio_id,
+          dependencia = EXCLUDED.dependencia,
+          parroquia = EXCLUDED.parroquia,
+          parroquia_id = EXCLUDED.parroquia_id,
+          denominacion = EXCLUDED.denominacion,
+          direccion = EXCLUDED.direccion,
+          estado_geografico = EXCLUDED.estado_geografico,
+          actualizado_en = EXCLUDED.actualizado_en
+        RETURNING (xmax = 0) AS es_insert
+      `;
+
+      const { rows } = await client.query(sql, valores);
+      for (const r of rows) {
+        if (r.es_insert) insertados++;
+        else actualizados++;
+      }
+    }
+
+    for (let i = 0; i < filasDatos.length; i++) {
+      const linea = filasDatos[i];
+
+      // Línea vacía o solo separadores (mismo problema que ya se vio en rac completo)
+      if (!linea || linea.split(delimitador).join('').trim().length === 0) {
+        lineasVaciasIgnoradas++;
+        continue;
+      }
+
+      const campos = parsearLineaCSV(linea, delimitador);
+      const [estadoGeografico, municipioTexto, parroquiaTexto, codPlantel, nombrePlantel, tipoDependencia, denominacion, direccion] = campos;
+
+      const codigoPlantelLimpio = normalizarTexto(codPlantel);
+      if (!codigoPlantelLimpio) {
+        filasConError++;
+        errores.push({ linea: i + 2, motivo: 'cod_plantel vacío' });
+        continue;
+      }
+
+      // Validación en cadena contra el catálogo maestro (Opción B):
+      // estado -> municipio dentro de ese estado -> parroquia dentro
+      // de ese municipio. Si algún nivel no existe, se rechaza la fila
+      // completa con un motivo específico de en qué nivel falló.
+      const claveEstado = claveCatalogo(estadoGeografico);
+      if (!mapaEstados.has(claveEstado)) {
+        filasConError++;
+        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `estado no existe en el catálogo: "${estadoGeografico}"` });
+        continue;
+      }
+
+      const municipioId = mapaMunicipios.get(`${claveEstado}||${claveCatalogo(municipioTexto)}`);
+      if (!municipioId) {
+        filasConError++;
+        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `municipio no existe en el catálogo para el estado "${estadoGeografico}": "${municipioTexto}"` });
+        continue;
+      }
+
+      const parroquiaId = mapaParroquias.get(`${municipioId}||${claveCatalogo(parroquiaTexto)}`);
+      if (!parroquiaId) {
+        filasConError++;
+        errores.push({ linea: i + 2, codigo_plantel: codigoPlantelLimpio, motivo: `parroquia no existe en el catálogo para el municipio "${municipioTexto}": "${parroquiaTexto}"` });
+        continue;
+      }
+
+      lote.push({
+        codigo_plantel: codigoPlantelLimpio,
+        nombre: normalizarTexto(nombrePlantel),
+        municipio_id: municipioId,
+        dependencia: normalizarTexto(tipoDependencia),
+        parroquia: normalizarTexto(parroquiaTexto),
+        parroquia_id: parroquiaId,
+        denominacion: normalizarTexto(denominacion),
+        direccion: normalizarTexto(direccion),
+        estado_geografico: normalizarTexto(estadoGeografico)
+      });
+
+      if (lote.length >= BATCH_SIZE) {
+        await procesarLote(lote);
+        lote = [];
+      }
+    }
+
+    // Procesar el último lote incompleto
+    await procesarLote(lote);
+
+    await client.query(`ALTER TABLE planteles ENABLE TRIGGER trg_auditoria_planteles`);
+    await client.query('COMMIT');
+
+    res.json({
+      mensaje: 'Carga de planteles completada',
+      delimitadorDetectado: delimitador,
+      insertados,
+      actualizados,
+      filasConError,
+      lineasVaciasIgnoradas,
+      errores: errores.slice(0, 50) // no devolver miles de errores si algo sale mal
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error en carga masiva de planteles:', error);
+    res.status(500).json({ error: 'Error al procesar el archivo', detalle: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+module.exports = router;
