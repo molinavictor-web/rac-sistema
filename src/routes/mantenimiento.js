@@ -4,18 +4,79 @@ const { pool } = require("../db/pool");
 const { requireAuth, requireRol } = require("../middleware/auth");
 
 /**
+ * GET /api/mantenimiento/exportar-auditoria
+ * Descarga un CSV con TODO el contenido actual de la tabla `auditoria`,
+ * sin borrar nada. Pensado para usarse justo antes de una purga completa,
+ * como respaldo manual (el usuario decide dónde guardar el archivo).
+ *
+ * Mismo formato que el resto del proyecto: separado por ";", codificado
+ * en latin1 (igual que las cargas/exportaciones del RAC), para que Excel
+ * en configuración regional en español lo abra bien.
+ *
+ * Protegido: solo usuarios con rol admin.
+ */
+router.get(
+  "/exportar-auditoria",
+  requireAuth,
+  requireRol("admin"),
+  async (req, res) => {
+    try {
+      const resultado = await pool.query(`SELECT * FROM auditoria ORDER BY fecha ASC`);
+      const filas = resultado.rows;
+
+      const escapar = (valor) => {
+        if (valor === null || valor === undefined) return "";
+        const texto = valor instanceof Date ? valor.toISOString() : String(valor);
+        // Si el valor trae el delimitador, comillas o saltos de línea,
+        // se envuelve entre comillas dobles (formato CSV estándar).
+        if (/[;"\n\r]/.test(texto)) {
+          return `"${texto.replace(/"/g, '""')}"`;
+        }
+        return texto;
+      };
+
+      let csv;
+      if (filas.length === 0) {
+        csv = "";
+      } else {
+        const columnas = Object.keys(filas[0]);
+        const encabezado = columnas.join(";");
+        const lineas = filas.map((fila) => columnas.map((c) => escapar(fila[c])).join(";"));
+        csv = [encabezado, ...lineas].join("\r\n");
+      }
+
+      const fechaArchivo = new Date().toISOString().slice(0, 10);
+      res.setHeader("Content-Type", "text/csv; charset=latin1");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="auditoria_backup_${fechaArchivo}.csv"`
+      );
+      res.send(Buffer.from(csv, "latin1"));
+    } catch (err) {
+      console.error("Error exportando auditoria:", err);
+      res.status(500).json({ error: "No se pudo exportar la tabla auditoria." });
+    }
+  }
+);
+
+/**
  * POST /api/mantenimiento/purgar-auditoria
- * Borra de forma DEFINITIVA los registros de la tabla `auditoria`
- * con más de N días de antigüedad (por defecto 3) y libera el
- * espacio en disco con VACUUM FULL.
+ * Borra de forma DEFINITIVA los registros de la tabla `auditoria`.
+ *
+ * Body opcional: { "dias": 3 }  -- purga solo lo más antiguo que N días
+ *                                  (comportamiento original, por defecto 3).
+ * Body opcional: { "dias": 0 }  -- MEJORA (2026-09-10): purga la tabla
+ *                                  COMPLETA, sin importar la antigüedad.
+ *                                  En este caso se usa TRUNCATE en vez de
+ *                                  DELETE + VACUUM FULL, porque TRUNCATE
+ *                                  libera el espacio en disco de inmediato
+ *                                  (más rápido y sin necesitar el VACUUM
+ *                                  aparte).
  *
  * Solo borrar filas (DELETE) NO reduce el tamaño físico de la tabla
  * en Postgres/Supabase -- el espacio queda "reservado" hasta que se
- * corre VACUUM. Por eso este endpoint hace las dos cosas en el mismo
+ * corre VACUUM. Por eso la purga parcial hace las dos cosas en el mismo
  * paso: DELETE + VACUUM FULL.
- *
- * Body opcional: { "dias": 3 }  -- por si algún día se quiere purgar
- * con otra ventana sin tener que tocar el código.
  *
  * Protegido: solo usuarios con rol admin.
  */
@@ -24,36 +85,48 @@ router.post(
   requireAuth,
   requireRol("admin"),
   async (req, res) => {
-    const dias = Number.isInteger(req.body?.dias) && req.body.dias > 0
-      ? req.body.dias
-      : 3;
+    const diasRecibidos = req.body?.dias;
+    // MEJORA (2026-09-10): dias=0 es la señal explícita de "purgar todo,
+    // sin filtro de antigüedad" -- se distingue de "no mandaron nada"
+    // (que sigue usando el valor por defecto de 3 días, comportamiento
+    // original sin cambios).
+    const purgarTodo = diasRecibidos === 0;
+    const dias = Number.isInteger(diasRecibidos) && diasRecibidos > 0 ? diasRecibidos : 3;
+
     const client = await pool.connect();
     try {
-      // 1) Contar cuánto se va a borrar, para informarlo en la respuesta
-      const conteo = await client.query(
-        `SELECT COUNT(*)::int AS total
-         FROM auditoria
-         WHERE fecha < NOW() - ($1 || ' days')::interval`,
-        [dias]
-      );
-      const registrosABorrar = conteo.rows[0].total;
-      // 2) Borrado directo (sin respaldo, según decisión del usuario)
-      await client.query(
-        `DELETE FROM auditoria
-         WHERE fecha < NOW() - ($1 || ' days')::interval`,
-        [dias]
-      );
-      // 3) VACUUM FULL no puede correr dentro de una transacción normal
-      //    ni con el mismo client si hay una transacción abierta -- se
-      //    ejecuta aparte, directo.
-      await client.query("VACUUM FULL auditoria");
-      // 4) Tamaño actual de la tabla ya liberado, para confirmarlo
+      let registrosABorrar;
+
+      if (purgarTodo) {
+        const conteo = await client.query(`SELECT COUNT(*)::int AS total FROM auditoria`);
+        registrosABorrar = conteo.rows[0].total;
+        await client.query(`TRUNCATE TABLE auditoria RESTART IDENTITY`);
+      } else {
+        const conteo = await client.query(
+          `SELECT COUNT(*)::int AS total
+           FROM auditoria
+           WHERE fecha < NOW() - ($1 || ' days')::interval`,
+          [dias]
+        );
+        registrosABorrar = conteo.rows[0].total;
+        await client.query(
+          `DELETE FROM auditoria
+           WHERE fecha < NOW() - ($1 || ' days')::interval`,
+          [dias]
+        );
+        // VACUUM FULL no puede correr dentro de una transacción normal
+        // ni con el mismo client si hay una transacción abierta -- se
+        // ejecuta aparte, directo.
+        await client.query("VACUUM FULL auditoria");
+      }
+
       const tamano = await client.query(
         `SELECT pg_size_pretty(pg_total_relation_size('auditoria')) AS tamano`
       );
       res.json({
         ok: true,
-        dias_retenidos: dias,
+        purgado_completo: purgarTodo,
+        dias_retenidos: purgarTodo ? 0 : dias,
         registros_borrados: registrosABorrar,
         tamano_actual: tamano.rows[0].tamano,
       });
