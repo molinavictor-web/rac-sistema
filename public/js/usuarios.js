@@ -19,12 +19,20 @@ const usuario = renderShell("usuarios", "Usuarios");
             <p style="margin-bottom:12px;">
               La tabla <code>auditoria</code> crece todos los días y puede llenar
               el espacio disponible de la base de datos. Los registros de más
-              de 3 días pueden borrarse de forma definitiva para liberar espacio.
+              de 3 días pueden borrarse de forma definitiva para liberar espacio,
+              o puedes purgar la tabla completa cuando quieras.
             </p>
             <div id="estadoAuditoria" class="cargando">Consultando estado…</div>
-            <div style="display:flex; gap:10px; margin-top:14px;">
-              <button class="btn btn-fantasma btn-sm" id="btnVerEstado">Actualizar estado</button>
-              <button class="btn btn-primario btn-sm" id="btnPurgar">Purgar auditoría (&gt;3 días)</button>
+            <div style="margin-top:14px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; margin-bottom:10px;">
+                <input type="checkbox" id="chkPurgarTodo">
+                Purgar TODO (sin importar la antigüedad de 3 días)
+              </label>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn btn-fantasma btn-sm" id="btnVerEstado">Actualizar estado</button>
+                <button class="btn btn-fantasma btn-sm" id="btnExportar">Descargar respaldo (CSV)</button>
+                <button class="btn btn-primario btn-sm" id="btnPurgar">Purgar auditoría (&gt;3 días)</button>
+              </div>
             </div>
           </div>
         </div>
@@ -58,6 +66,7 @@ const usuario = renderShell("usuarios", "Usuarios");
 
       if (usuario.rol === "admin") {
         document.getElementById("btnVerEstado").addEventListener("click", cargarEstadoAuditoria);
+        document.getElementById("btnExportar").addEventListener("click", exportarAuditoria);
         document.getElementById("btnPurgar").addEventListener("click", purgarAuditoria);
         cargarEstadoAuditoria();
 
@@ -155,17 +164,61 @@ const usuario = renderShell("usuarios", "Usuarios");
       }
     }
 
+    // MEJORA (2026-09-10): descarga un CSV de respaldo con toda la tabla
+    // auditoria ANTES de purgar. Como el endpoint exige el token de sesión
+    // (Authorization header), no se puede enlazar directo con <a href> --
+    // hay que pedirlo con fetch y armar la descarga a mano con un Blob.
+    async function exportarAuditoria() {
+      const btn = document.getElementById("btnExportar");
+      btn.disabled = true;
+      btn.textContent = "Generando respaldo…";
+      try {
+        const resp = await fetch("/api/mantenimiento/exportar-auditoria", {
+          headers: { Authorization: "Bearer " + RAC.getToken() },
+        });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => null);
+          throw new Error((data && data.error) || `Error ${resp.status}`);
+        }
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const fecha = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `auditoria_backup_${fecha}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        mostrarToast("Respaldo descargado.");
+      } catch (err) {
+        mostrarToast(err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Descargar respaldo (CSV)";
+      }
+    }
+
     async function purgarAuditoria() {
-      const ok = window.confirm(
-        "Esto borrará de forma DEFINITIVA todos los registros de auditoría con más de 3 días de antigüedad y no se pueden recuperar. ¿Continuar?"
-      );
+      // MEJORA (2026-09-10): si el checkbox "Purgar TODO" está marcado, se
+      // manda dias:0 (señal para el backend de "sin filtro de antigüedad")
+      // y se ajusta el mensaje de confirmación para que quede claro que
+      // esta vez se borra la tabla completa, no solo lo viejo.
+      const purgarTodo = document.getElementById("chkPurgarTodo").checked;
+      const mensajeConfirmacion = purgarTodo
+        ? "Esto borrará de forma DEFINITIVA TODA la tabla de auditoría (sin importar la antigüedad) y no se puede recuperar. ¿Continuar?\n\nSugerencia: usa \"Descargar respaldo (CSV)\" antes si quieres conservar una copia."
+        : "Esto borrará de forma DEFINITIVA todos los registros de auditoría con más de 3 días de antigüedad y no se pueden recuperar. ¿Continuar?";
+
+      const ok = window.confirm(mensajeConfirmacion);
       if (!ok) return;
 
       const btn = document.getElementById("btnPurgar");
       btn.disabled = true;
       btn.textContent = "Purgando…";
       try {
-        const data = await RAC.post("/api/mantenimiento/purgar-auditoria", {});
+        const data = await RAC.post("/api/mantenimiento/purgar-auditoria", {
+          dias: purgarTodo ? 0 : 3,
+        });
         mostrarToast(`Auditoría purgada: ${data.registros_borrados.toLocaleString("es-VE")} registros borrados. Tamaño actual: ${data.tamano_actual}.`);
         cargarEstadoAuditoria();
       } catch (err) {
