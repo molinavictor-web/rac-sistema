@@ -20,7 +20,7 @@ function dibujarPanel() {
       <div id="tablaPlanteles" style="margin-top:16px;"></div>
     </div>
   `;
-  document.getElementById("btnNuevoPlantel").addEventListener("click", abrirNuevo);
+  document.getElementById("btnNuevoPlantel").addEventListener("click", () => abrirNuevo());
   document.getElementById("formBuscar").addEventListener("submit", (e) => {
     e.preventDefault();
     buscarPlanteles();
@@ -90,9 +90,15 @@ const modalNuevoFondo = document.getElementById("modalNuevoFondo");
 const formNuevo = document.getElementById("formNuevo");
 const errorModalNuevo = document.getElementById("errorModalNuevo");
 
-function abrirNuevo() {
+// codigoPrefill: usado cuando se llega desde "Códigos sin catalogar" (botón
+// "Dar de alta") vía ?codigo_plantel=XXX en la URL -- ver precargarDesdeUrl
+// al final de este archivo.
+function abrirNuevo(codigoPrefill) {
   formNuevo.reset();
   errorModalNuevo.classList.remove("visible");
+  if (codigoPrefill) {
+    document.getElementById("nvCodigoPlantel").value = codigoPrefill;
+  }
   modalNuevoFondo.classList.add("visible");
 }
 
@@ -224,3 +230,16 @@ async function eliminarPlantel(plantel) {
     mostrarToast(err.message, true);
   }
 }
+
+// ---- Precarga desde "Códigos sin catalogar" (?codigo_plantel=XXX) ----
+// Se ejecuta al final, cuando ya existen dibujarPanel/abrirNuevo/los modales
+// del DOM. Limpia el query string después de abrir para que un refresh no
+// vuelva a abrir el modal solo.
+(function precargarDesdeUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const codigo = params.get("codigo_plantel");
+  if (codigo) {
+    abrirNuevo(codigo);
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+})();

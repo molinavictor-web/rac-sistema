@@ -8,6 +8,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
     { id: "exportar-rac", href: "/exportar-rac.html", label: "Exportar RAC", roles: ["admin", "operador"] },
     { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
+    { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
     { id: "cargas", href: "/cargas.html", label: "Cargar por muncipio", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
     { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
