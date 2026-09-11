@@ -2,8 +2,55 @@ const express = require("express");
 const { pool, conTransaccionAuditada } = require("../db/pool");
 const { requireAuth, requireRol } = require("../middleware/auth");
 const router = express.Router();
+
 /**
- * GET /api/alertas?estado=pendiente&tipo=no_existe_ministerio
+ * Completa nombres/apellidos para un arreglo de filas que tengan columna
+ * "cedula", cruzando primero contra personal_ministerio (fuente principal)
+ * y, si la cédula no aparece ahí, contra rac como respaldo.
+ *
+ * IMPORTANTE: esto se hace con un mapa en memoria (2 consultas extra, con
+ * las cédulas ya deduplicadas) y NO con un JOIN directo -- una cédula puede
+ * tener varias filas en `rac` (docentes con varios planteles), y un JOIN
+ * ahí duplicaría cada fila una vez por cada registro suyo en `rac`.
+ * `personal_ministerio` sí es 1 fila por cédula, pero se optó por el mismo
+ * patrón en ambas para mantenerlo consistente.
+ *
+ * Devuelve un Map cedula -> { nombres, apellidos }.
+ */
+async function completarNombres(filas) {
+  const cedulas = [...new Set(filas.map((f) => f.cedula).filter(Boolean))];
+  const mapaNombres = new Map();
+  if (!cedulas.length) return mapaNombres;
+
+  const nominaRes = await pool.query(
+    `SELECT cedula, nombres, apellidos FROM personal_ministerio WHERE cedula = ANY($1)`,
+    [cedulas]
+  );
+  for (const fila of nominaRes.rows) {
+    mapaNombres.set(fila.cedula, { nombres: fila.nombres, apellidos: fila.apellidos });
+  }
+
+  const cedulasSinNomina = cedulas.filter((c) => !mapaNombres.has(c));
+  if (cedulasSinNomina.length) {
+    // DISTINCT ON (cedula) para no traer más de una fila por cédula aunque
+    // esa cédula tenga varios registros en rac (docentes multi-plantel).
+    const racRes = await pool.query(
+      `SELECT DISTINCT ON (cedula) cedula, nombres, apellidos
+       FROM rac
+       WHERE cedula = ANY($1)
+       ORDER BY cedula, actualizado_en DESC`,
+      [cedulasSinNomina]
+    );
+    for (const fila of racRes.rows) {
+      mapaNombres.set(fila.cedula, { nombres: fila.nombres, apellidos: fila.apellidos });
+    }
+  }
+
+  return mapaNombres;
+}
+
+/**
+ * GET /api/alertas?estado=pendiente&tipo=no_existe_ministerio&detalle=CODIGO
  * Bandeja de alertas para el operador.
  *
  * MEJORA 7 (2026-09-07):
@@ -27,17 +74,18 @@ const router = express.Router();
  * MEJORA 8 (2026-09-09):
  *  - La tabla `alertas` solo guarda la cédula, nunca nombre/apellido -- la
  *    bandeja se veía como una lista de números sin contexto de a quién
- *    corresponde cada fila. Se completan `nombres`/`apellidos` por cédula,
- *    cruzando primero contra `personal_ministerio` (fuente principal) y,
- *    si la cédula no aparece ahí (ej. alertas "cedula_no_existe_nomina"),
- *    contra `rac` como respaldo.
- *  - IMPORTANTE: esto se hace con un mapa en memoria (2 consultas extra,
- *    una vez, con las cédulas ya deduplicadas) y NO con un JOIN directo a
- *    estas tablas en la consulta principal -- una cédula puede tener varias
- *    filas en `rac` (docentes con varios planteles), y un JOIN ahí
- *    duplicaría cada alerta de esa cédula una vez por cada fila suya en
- *    `rac`. `personal_ministerio` sí es 1 fila por cédula, pero se optó
- *    por el mismo patrón en ambas para mantenerlo consistente.
+ *    corresponde cada fila. Se completan `nombres`/`apellidos` por cédula
+ *    (ver helper completarNombres arriba).
+ *
+ * MEJORA "Códigos sin catalogar" (2026-09-11):
+ *  - Se agrega el parámetro opcional "detalle" para filtrar por el código
+ *    exacto de plantel -- lo usa la pantalla nueva "Códigos sin catalogar"
+ *    al hacer clic en "Ver detalle" de un código agrupado, reutilizando
+ *    esta misma ruta (con nombres ya resueltos) en vez de duplicar la
+ *    lógica de cruce de nombres en otro endpoint.
+ *  - La lógica de completarNombres se extrajo a una función aparte para
+ *    poder reutilizarla también en GET /plantel-no-existe/agrupado (más
+ *    abajo), sin duplicar las dos consultas de cruce.
  */
 router.get("/", requireAuth, async (req, res) => {
   const estadoParam = req.query.estado;
@@ -58,6 +106,11 @@ router.get("/", requireAuth, async (req, res) => {
     condiciones.push(`a.tipo = $${valores.length}`);
   }
 
+  if (req.query.detalle) {
+    valores.push(req.query.detalle);
+    condiciones.push(`a.detalle = $${valores.length}`);
+  }
+
   const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
   const { rows } = await pool.query(
     `SELECT a.*, u.nombre AS revisado_por_nombre
@@ -68,35 +121,7 @@ router.get("/", requireAuth, async (req, res) => {
     valores
   );
 
-  // MEJORA 8: completa nombres/apellidos por cédula (ver nota arriba).
-  const cedulas = [...new Set(rows.map((a) => a.cedula).filter(Boolean))];
-  const mapaNombres = new Map();
-  if (cedulas.length) {
-    const nominaRes = await pool.query(
-      `SELECT cedula, nombres, apellidos FROM personal_ministerio WHERE cedula = ANY($1)`,
-      [cedulas]
-    );
-    for (const fila of nominaRes.rows) {
-      mapaNombres.set(fila.cedula, { nombres: fila.nombres, apellidos: fila.apellidos });
-    }
-
-    const cedulasSinNomina = cedulas.filter((c) => !mapaNombres.has(c));
-    if (cedulasSinNomina.length) {
-      // DISTINCT ON (cedula) para no traer más de una fila por cédula aunque
-      // esa cédula tenga varios registros en rac (docentes multi-plantel).
-      const racRes = await pool.query(
-        `SELECT DISTINCT ON (cedula) cedula, nombres, apellidos
-         FROM rac
-         WHERE cedula = ANY($1)
-         ORDER BY cedula, actualizado_en DESC`,
-        [cedulasSinNomina]
-      );
-      for (const fila of racRes.rows) {
-        mapaNombres.set(fila.cedula, { nombres: fila.nombres, apellidos: fila.apellidos });
-      }
-    }
-  }
-
+  const mapaNombres = await completarNombres(rows);
   const alertasConNombre = rows.map((a) => {
     const datos = mapaNombres.get(a.cedula);
     return {
@@ -108,6 +133,60 @@ router.get("/", requireAuth, async (req, res) => {
 
   res.json({ alertas: alertasConNombre, total: alertasConNombre.length });
 });
+
+/**
+ * GET /api/alertas/plantel-no-existe/agrupado
+ * Vista agrupada para la pantalla "Códigos sin catalogar": un código de
+ * plantel por fila, con el total de alertas pendientes que genera y hasta
+ * 3 cédulas de muestra (con nombre) para dar contexto sin abrir el detalle.
+ * Reemplaza el GROUP BY manual que antes se corría por SQL directo en
+ * Supabase.
+ *
+ * Nota de rutas: esto va montado antes que nada que use "/:algo" en este
+ * archivo para evitar que Express confunda "plantel-no-existe" con un
+ * parámetro -- hoy no hay ningún GET "/:id" en este router, pero se deja
+ * así por si se agrega uno más adelante.
+ */
+router.get("/plantel-no-existe/agrupado", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT g.detalle AS codigo, g.cantidad, s.cedula
+     FROM (
+       SELECT detalle, COUNT(*)::int AS cantidad
+       FROM alertas
+       WHERE tipo = 'plantel_no_existe' AND estado = 'pendiente'
+       GROUP BY detalle
+     ) g
+     LEFT JOIN LATERAL (
+       SELECT a.cedula
+       FROM alertas a
+       WHERE a.tipo = 'plantel_no_existe' AND a.estado = 'pendiente' AND a.detalle = g.detalle
+       ORDER BY a.cedula
+       LIMIT 3
+     ) s ON true
+     ORDER BY g.cantidad DESC, g.detalle`
+  );
+
+  const mapaNombres = await completarNombres(rows);
+
+  const agrupados = new Map();
+  for (const fila of rows) {
+    if (!agrupados.has(fila.codigo)) {
+      agrupados.set(fila.codigo, { codigo: fila.codigo, cantidad: fila.cantidad, muestra: [] });
+    }
+    if (fila.cedula) {
+      const datos = mapaNombres.get(fila.cedula);
+      agrupados.get(fila.codigo).muestra.push({
+        cedula: fila.cedula,
+        nombres: datos ? datos.nombres : null,
+        apellidos: datos ? datos.apellidos : null,
+      });
+    }
+  }
+
+  const codigos = [...agrupados.values()];
+  res.json({ codigos, total: codigos.length });
+});
+
 /**
  * PATCH /api/alertas/:id
  * Marca una alerta como revisada/resuelta/descartada.
@@ -132,5 +211,5 @@ router.patch("/:id", requireAuth, requireRol("operador", "admin"), async (req, r
   }
   res.json(resultado);
 });
-module.exports = router;
 
+module.exports = router;
