@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAC Monagas — Códigos sin catalogar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="shell"></div>
+
+  <!-- Modal: Marcar código como typo confirmado -->
+  <div class="modal-fondo" id="modalTypoFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:4px;">Marcar como typo</h2>
+      <p style="margin-bottom:16px; color: var(--texto-tenue, #667085); font-size: 0.9em;">
+        Código con error de dedo: <strong id="tpCodigoIncorrectoContexto"></strong> — indica el código correcto que YA existe en el catálogo. Se aplicará de forma automática en la próxima carga completa del RAC (las filas ya cargadas no se tocan).
+      </p>
+      <div class="error-msg" id="errorModalTypo"></div>
+      <form id="formTypo">
+        <input type="hidden" id="tpCodigoIncorrecto">
+        <div class="campo">
+          <label for="tpCodigoCorrecto">Código correcto</label>
+          <input type="text" id="tpCodigoCorrecto" placeholder="Ej. OD04391608" required>
+        </div>
+        <div class="campo">
+          <label for="tpNota">Nota (opcional)</label>
+          <input type="text" id="tpNota" placeholder="Ej. Confundido O por 0">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarTypo">Guardar mapeo</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarTypo">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Ver detalle de un código -->
+  <div class="modal-fondo" id="modalDetalleFondo">
+    <div class="modal" style="max-width:560px;">
+      <h2 style="margin-bottom:4px;">Personas afectadas</h2>
+      <p style="margin-bottom:16px; color: var(--texto-tenue, #667085); font-size: 0.9em;">
+        Código: <strong id="dtCodigoContexto"></strong>
+      </p>
+      <div id="dtTabla"></div>
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button type="button" class="btn btn-fantasma" id="btnCerrarDetalle">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/codigos-sin-catalogar.js"></script>
+</body>
+</html>
