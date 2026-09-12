@@ -5,12 +5,32 @@ const router = express.Router();
 
 const { conTransaccionAuditada } = require('../db/pool');
 const { requireAuth, requireRol } = require('../middleware/auth');
+// CORRECCIÓN (2026-09-12): antes el archivo se partía en "líneas" con
+// `contenido.split(/\r?\n/)`, un split crudo que no distingue si ese salto
+// de línea está DENTRO de una celda entre comillas (ej. un nombre escrito
+// en dos líneas dentro de la misma celda de Excel) o si es el fin real de
+// una fila del CSV. El usuario detectó 131 celdas así en un archivo real
+// (nombres, cargos, especialidades con un Enter metido adentro) -- cada una
+// partía una fila legítima en dos "filas" falsas, y el resto del código las
+// procesaba como registros independientes sin sentido (una mitad con
+// cédula, la otra huérfana).
+//
+// `parsearCSV` reemplaza ese split por un parser que respeta comillas
+// (RFC4180). Se movió a `src/utils/csv.js` (2026-09-12) para compartirlo
+// con la nueva herramienta "Depurar archivo" (src/routes/depurarArchivo.js),
+// que analiza el archivo con exactamente la misma lógica antes de la carga.
+const { parsearCSV } = require('../utils/csv');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 function limpiar(valor) {
   if (valor === undefined || valor === null) return null;
-  const v = valor.toString().trim();
+  // CORRECCIÓN (2026-09-12): además de recortar espacios al inicio/fin,
+  // ahora colapsa cualquier salto de línea u otro espacio en blanco interno
+  // (el que puede quedar DENTRO del valor por una celda con Enter embebido,
+  // ver nota de parsearCSV arriba) a un solo espacio. Antes solo se hacía
+  // `.trim()`, que no toca espacios/saltos de línea en medio del texto.
+  const v = valor.toString().replace(/\s+/g, ' ').trim();
   return v === '' ? null : v;
 }
 
@@ -118,12 +138,19 @@ router.post(
 
     try {
       const contenido = iconv.decode(req.file.buffer, 'latin1');
-      const lineas = contenido.split(/\r?\n/).filter((l) => l.trim() !== '');
-      if (lineas.length < 2) {
+      // CORRECCIÓN (2026-09-12): `filas` ahora es un arreglo de arreglos de
+      // columnas (ya parseado respetando comillas), no un arreglo de líneas
+      // de texto crudo -- ver parsearCSV arriba. Se descartan filas
+      // completamente vacías (una sola columna vacía) que puede dejar el
+      // parser al final del archivo.
+      const filas = parsearCSV(contenido, ';').filter(
+        (cols) => !(cols.length === 1 && (cols[0] === undefined || cols[0].trim() === ''))
+      );
+      if (filas.length < 2) {
         return res.status(400).json({ error: 'El archivo está vacío o no tiene filas de datos' });
       }
 
-      const encabezados = lineas[0].split(';').map((h) => h.trim().toUpperCase());
+      const encabezados = filas[0].map((h) => h.trim().toUpperCase());
 
       const idx = {
         cedula: encabezados.indexOf('CEDULA'),
@@ -257,8 +284,8 @@ router.post(
         // ESTE pedazo del archivo (unas pocas miles, no 789 mil) -- es lo
         // único que este pedazo puede llegar a necesitar.
         const cedulasEnEstePedazo = [...new Set(
-          lineas.slice(1)
-            .map((linea) => limpiar(linea.split(';')[idx.cedula]))
+          filas.slice(1)
+            .map((cols) => limpiar(cols[idx.cedula]))
             .filter(Boolean)
         )];
         const personalRes = cedulasEnEstePedazo.length
@@ -294,8 +321,8 @@ router.post(
         let lineasVaciasIgnoradas = 0;
         let alertasGeneradas = 0;
 
-        for (let i = 1; i < lineas.length; i++) {
-          const cols = lineas[i].split(';');
+        for (let i = 1; i < filas.length; i++) {
+          const cols = filas[i];
 
           // Excel suele arrastrar formato mucho más allá de la última fila
           // con datos reales al exportar a CSV, dejando miles de líneas que
@@ -376,7 +403,7 @@ router.post(
               'fila_incompleta',
               cedula || '(sin cédula)',
               `Fila del archivo sin ${camposFaltantes.join(' y ')} — no se pudo procesar`,
-              { ...nuevo, codigo_plantel_intentado: codigoPlantelArchivo, camposFaltantes, filaCruda: lineas[i] }
+              { ...nuevo, codigo_plantel_intentado: codigoPlantelArchivo, camposFaltantes, filaCruda: cols.join(';') }
             );
             alertasGeneradas++;
             filasConError++;
