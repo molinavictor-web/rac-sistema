@@ -80,12 +80,16 @@ async function completarNombres(filas) {
  * MEJORA "Códigos sin catalogar" (2026-09-11):
  *  - Se agrega el parámetro opcional "detalle" para filtrar por el código
  *    exacto de plantel -- lo usa la pantalla nueva "Códigos sin catalogar"
- *    al hacer clic en "Ver detalle" de un código agrupado, reutilizando
- *    esta misma ruta (con nombres ya resueltos) en vez de duplicar la
- *    lógica de cruce de nombres en otro endpoint.
- *  - La lógica de completarNombres se extrajo a una función aparte para
- *    poder reutilizarla también en GET /plantel-no-existe/agrupado (más
- *    abajo), sin duplicar las dos consultas de cruce.
+ *    al hacer clic en "Ver detalle" de un código agrupado.
+ *  - DATO CLAVE descubierto al probar (2026-09-11): la columna `detalle`
+ *    para alertas tipo `plantel_no_existe` NO guarda el código puro (ej.
+ *    "OD07934890"), guarda el MENSAJE completo generado por racCompleto.js:
+ *    `Código de plantel "OD07934890" no existe en el catálogo maestro`
+ *    (código entre comillas). Por eso el filtro NO puede ser igualdad
+ *    directa `a.detalle = $N` contra el código puro -- se busca el código
+ *    como substring exacto entre comillas dentro del mensaje con
+ *    `position('"CODIGO"' in a.detalle) > 0`. Esto también es lo que
+ *    corrige el endpoint agrupado de abajo (ver su comentario).
  */
 router.get("/", requireAuth, async (req, res) => {
   const estadoParam = req.query.estado;
@@ -107,8 +111,11 @@ router.get("/", requireAuth, async (req, res) => {
   }
 
   if (req.query.detalle) {
-    valores.push(req.query.detalle);
-    condiciones.push(`a.detalle = $${valores.length}`);
+    // Ver nota "DATO CLAVE" arriba: el código real va envuelto en comillas
+    // dentro del mensaje completo, así que se busca como substring exacto
+    // (con sus comillas) en vez de comparar por igualdad.
+    valores.push(`"${req.query.detalle}"`);
+    condiciones.push(`position($${valores.length} in a.detalle) > 0`);
   }
 
   const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
@@ -142,6 +149,16 @@ router.get("/", requireAuth, async (req, res) => {
  * Reemplaza el GROUP BY manual que antes se corría por SQL directo en
  * Supabase.
  *
+ * DATO CLAVE (2026-09-11, ver también el comentario de GET "/" arriba):
+ * `detalle` guarda el mensaje completo, no el código puro -- se extrae el
+ * código con `substring(detalle from '"([^"]*)"')` (todo lo que está entre
+ * el primer par de comillas) y se agrupa por ese valor extraído, no por
+ * `detalle` crudo. Esto es lo que hace que el código que llega al frontend
+ * (y que este usa tal cual en atributos HTML y para armar la URL de
+ * "Dar de alta") sea el código puro y no el mensaje completo -- antes esto
+ * rompía esos dos botones porque el mensaje trae comillas que cortan a la
+ * mitad un atributo HTML sin escapar.
+ *
  * Nota de rutas: esto va montado antes que nada que use "/:algo" en este
  * archivo para evitar que Express confunda "plantel-no-existe" con un
  * parámetro -- hoy no hay ningún GET "/:id" en este router, pero se deja
@@ -149,21 +166,24 @@ router.get("/", requireAuth, async (req, res) => {
  */
 router.get("/plantel-no-existe/agrupado", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT g.detalle AS codigo, g.cantidad, s.cedula
+    `SELECT g.codigo, g.cantidad, s.cedula
      FROM (
-       SELECT detalle, COUNT(*)::int AS cantidad
+       SELECT
+         substring(detalle from '"([^"]*)"') AS codigo,
+         COUNT(*)::int AS cantidad
        FROM alertas
        WHERE tipo = 'plantel_no_existe' AND estado = 'pendiente'
-       GROUP BY detalle
+       GROUP BY substring(detalle from '"([^"]*)"')
      ) g
      LEFT JOIN LATERAL (
        SELECT a.cedula
        FROM alertas a
-       WHERE a.tipo = 'plantel_no_existe' AND a.estado = 'pendiente' AND a.detalle = g.detalle
+       WHERE a.tipo = 'plantel_no_existe' AND a.estado = 'pendiente'
+         AND substring(a.detalle from '"([^"]*)"') = g.codigo
        ORDER BY a.cedula
        LIMIT 3
      ) s ON true
-     ORDER BY g.cantidad DESC, g.detalle`
+     ORDER BY g.cantidad DESC, g.codigo`
   );
 
   const mapaNombres = await completarNombres(rows);
