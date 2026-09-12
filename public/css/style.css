@@ -191,6 +191,45 @@ a:focus-visible {
 .nav-link:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .nav-link.activo { background: rgba(255,255,255,0.10); color: #fff; font-weight: 600; }
 
+/* ---------- Menú agrupado (sidebar) ----------
+   Grupo "General" (sin título, siempre visible) usa .nav-grupo-plano, solo
+   para dar un pequeño respiro debajo antes del primer grupo con título.
+   Los demás grupos son colapsables: .nav-grupo-titulo es el botón clicable
+   (mismo tratamiento tipográfico que .sidebar-marca -- mono, mayúsculas,
+   mismo gris azulado -- para que se sienta parte del mismo sistema), y
+   .nav-grupo-contenido se muestra/oculta con la clase .abierto, siguiendo
+   el mismo patrón que .error-msg.visible / .modal-fondo.visible ya usado
+   en el resto de la hoja. La flechita rota 90° en vez de cambiar de
+   carácter, para reusar la transición ya definida en vez de un salto seco. */
+.nav-grupo { margin-top: 2px; }
+.nav-grupo-plano { margin-bottom: 4px; }
+.nav-grupo-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 10px 10px 6px;
+  margin-top: 8px;
+  font-family: var(--carnet);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9db2c9;
+}
+.nav-grupo-titulo:hover { color: #dfe6ee; }
+.nav-grupo-flecha {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  font-size: 0.85em;
+}
+.nav-grupo-flecha.abierto { transform: rotate(90deg); }
+.nav-grupo-contenido { display: none; }
+.nav-grupo-contenido.abierto { display: block; }
+
 .sidebar-pie { margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.12); }
 .usuario-chip { font-size: 0.82rem; color: #c6d2de; margin-bottom: 8px; }
 .usuario-chip strong { color: #fff; display: block; }
