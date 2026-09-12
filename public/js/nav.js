@@ -11,6 +11,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
     { id: "cargas", href: "/cargas.html", label: "Cargar por muncipio", roles: ["encargado_municipio", "operador", "admin"] },
     { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
+    { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin"] },
     { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
     { id: "planteles-carga", href: "/planteles-carga.html", label: "Cargar planteles", roles: ["admin"] },
     { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
