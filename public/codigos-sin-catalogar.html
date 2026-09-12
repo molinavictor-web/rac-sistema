@@ -38,14 +38,18 @@
   </div>
 
   <!-- Modal: Ver detalle de un código -->
+  <!-- max-height + overflow-y en el .modal (no solo en la tabla interna):
+       con códigos de 100+ personas la lista es más alta que la pantalla;
+       así el modal completo (encabezado, tabla y botón "Cerrar") queda
+       contenido y se puede desplazar sin perderse fuera del viewport. -->
   <div class="modal-fondo" id="modalDetalleFondo">
-    <div class="modal" style="max-width:560px;">
+    <div class="modal" style="max-width:560px; max-height:80vh; overflow-y:auto;">
       <h2 style="margin-bottom:4px;">Personas afectadas</h2>
       <p style="margin-bottom:16px; color: var(--texto-tenue, #667085); font-size: 0.9em;">
         Código: <strong id="dtCodigoContexto"></strong>
       </p>
       <div id="dtTabla"></div>
-      <div style="display:flex; gap:10px; margin-top:16px;">
+      <div style="display:flex; gap:10px; margin-top:16px; position:sticky; bottom:0; background:#fff; padding-top:8px;">
         <button type="button" class="btn btn-fantasma" id="btnCerrarDetalle">Cerrar</button>
       </div>
     </div>
