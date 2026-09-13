@@ -8,6 +8,13 @@ const usuario = renderShell("alertas", "Alertas");
     let filtroTipo = "todos";
     let alertaEnAlta = null;
 
+    // MEJORA "Exportar alertas" (2026-09-12): solo se muestra el botón a
+    // quien realmente puede usarlo -- el backend (`GET /api/alertas/exportar`)
+    // exige rol operador/admin, y "Alertas" es visible para más roles que
+    // esos (ver nav.js), así que sin este chequeo un encargado_municipio u
+    // operador_credenciales vería el botón y se encontraría con un 403.
+    const puedeExportar = usuario && (usuario.rol === "admin" || usuario.rol === "operador");
+
     if (usuario) dibujarPanel();
 
     // CORRECCIÓN: antes se pedía /api/alertas UNA sola vez (sin filtro) y el
@@ -61,6 +68,7 @@ const usuario = renderShell("alertas", "Alertas");
                 <option value="registro_no_encontrado_en_carga">No encontrado en la última carga</option>
                 <option value="incongruencia_tipo_personal">Incongruencia de tipo de personal</option>
               </select>
+              ${puedeExportar ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnExportarAlertas">Exportar alertas</button>` : ""}
             </div>
           </div>
           <div id="resumenTipos" style="margin:12px 0;"></div>
@@ -78,7 +86,63 @@ const usuario = renderShell("alertas", "Alertas");
         pintarResumenTipos();
         dibujarTabla();
       });
+      const btnExportar = document.getElementById("btnExportarAlertas");
+      if (btnExportar) btnExportar.addEventListener("click", exportarAlertas);
       cargarAlertas();
+    }
+
+    // MEJORA "Exportar alertas" (2026-09-12): descarga un CSV con la MISMA
+    // estructura del archivo del RAC (para que un enlace territorial reciba
+    // de vuelta sus propios datos y los corrija contra su respaldo), armado
+    // por `GET /api/alertas/exportar`. Respeta exactamente lo que se está
+    // viendo en pantalla: el filtro de estado activo, y el de tipo si no es
+    // "todos". El endpoint devuelve el CSV directo (no JSON), así que no se
+    // puede usar RAC.get() -- se arma un fetch manual con el mismo patrón de
+    // Authorization que ya usan las descargas de "Depurar archivo".
+    async function exportarAlertas() {
+      const btn = document.getElementById("btnExportarAlertas");
+      const textoOriginal = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Exportando…";
+
+      try {
+        const params = new URLSearchParams();
+        params.set("estado", filtroActual);
+        if (filtroTipo !== "todos") params.set("tipo", filtroTipo);
+
+        const resp = await fetch(`/api/alertas/exportar?${params.toString()}`, {
+          headers: { Authorization: "Bearer " + RAC.getToken() },
+        });
+
+        if (!resp.ok) {
+          let mensaje = `Error ${resp.status}`;
+          try {
+            const data = await resp.json();
+            if (data && data.error) mensaje = data.error;
+          } catch (_) {
+            // La respuesta de error tampoco vino en JSON -- se deja el
+            // mensaje genérico de arriba.
+          }
+          throw new Error(mensaje);
+        }
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const sufijoTipo = filtroTipo !== "todos" ? `_${filtroTipo}` : "";
+        a.download = `alertas_${filtroActual}${sufijoTipo}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        mostrarToast("Archivo de alertas exportado.");
+      } catch (err) {
+        mostrarToast(err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+      }
     }
 
     // MEJORA 7 (2026-09-07): resumen de cantidades por tipo, sobre lo que
