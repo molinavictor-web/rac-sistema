@@ -328,14 +328,39 @@ router.post(
         const mapaNomina = new Map(
           personalRes.rows.map((p) => [p.cedula, { nombres: p.nombres, apellidos: p.apellidos }])
         );
+        // CORRECCIÓN (2026-09-13): la clave ahora incluye `codigo_cargo` (columna
+        // "CODIGO RAC" del archivo), no solo cedula|plantel_id. El usuario detectó
+        // (con datos reales: 184 grupos / 370 filas en un archivo de 32.364) que una
+        // misma cédula puede tener DOS nombramientos simultáneos en el MISMO plantel
+        // (ej. 20h como Cocinero I + 34h como Bachiller I, cada uno con su propio
+        // CODIGO RAC) -- con la clave vieja (solo cedula|plantel_id), el segundo
+        // nombramiento se procesaba como "actualización" del primero y lo pisaba
+        // por completo, sin dejar rastro de que existieron dos. Ampliar la clave
+        // resuelve esto automáticamente: cada nombramiento distinto encuentra su
+        // propia fila en `rac` en vez de compartir una. No hizo falta ALTER TABLE --
+        // se confirmó con el usuario que `rac` no tiene ninguna restricción UNIQUE
+        // real en Postgres sobre (cedula, plantel_id), solo PK(id) y FK(plantel_id).
         const mapaRac = new Map(
-          racRes.rows.map((r) => [`${r.cedula}|${r.plantel_id}`, r])
+          racRes.rows.map((r) => [`${r.cedula}|${r.plantel_id}|${r.codigo_cargo}`, r])
         );
+
+        // CORRECCIÓN (2026-09-13): incluso con la clave ampliada, el mismo archivo
+        // puede traer la MISMA cedula+plantel+codigo_cargo repetida con OTRO dato
+        // distinto (ej. las mismas horas trabajadas con dos valores diferentes) --
+        // el usuario encontró 8 filas así en un archivo real. Eso no es un segundo
+        // nombramiento (mismo cargo exacto) ni una actualización legítima (pasaría
+        // de un archivo a otro, no DENTRO del mismo archivo) -- es una ambigüedad
+        // real del archivo fuente que nadie puede resolver adivinando. Este mapa
+        // registra, SOLO durante esta carga, la primera vez que se ve cada clave
+        // completa -- si vuelve a aparecer en la MISMA carga, se genera la alerta
+        // `nombramiento_duplicado_en_archivo` en vez de sobrescribir en silencio.
+        const clavesVistasEnEsteArchivo = new Map();
 
         let insertados = 0;
         let actualizados = 0;
         let sinCambios = 0;
         let filasConError = 0;
+        let duplicadosEnArchivo = 0;
         let lineasVaciasIgnoradas = 0;
         let alertasGeneradas = 0;
 
@@ -484,7 +509,48 @@ router.post(
 
           const alertasRango = validarRangoHoras(cedula, codigoPlantelArchivo, nuevo);
 
-          const claveExistente = `${cedula}|${plantelId}`;
+          // CORRECCIÓN (2026-09-13): clave ampliada -- ver comentario de mapaRac
+          // más arriba. `nuevo.codigo_cargo` ya viene calculado (columna "CODIGO RAC").
+          const claveExistente = `${cedula}|${plantelId}|${nuevo.codigo_cargo}`;
+
+          // CORRECCIÓN (2026-09-13): si esta clave completa YA apareció antes en
+          // ESTA MISMA carga, no es un segundo nombramiento (mismo codigo_cargo) ni
+          // una actualización legítima -- es una fila ambigua del archivo fuente
+          // (ver comentario de clavesVistasEnEsteArchivo más arriba). Se deja la
+          // primera aparición tal cual (esa SÍ queda guardada normal en `rac`) y se
+          // alerta señalando en qué campos difieren las dos filas, para que un
+          // operador decida a mano cuál es la correcta, en vez de sobrescribir en
+          // silencio.
+          //
+          // A PROPÓSITO no se usa `detalle_fila` aquí (a diferencia de
+          // fila_incompleta/plantel_no_existe): esta fila SÍ se insertó en `rac`
+          // (es la primera aparición), así que el botón "Revisar" de la bandeja no
+          // debe ofrecer un alta manual como si la fila nunca hubiera entrado --
+          // dejar detalle_fila en null hace que este tipo de alerta se comporte
+          // igual que cedula_no_existe_nomina/registro_actualizado (dato real en
+          // `rac`, incluido tal cual en el export de alertas).
+          if (clavesVistasEnEsteArchivo.has(claveExistente)) {
+            const primeraAparicion = clavesVistasEnEsteArchivo.get(claveExistente);
+            const camposDistintos = camposComparables.filter((campo) =>
+              huboCambioEnCampo(campo, primeraAparicion[campo], nuevo[campo])
+            );
+            const detalleDiferencias = camposDistintos.length
+              ? camposDistintos
+                  .map((c) => `${c}: "${primeraAparicion[c] ?? ''}" vs "${nuevo[c] ?? ''}"`)
+                  .join('; ')
+              : '(sin diferencias en los campos comparables -- revisar el resto de la fila en el archivo fuente)';
+            await insertarAlerta(
+              client,
+              'nombramiento_duplicado_en_archivo',
+              cedula,
+              `La cédula tiene más de una fila en el archivo para el mismo plantel (${codigoPlantelUsado}) y el mismo código RAC (${nuevo.codigo_cargo}), con datos distintos entre sí -- se conservó la primera aparición, revisar cuál es la correcta. Diferencias: ${detalleDiferencias}`
+            );
+            alertasGeneradas++;
+            duplicadosEnArchivo++;
+            continue;
+          }
+          clavesVistasEnEsteArchivo.set(claveExistente, nuevo);
+
           const existente = mapaRac.get(claveExistente);
 
           if (existente) {
@@ -729,6 +795,7 @@ router.post(
           actualizados,
           sinCambios,
           filasConError,
+          duplicadosEnArchivo,
           lineasVaciasIgnoradas,
           alertasGeneradas,
         };
