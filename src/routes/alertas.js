@@ -1,7 +1,21 @@
 const express = require("express");
+const iconv = require("iconv-lite");
 const { pool, conTransaccionAuditada } = require("../db/pool");
 const { requireAuth, requireRol } = require("../middleware/auth");
 const router = express.Router();
+
+// Escapa un valor para una celda de CSV delimitado por ";" (mismo
+// delimitador que usa el resto del sistema para archivos del RAC): si el
+// valor trae ";", comillas o saltos de línea, se envuelve en comillas
+// dobles y se duplica cualquier comilla interna (RFC4180).
+function csvEscape(valor) {
+  if (valor === null || valor === undefined) return "";
+  const texto = String(valor);
+  if (/[;"\n\r]/.test(texto)) {
+    return '"' + texto.replace(/"/g, '""') + '"';
+  }
+  return texto;
+}
 
 /**
  * Completa nombres/apellidos para un arreglo de filas que tengan columna
@@ -205,6 +219,199 @@ router.get("/plantel-no-existe/agrupado", requireAuth, async (req, res) => {
 
   const codigos = [...agrupados.values()];
   res.json({ codigos, total: codigos.length });
+});
+
+/**
+ * GET /api/alertas/exportar?estado=pendiente&tipo=...
+ * Exporta las alertas filtradas como CSV, con la MISMA estructura de
+ * columnas que trae el archivo del RAC (2026-09-12, pedido del usuario):
+ * la idea es que un enlace territorial (municipio/parroquia) reciba de
+ * vuelta sus propios datos, tal como los cargó, para que él mismo los
+ * verifique contra su respaldo en Excel y los corrija.
+ *
+ * 1 fila de alerta pendiente = 1 fila del CSV. La fuente de los datos de
+ * cada fila depende del tipo de alerta:
+ *   - Si la alerta guardó `detalle_fila` (plantel_no_existe, fila_incompleta):
+ *     esa fila NUNCA llegó a insertarse en `rac` -- se usa `detalle_fila`
+ *     tal cual, que es exactamente lo que venía en el archivo original.
+ *     MUNICIPIO/PARROQUIA quedan vacíos aquí a propósito: no hay un
+ *     plantel real del cual sacarlos (ver conversación con el usuario,
+ *     2026-09-12) -- lo único disponible sería el texto libre sin validar
+ *     de "UBICACION GEOGRAFICA", que ya viene incluido más adelante en esa
+ *     misma columna del CSV.
+ *   - Si no hay `detalle_fila` (cedula_no_existe_nomina, registro_actualizado,
+ *     valor_fuera_de_rango, incongruencia_tipo_personal): esa fila SÍ está
+ *     en `rac` -- se busca por cédula (puede haber más de una si el
+ *     docente trabaja en varios planteles; se exporta una fila por cada
+ *     una) y se trae MUNICIPIO/PARROQUIA reales, ya validados contra el
+ *     catálogo `planteles`.
+ * Al final de cada fila: TIPO DE ALERTA, DETALLE DE LA ALERTA, ESTADO.
+ */
+router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req, res) => {
+  const estadoParam = req.query.estado;
+  const condiciones = [];
+  const valores = [];
+
+  if (estadoParam === undefined) {
+    valores.push("pendiente");
+    condiciones.push(`a.estado = $${valores.length}`);
+  } else if (estadoParam !== "todas") {
+    valores.push(estadoParam);
+    condiciones.push(`a.estado = $${valores.length}`);
+  }
+  if (req.query.tipo) {
+    valores.push(req.query.tipo);
+    condiciones.push(`a.tipo = $${valores.length}`);
+  }
+  const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
+
+  const { rows: alertasRows } = await pool.query(
+    `SELECT a.* FROM alertas a ${where} ORDER BY a.creado_en DESC`,
+    valores
+  );
+
+  const cedulas = [...new Set(alertasRows.map((a) => a.cedula).filter(Boolean))];
+  const mapaRac = new Map(); // cedula -> [ filas de rac con plantel/municipio/parroquia ]
+  if (cedulas.length) {
+    const racRes = await pool.query(
+      `SELECT r.*, p.codigo_plantel AS codigo_plantel_real, p.nombre AS nombre_plantel,
+              m.nombre AS municipio_nombre, p.parroquia AS parroquia_nombre
+       FROM rac r
+       LEFT JOIN planteles p ON p.id = r.plantel_id
+       LEFT JOIN municipios m ON m.id = p.municipio_id
+       WHERE r.cedula = ANY($1)`,
+      [cedulas]
+    );
+    for (const fila of racRes.rows) {
+      if (!mapaRac.has(fila.cedula)) mapaRac.set(fila.cedula, []);
+      mapaRac.get(fila.cedula).push(fila);
+    }
+  }
+
+  const columnas = [
+    "CEDULA", "NOMBRE Y APELLIDO", "CODIGO DEL PLANTEL", "NOMBRE DEL PLANTEL",
+    "MUNICIPIO", "PARROQUIA", "CODIGO DEPENDENCIA", "CODIGO RAC", "CARGO",
+    "TIPO DE PERSONAL", "TURNO", "HORAS ACADEMICAS", "HORAS ADM", "SITUACION",
+    "NIVEL", "MODALIDAD", "UBICACION GEOGRAFICA (SEGUN ARCHIVO)",
+    "TURNOS QUE ATIENDE EL PLANTEL", "CODIGO ESTADISTICO", "FECHA DE INGRESO",
+    "SEXO", "GRADO QUE IMPARTE EL DOCENTE", "SECCION",
+    "ESPECIALIDAD QUE IMPARTE EL DOCENTE", "AÑO", "SECCIONES",
+    "MATERIA QUE IMPARTE O ESPECIALIDAD", "PERIODO O GRUPO", "OBSERVACION",
+    "EDAD", "COMPARATIVA", "TIPO DE ALERTA", "DETALLE DE LA ALERTA", "ESTADO DE LA ALERTA",
+  ];
+
+  const lineas = [columnas.join(";")];
+
+  function agregarFila(valoresFila) {
+    lineas.push(valoresFila.map(csvEscape).join(";"));
+  }
+
+  for (const alerta of alertasRows) {
+    const df = alerta.detalle_fila; // JSONB -> pg ya lo entrega como objeto JS
+
+    if (df) {
+      agregarFila([
+        alerta.cedula,
+        df.nombres || "",
+        df.codigo_plantel_intentado || "",
+        "", // nombre del plantel: no existe en catálogo
+        "", // municipio: no verificable (ver comentario del endpoint)
+        "", // parroquia: no verificable
+        df.codigo_dependencia,
+        df.codigo_cargo,
+        df.cargo,
+        df.tipo_personal,
+        df.turno,
+        df.horas_academicas,
+        df.horas_adm,
+        df.situacion,
+        df.nivel,
+        df.modalidad,
+        df.ubicacion_geografica,
+        df.turnos_plantel,
+        df.codigo_estadistico,
+        df.fecha_ingreso,
+        df.sexo,
+        df.grado_imparte,
+        df.seccion,
+        df.especialidad,
+        df.anio,
+        df.secciones,
+        df.materia,
+        df.periodo_grupo,
+        df.observacion,
+        df.edad,
+        df.comparativa,
+        alerta.tipo,
+        alerta.detalle,
+        alerta.estado,
+      ]);
+      continue;
+    }
+
+    const filasRac = mapaRac.get(alerta.cedula);
+    if (!filasRac || !filasRac.length) {
+      // Caso raro: ni detalle_fila ni fila en rac (ej. el registro fue
+      // eliminado después de generarse la alerta). Se deja constancia con
+      // lo mínimo que tiene la alerta, en vez de omitir la fila en silencio.
+      agregarFila([
+        alerta.cedula, "", "", "", "", "", "", "", "", "", "", "", "", "",
+        "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+        alerta.tipo, alerta.detalle, alerta.estado,
+      ]);
+      continue;
+    }
+
+    for (const r of filasRac) {
+      agregarFila([
+        r.cedula,
+        [r.nombres, r.apellidos].filter(Boolean).join(" "),
+        r.codigo_plantel_real || "",
+        r.nombre_plantel || "",
+        r.municipio_nombre || "",
+        r.parroquia_nombre || "",
+        r.codigo_dependencia,
+        r.codigo_cargo,
+        r.cargo,
+        r.tipo_personal,
+        r.turno,
+        r.horas_academicas,
+        r.horas_adm,
+        r.situacion,
+        r.nivel,
+        r.modalidad,
+        r.ubicacion_geografica,
+        r.turnos_plantel,
+        r.codigo_estadistico,
+        r.fecha_ingreso,
+        r.sexo,
+        r.grado_imparte,
+        r.seccion,
+        r.especialidad,
+        r.anio,
+        r.secciones,
+        r.materia,
+        r.periodo_grupo,
+        r.observacion,
+        r.edad,
+        r.comparativa,
+        alerta.tipo,
+        alerta.detalle,
+        alerta.estado,
+      ]);
+    }
+  }
+
+  // Mismo formato que el resto del sistema espera/produce para archivos del
+  // RAC: ";" como delimitador, CRLF, latin1 (para que tildes/ñ se vean bien
+  // al abrir directo en Excel, igual que el archivo que originalmente
+  // subieron los municipios).
+  const contenidoCsv = lineas.join("\r\n") + "\r\n";
+  const buffer = iconv.encode(contenidoCsv, "latin1");
+
+  res.setHeader("Content-Type", "text/csv; charset=ISO-8859-1");
+  res.setHeader("Content-Disposition", 'attachment; filename="alertas_export.csv"');
+  res.send(buffer);
 });
 
 /**
