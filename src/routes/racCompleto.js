@@ -201,6 +201,24 @@ router.post(
       // simplemente no se usa.
       const idxNombreApellido = encabezados.indexOf('NOMBRE Y APELLIDO');
 
+      // MEJORA (2026-09-13): referencia geográfica SIN VALIDAR para el
+      // export de alertas. El usuario detectó que cuando una fila cae en
+      // "plantel_no_existe" (el código de plantel del archivo no matchea
+      // contra el catálogo), el export no daba ninguna pista de a qué
+      // municipio/parroquia pertenece esa fila -- solo el código malo. El
+      // archivo del RAC SIEMPRE trae ESTADO/MUNICIPIO/PARROQUIA y NOMBRE DEL
+      // PLANTEL EN NOMINA como texto (columnas B, C, D y una más adelante),
+      // pero antes se descartaban por completo. Estas 4 son opcionales
+      // (igual que NOMBRE Y APELLIDO, no rompen la carga si algún archivo
+      // viejo no las trajera) y NUNCA se guardan en la tabla `rac` -- no son
+      // datos validados contra el catálogo geográfico, son solo el texto
+      // libre del archivo, para orientar al usuario sobre dónde ir a
+      // resolver el problema.
+      const idxEstadoArchivo = encabezados.indexOf('ESTADO');
+      const idxMunicipioArchivo = encabezados.indexOf('MUNICIPIO');
+      const idxParroquiaArchivo = encabezados.indexOf('PARROQUIA');
+      const idxNombrePlantelArchivo = encabezados.indexOf('NOMBRE DEL PLANTEL EN NOMINA');
+
       const camposComparables = [
         'codigo_dependencia',
         'codigo_cargo',
@@ -343,6 +361,19 @@ router.post(
           const nombreApellidoArchivo =
             idxNombreApellido !== -1 ? limpiar(cols[idxNombreApellido]) : null;
 
+          // MEJORA (2026-09-13): igual que nombreApellidoArchivo arriba --
+          // solo texto de respaldo sin validar, para dar referencia en
+          // detalle_fila cuando la fila no se puede procesar normal (ver
+          // comentario de los idx* arriba). NUNCA se usa en camposComparables
+          // ni se guarda en `rac`.
+          const referenciaArchivo = {
+            estado_archivo: idxEstadoArchivo !== -1 ? limpiar(cols[idxEstadoArchivo]) : null,
+            municipio_archivo: idxMunicipioArchivo !== -1 ? limpiar(cols[idxMunicipioArchivo]) : null,
+            parroquia_archivo: idxParroquiaArchivo !== -1 ? limpiar(cols[idxParroquiaArchivo]) : null,
+            nombre_plantel_archivo:
+              idxNombrePlantelArchivo !== -1 ? limpiar(cols[idxNombrePlantelArchivo]) : null,
+          };
+
           // MEJORA 6 (2026-09-07): `nuevo` se arma AQUÍ, antes de chequear si
           // falta cédula/plantel (antes se armaba después), para que la
           // alerta "fila_incompleta" también pueda guardar la fila completa
@@ -403,7 +434,13 @@ router.post(
               'fila_incompleta',
               cedula || '(sin cédula)',
               `Fila del archivo sin ${camposFaltantes.join(' y ')} — no se pudo procesar`,
-              { ...nuevo, codigo_plantel_intentado: codigoPlantelArchivo, camposFaltantes, filaCruda: cols.join(';') }
+              {
+                ...nuevo,
+                ...referenciaArchivo,
+                codigo_plantel_intentado: codigoPlantelArchivo,
+                camposFaltantes,
+                filaCruda: cols.join(';'),
+              }
             );
             alertasGeneradas++;
             filasConError++;
@@ -428,12 +465,17 @@ router.post(
             // que vino en el archivo, como referencia) en detalle_fila, para
             // que el botón "Revisar" de la bandeja de alertas pueda abrir un
             // formulario de alta manual precargado con todos estos datos.
+            // MEJORA (2026-09-13): se agrega también la referencia geográfica
+            // sin validar (referenciaArchivo) -- ver comentario arriba -- para
+            // que el export de alertas pueda mostrar a qué
+            // municipio/parroquia pertenece esta fila, aunque el código de
+            // plantel esté errado.
             await insertarAlerta(
               client,
               'plantel_no_existe',
               cedula,
               `Código de plantel "${codigoPlantelArchivo}" no existe en el catálogo maestro`,
-              { ...nuevo, codigo_plantel_intentado: codigoPlantelArchivo }
+              { ...nuevo, ...referenciaArchivo, codigo_plantel_intentado: codigoPlantelArchivo }
             );
             alertasGeneradas++;
             filasConError++;

@@ -234,18 +234,26 @@ router.get("/plantel-no-existe/agrupado", requireAuth, async (req, res) => {
  *   - Si la alerta guardó `detalle_fila` (plantel_no_existe, fila_incompleta):
  *     esa fila NUNCA llegó a insertarse en `rac` -- se usa `detalle_fila`
  *     tal cual, que es exactamente lo que venía en el archivo original.
- *     MUNICIPIO/PARROQUIA quedan vacíos aquí a propósito: no hay un
- *     plantel real del cual sacarlos (ver conversación con el usuario,
- *     2026-09-12) -- lo único disponible sería el texto libre sin validar
- *     de "UBICACION GEOGRAFICA", que ya viene incluido más adelante en esa
- *     misma columna del CSV.
  *   - Si no hay `detalle_fila` (cedula_no_existe_nomina, registro_actualizado,
  *     valor_fuera_de_rango, incongruencia_tipo_personal): esa fila SÍ está
  *     en `rac` -- se busca por cédula (puede haber más de una si el
  *     docente trabaja en varios planteles; se exporta una fila por cada
- *     una) y se trae MUNICIPIO/PARROQUIA reales, ya validados contra el
- *     catálogo `planteles`.
- * Al final de cada fila: TIPO DE ALERTA, DETALLE DE LA ALERTA, ESTADO.
+ *     una) y se trae ESTADO/MUNICIPIO/PARROQUIA/NOMBRE DEL PLANTEL reales,
+ *     ya validados contra el catálogo `planteles`.
+ *
+ * MEJORA (2026-09-13): antes, para el caso `detalle_fila` (código de plantel
+ * errado), las columnas ESTADO/MUNICIPIO/PARROQUIA/NOMBRE DEL PLANTEL
+ * quedaban vacías -- no había ningún plantel real del cual sacarlas, así
+ * que el destinatario del export no tenía ninguna pista de dónde ir a
+ * buscar la solución. Ahora `racCompleto.js` guarda en `detalle_fila` el
+ * texto libre de esas 4 columnas TAL COMO VINO EN EL ARCHIVO (sin validar
+ * contra el catálogo geográfico) y este endpoint las usa como referencia.
+ * Se agrega la columna nueva "GEOGRAFIA VALIDADA" (Sí/No) para que quien
+ * reciba el export sepa distinguir: "Sí" = viene de un plantel real ya
+ * confirmado en el catálogo (caso `rac`); "No" = es el texto que trajo el
+ * archivo sin ninguna verificación (caso `detalle_fila`, el código de
+ * plantel estaba mal así que no hay geografía confirmada). Al final de cada
+ * fila: TIPO DE ALERTA, DETALLE DE LA ALERTA, ESTADO DE LA ALERTA.
  */
 router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req, res) => {
   const estadoParam = req.query.estado;
@@ -271,11 +279,12 @@ router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req
   );
 
   const cedulas = [...new Set(alertasRows.map((a) => a.cedula).filter(Boolean))];
-  const mapaRac = new Map(); // cedula -> [ filas de rac con plantel/municipio/parroquia ]
+  const mapaRac = new Map(); // cedula -> [ filas de rac con plantel/estado/municipio/parroquia ]
   if (cedulas.length) {
     const racRes = await pool.query(
       `SELECT r.*, p.codigo_plantel AS codigo_plantel_real, p.nombre AS nombre_plantel,
-              m.nombre AS municipio_nombre, p.parroquia AS parroquia_nombre
+              p.estado_geografico AS estado_nombre, m.nombre AS municipio_nombre,
+              p.parroquia AS parroquia_nombre
        FROM rac r
        LEFT JOIN planteles p ON p.id = r.plantel_id
        LEFT JOIN municipios m ON m.id = p.municipio_id
@@ -290,7 +299,8 @@ router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req
 
   const columnas = [
     "CEDULA", "NOMBRE Y APELLIDO", "CODIGO DEL PLANTEL", "NOMBRE DEL PLANTEL",
-    "MUNICIPIO", "PARROQUIA", "CODIGO DEPENDENCIA", "CODIGO RAC", "CARGO",
+    "ESTADO GEOGRAFICO", "MUNICIPIO", "PARROQUIA", "GEOGRAFIA VALIDADA",
+    "CODIGO DEPENDENCIA", "CODIGO RAC", "CARGO",
     "TIPO DE PERSONAL", "TURNO", "HORAS ACADEMICAS", "HORAS ADM", "SITUACION",
     "NIVEL", "MODALIDAD", "UBICACION GEOGRAFICA (SEGUN ARCHIVO)",
     "TURNOS QUE ATIENDE EL PLANTEL", "CODIGO ESTADISTICO", "FECHA DE INGRESO",
@@ -310,13 +320,19 @@ router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req
     const df = alerta.detalle_fila; // JSONB -> pg ya lo entrega como objeto JS
 
     if (df) {
+      // MEJORA (2026-09-13): estado_archivo/municipio_archivo/parroquia_archivo/
+      // nombre_plantel_archivo solo existen en detalle_fila para alertas
+      // generadas DESPUÉS de esta mejora en racCompleto.js -- alertas viejas
+      // simplemente no tienen esas claves (quedan undefined -> "" abajo).
       agregarFila([
         alerta.cedula,
         df.nombres || "",
         df.codigo_plantel_intentado || "",
-        "", // nombre del plantel: no existe en catálogo
-        "", // municipio: no verificable (ver comentario del endpoint)
-        "", // parroquia: no verificable
+        df.nombre_plantel_archivo || "",
+        df.estado_archivo || "",
+        df.municipio_archivo || "",
+        df.parroquia_archivo || "",
+        "No",
         df.codigo_dependencia,
         df.codigo_cargo,
         df.cargo,
@@ -355,8 +371,8 @@ router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req
       // eliminado después de generarse la alerta). Se deja constancia con
       // lo mínimo que tiene la alerta, en vez de omitir la fila en silencio.
       agregarFila([
-        alerta.cedula, "", "", "", "", "", "", "", "", "", "", "", "", "",
-        "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+        alerta.cedula,
+        ...Array(32).fill(""),
         alerta.tipo, alerta.detalle, alerta.estado,
       ]);
       continue;
@@ -368,8 +384,10 @@ router.get("/exportar", requireAuth, requireRol("operador", "admin"), async (req
         [r.nombres, r.apellidos].filter(Boolean).join(" "),
         r.codigo_plantel_real || "",
         r.nombre_plantel || "",
+        r.estado_nombre || "",
         r.municipio_nombre || "",
         r.parroquia_nombre || "",
+        "Sí",
         r.codigo_dependencia,
         r.codigo_cargo,
         r.cargo,
