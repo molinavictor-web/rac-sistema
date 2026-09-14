@@ -5,6 +5,8 @@ const { requireAuth, requireRol } = require("../middleware/auth");
 
 const router = express.Router();
 
+const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "admin"];
+
 // Crear un usuario nuevo (solo admin)
 router.post("/", requireAuth, requireRol("admin"), async (req, res) => {
   const { nombre, email, password, rol, municipio_id } = req.body;
@@ -13,9 +15,8 @@ router.post("/", requireAuth, requireRol("admin"), async (req, res) => {
     return res.status(400).json({ error: "Faltan campos obligatorios: nombre, email, password, rol." });
   }
 
-  const rolesValidos = ["encargado_municipio", "operador", "admin"];
-  if (!rolesValidos.includes(rol)) {
-    return res.status(400).json({ error: `Rol inválido. Debe ser uno de: ${rolesValidos.join(", ")}` });
+  if (!ROLES_VALIDOS.includes(rol)) {
+    return res.status(400).json({ error: `Rol inválido. Debe ser uno de: ${ROLES_VALIDOS.join(", ")}` });
   }
 
   if (rol === "encargado_municipio" && !municipio_id) {
@@ -53,6 +54,61 @@ router.get("/", requireAuth, requireRol("admin"), async (req, res) => {
   } catch (err) {
     console.error("Error listando usuarios:", err);
     res.status(500).json({ error: "Error interno al listar usuarios." });
+  }
+});
+
+// Editar un usuario existente: nombre, email, rol y, opcionalmente, restablecer
+// la contraseña (solo admin). Si "password" viene vacío/ausente, el hash actual
+// no se toca.
+router.patch("/:id", requireAuth, requireRol("admin"), async (req, res) => {
+  const { id } = req.params;
+  const { nombre, email, rol, municipio_id, password } = req.body;
+
+  if (!nombre || !email || !rol) {
+    return res.status(400).json({ error: "Faltan campos obligatorios: nombre, email, rol." });
+  }
+
+  if (!ROLES_VALIDOS.includes(rol)) {
+    return res.status(400).json({ error: `Rol inválido. Debe ser uno de: ${ROLES_VALIDOS.join(", ")}` });
+  }
+
+  if (rol === "encargado_municipio" && !municipio_id) {
+    return res.status(400).json({ error: "municipio_id es obligatorio para el rol encargado_municipio." });
+  }
+
+  try {
+    let rows;
+
+    if (password) {
+      const passwordHash = bcrypt.hashSync(password, 10);
+      ({ rows } = await pool.query(
+        `UPDATE usuarios
+         SET nombre = $1, email = $2, rol = $3, municipio_id = $4, password_hash = $5
+         WHERE id = $6
+         RETURNING id, nombre, email, rol, municipio_id, activo, creado_en`,
+        [nombre, email, rol, municipio_id || null, passwordHash, id]
+      ));
+    } else {
+      ({ rows } = await pool.query(
+        `UPDATE usuarios
+         SET nombre = $1, email = $2, rol = $3, municipio_id = $4
+         WHERE id = $5
+         RETURNING id, nombre, email, rol, municipio_id, activo, creado_en`,
+        [nombre, email, rol, municipio_id || null, id]
+      ));
+    }
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Usuario no encontrado." });
+    }
+
+    res.json({ usuario: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Ya existe un usuario con ese email." });
+    }
+    console.error("Error editando usuario:", err);
+    res.status(500).json({ error: "Error interno al editar el usuario." });
   }
 });
 
