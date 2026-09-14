@@ -1,6 +1,8 @@
 const usuario = renderShell("usuarios", "Usuarios");
     if (usuario) dibujarPanel();
 
+    let usuariosCache = [];
+
     function dibujarPanel() {
       document.getElementById("contenido").innerHTML = `
         <div class="panel">
@@ -86,6 +88,7 @@ const usuario = renderShell("usuarios", "Usuarios");
       try {
         const resp = await RAC.get("/api/usuarios");
         const items = RAC.lista(resp, "usuarios");
+        usuariosCache = items;
         if (!items.length) {
           cont.innerHTML = `<div class="vacio"><strong>Aún no hay usuarios registrados</strong>Crea el primero con el botón de arriba.</div>`;
           return;
@@ -96,7 +99,8 @@ const usuario = renderShell("usuarios", "Usuarios");
             <td>${u.email}</td>
             <td>${etiquetaRol(u.rol)}</td>
             <td>${u.activo ? '<span class="badge badge-resuelto">Activo</span>' : '<span class="badge badge-descartado">Inactivo</span>'}</td>
-            <td>
+            <td style="display:flex; gap:8px;">
+              <button class="btn btn-fantasma btn-sm" data-editar-id="${u.id}">Editar</button>
               <button class="btn btn-fantasma btn-sm" data-id="${u.id}" data-activo="${u.activo}">
                 ${u.activo ? "Desactivar" : "Reactivar"}
               </button>
@@ -111,6 +115,12 @@ const usuario = renderShell("usuarios", "Usuarios");
         `;
         cont.querySelectorAll("[data-id]").forEach((btn) => {
           btn.addEventListener("click", () => cambiarActivo(btn.dataset.id, btn.dataset.activo === "true"));
+        });
+        cont.querySelectorAll("[data-editar-id]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const u = usuariosCache.find((item) => String(item.id) === btn.dataset.editarId);
+            if (u) abrirModalEditar(u);
+          });
         });
       } catch (err) {
         cont.innerHTML = `<div class="vacio"><strong>No se pudo cargar la lista</strong>${err.message}</div>`;
@@ -285,6 +295,7 @@ const usuario = renderShell("usuarios", "Usuarios");
     function abrirModal() {
       formUsuario.reset();
       errorModal.classList.remove("visible");
+      document.getElementById("campoMunicipio").style.display = "none";
       modalFondo.classList.add("visible");
     }
     function cerrarModal() { modalFondo.classList.remove("visible"); }
@@ -324,5 +335,65 @@ const usuario = renderShell("usuarios", "Usuarios");
       } finally {
         btn.disabled = false;
         btn.textContent = "Crear usuario";
+      }
+    });
+
+    // ---- Modal de edición ----
+    const modalFondoEditar = document.getElementById("modalFondoEditar");
+    const formUsuarioEditar = document.getElementById("formUsuarioEditar");
+    const errorModalEditar = document.getElementById("errorModalEditar");
+
+    function abrirModalEditar(u) {
+      formUsuarioEditar.reset();
+      errorModalEditar.classList.remove("visible");
+      document.getElementById("idEditar").value = u.id;
+      document.getElementById("nombreEditar").value = u.nombre;
+      document.getElementById("emailEditar").value = u.email;
+      document.getElementById("rolEditar").value = u.rol;
+      document.getElementById("municipio_idEditar").value = u.municipio_id || "";
+      document.getElementById("campoMunicipioEditar").style.display =
+        u.rol === "encargado_municipio" ? "block" : "none";
+      modalFondoEditar.classList.add("visible");
+    }
+    function cerrarModalEditar() { modalFondoEditar.classList.remove("visible"); }
+
+    document.getElementById("btnCancelarEditar").addEventListener("click", cerrarModalEditar);
+    document.getElementById("rolEditar").addEventListener("change", (e) => {
+      document.getElementById("campoMunicipioEditar").style.display =
+        e.target.value === "encargado_municipio" ? "block" : "none";
+    });
+
+    formUsuarioEditar.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorModalEditar.classList.remove("visible");
+      const btn = document.getElementById("btnGuardarEditar");
+      btn.disabled = true;
+      btn.textContent = "Guardando…";
+
+      const id = document.getElementById("idEditar").value;
+      const cuerpo = {
+        nombre: document.getElementById("nombreEditar").value.trim(),
+        email: document.getElementById("emailEditar").value.trim(),
+        rol: document.getElementById("rolEditar").value,
+      };
+      const password = document.getElementById("passwordEditar").value;
+      if (password) cuerpo.password = password;
+
+      const municipioId = document.getElementById("municipio_idEditar").value;
+      if (cuerpo.rol === "encargado_municipio" && municipioId) {
+        cuerpo.municipio_id = Number(municipioId);
+      }
+
+      try {
+        await RAC.patch(`/api/usuarios/${id}`, cuerpo);
+        mostrarToast("Usuario actualizado correctamente.");
+        cerrarModalEditar();
+        cargarUsuarios();
+      } catch (err) {
+        errorModalEditar.textContent = err.message;
+        errorModalEditar.classList.add("visible");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Guardar cambios";
       }
     });
