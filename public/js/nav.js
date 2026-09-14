@@ -8,6 +8,14 @@
 // uso diario (Resumen, Consultar RAC, Exportar RAC). Los demás grupos
 // arrancan CERRADOS por decisión del usuario, EXCEPTO si el grupo contiene
 // la página activa -- así nunca se esconde en qué sección está parado.
+//
+// REDISEÑO (2026-09-13): "Cargar nómina Ministerio", "Cargar RAC completo"
+// y "Cargar planteles" eran 3 enlaces separados en "Cargas y catálogos" --
+// se combinaron en un solo enlace ("Carga completa mensual") que lleva a
+// una pantalla con los 3 pasos + "Revisar obsoletos" numerados, porque en
+// la práctica siempre se hacen juntos, en ese orden, solo durante una
+// recarga mensual completa (a diferencia de "Cargar por municipio", que sí
+// es una tarea frecuente y se deja separada). Ver public/js/carga-completa.js.
 function renderShell(paginaActiva, tituloTopbar) {
   const usuario = RAC.exigirSesion();
   if (!usuario) return null;
@@ -36,9 +44,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       titulo: "Cargas y catálogos",
       enlaces: [
         { id: "cargas", href: "/cargas.html", label: "Cargar por muncipio", roles: ["encargado_municipio", "operador", "admin"] },
-        { id: "nomina", href: "/nomina.html", label: "Cargar nómina Ministerio", roles: ["admin"] },
-        { id: "rac-completo", href: "/rac-completo.html", label: "Cargar RAC completo", roles: ["admin"] },
-        { id: "planteles-carga", href: "/planteles-carga.html", label: "Cargar planteles", roles: ["admin"] },
+        { id: "carga-completa", href: "/carga-completa.html", label: "Carga completa mensual", roles: ["admin"] },
         { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
       ],
     },
