@@ -41,7 +41,7 @@ async function buscarEmpleadoPorCedula(cedula) {
   const cedulaLimpia = cedula.trim().replace(/^0+/, "");
   const { rows } = await pool.query(
     `SELECT r.id, r.cedula, r.nombres, r.apellidos, r.cargo, r.codigo_cargo,
-            r.tipo_personal, r.horas_adm, r.fecha_ingreso, r.situacion,
+            r.tipo_personal, r.horas_adm, r.horas_academicas, r.fecha_ingreso, r.situacion,
             p.nombre AS nombre_plantel, p.codigo_plantel,
             mu.nombre AS municipio, pa.nombre AS parroquia
      FROM rac r
@@ -119,12 +119,18 @@ async function generarPdfCredencial(registro, codigoVerificacion) {
   escribir(`MUNICIPIO: ${registro.municipio || "—"}`, { negrita: true });
   escribir(`PARROQUIA: ${registro.parroquia || "—"}`, { negrita: true, salto: 30 });
 
+  const TIPOS_PERSONAL = { D: "DOCENTE", O: "OBRERO", A: "ADMINISTRATIVO" };
+  const tipoPersonalTexto = TIPOS_PERSONAL[(registro.tipo_personal || "").toUpperCase()] || registro.tipo_personal || "—";
+  const esDocente = (registro.tipo_personal || "").toUpperCase() === "D";
+  const horas = esDocente ? registro.horas_academicas : registro.horas_adm;
+  const fechaHoy = new Date().toLocaleDateString("es-VE");
+
   const parrafo =
     `Quien suscribe, ${DIRECTOR_NOMBRE}, Titular de la Cédula de Identidad N° ${DIRECTOR_CEDULA}, ` +
     `${DIRECTOR_CARGO}, ha propuesto a él (la) ciudadano (a): ${nombreCompleto}, Titular de la Cédula ` +
     `de Identidad N° V-${registro.cedula}, cargo nominal: ${registro.cargo || "—"}, Código: ${registro.codigo_cargo || "—"}, ` +
-    `para ejercer las funciones de: ${registro.tipo_personal || "—"}. Con una carga horaria de ` +
-    `${registro.horas_adm || "—"} horas a partir del día ${registro.fecha_ingreso || "—"}.`;
+    `para ejercer las funciones de: ${tipoPersonalTexto}. Con una carga horaria de ` +
+    `${horas || "—"} horas a partir del día ${fechaHoy}.`;
 
   const anchoMaximo = width - 112;
   const palabras = parrafo.split(" ");
@@ -149,7 +155,6 @@ async function generarPdfCredencial(registro, codigoVerificacion) {
   escribir(DIRECTOR_CARGO, { tamano: 9, salto: 12 });
   escribir(RESOLUCION_TEXTO, { tamano: 8, salto: 20 });
 
-  const fechaHoy = new Date().toLocaleDateString("es-VE");
   escribir(`Fecha: ${fechaHoy}`, { salto: 16 });
   escribir(`Código de verificación: ${codigoVerificacion}`, { tamano: 9 });
 
