@@ -71,6 +71,7 @@ async function generarPdfCredencial(registro, codigoVerificacion) {
   const pagina = pdfDoc.addPage([612, 792]); // carta
   const fuente = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fuenteNegrita = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fuenteTituloItalica = await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic);
   const { width, height } = pagina.getSize();
 
   // ---- Membrete oficial (logo del Ministerio) ----
@@ -111,13 +112,31 @@ async function generarPdfCredencial(registro, codigoVerificacion) {
     y -= salto;
   };
 
+  const escribirTituloSubrayado = (texto, opciones = {}) => {
+    const { tamano = 17, salto = 30 } = opciones;
+    const anchoTexto = fuenteTituloItalica.widthOfTextAtSize(texto, tamano);
+    const x = (width - anchoTexto) / 2;
+    pagina.drawText(texto, {
+      x, y, size: tamano, font: fuenteTituloItalica,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+    pagina.drawLine({
+      start: { x, y: y - 3 },
+      end: { x: x + anchoTexto, y: y - 3 },
+      thickness: 1,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+    y -= salto;
+  };
+
   const nombreCompleto = [registro.nombres, registro.apellidos].filter(Boolean).join(" ");
 
-  escribirCentrado("NOTIFICACIÓN", { tamano: 15, negrita: true, salto: 30 });
+  escribirTituloSubrayado("NOTIFICACIÓN", { tamano: 17, salto: 34 });
 
-  escribir(`CÓDIGO DEA: ${registro.codigo_plantel || "—"}`, { negrita: true });
-  escribir(`MUNICIPIO: ${registro.municipio || "—"}`, { negrita: true });
-  escribir(`PARROQUIA: ${registro.parroquia || "—"}`, { negrita: true, salto: 30 });
+  escribir("DIRECTOR (A): ");
+  escribir(`CÓDIGO DEA: ${registro.codigo_plantel || "—"}`);
+  escribir(`MUNICIPIO: ${registro.municipio || "—"}`);
+  escribir(`PARROQUIA: ${registro.parroquia || "—"}`, { salto: 30 });
 
   const TIPOS_PERSONAL = { D: "DOCENTE", O: "OBRERO", A: "ADMINISTRATIVO" };
   const tipoPersonalTexto = TIPOS_PERSONAL[(registro.tipo_personal || "").toUpperCase()] || registro.tipo_personal || "—";
