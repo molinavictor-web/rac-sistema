@@ -1,5 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const { google } = require("googleapis");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const QRCode = require("qrcode");
@@ -21,6 +23,10 @@ const RESOLUCION_TEXTO =
   "Resolución N° 006 de fecha 07/02/2025. Publicada en Gaceta Oficial N° 43.072 DEL 19/02/2025";
 const SHEETS_CREDENCIALES_ID = process.env.SHEETS_CREDENCIALES_ID; // mismo spreadsheet que ya usa whatsapp-credenciales
 const NOMBRE_HOJA_CREDENCIALES = "CredencialesEmitidas";
+
+// Membrete oficial (logo del Ministerio del Poder Popular para la Educación),
+// insertado en la cabecera del PDF de la credencial.
+const RUTA_LOGO_MEMBRETE = path.join(__dirname, "../assets/membrete-logo.png");
 
 const auth = new google.auth.GoogleAuth({
   keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
@@ -59,14 +65,29 @@ router.get("/buscar/:cedula", requireAuth, requireRol(...ROLES_CREDENCIALES), as
   }
 });
 
-// ---------- Generación del PDF con QR (mismo diseño que whatsapp-credenciales) ----------
+// ---------- Generación del PDF con QR (mismo diseño que whatsapp-credenciales, + membrete oficial) ----------
 async function generarPdfCredencial(registro, codigoVerificacion) {
   const pdfDoc = await PDFDocument.create();
   const pagina = pdfDoc.addPage([612, 792]); // carta
   const fuente = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fuenteNegrita = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const { width, height } = pagina.getSize();
-  let y = height - 60;
+
+  // ---- Membrete oficial (logo del Ministerio) ----
+  const logoBytes = fs.readFileSync(RUTA_LOGO_MEMBRETE);
+  const logoImagen = await pdfDoc.embedPng(logoBytes);
+  const anchoLogo = 230;
+  const escalaLogo = anchoLogo / logoImagen.width;
+  const altoLogo = logoImagen.height * escalaLogo;
+  const margenSuperior = 50;
+  pagina.drawImage(logoImagen, {
+    x: 56,
+    y: height - margenSuperior - altoLogo,
+    width: anchoLogo,
+    height: altoLogo,
+  });
+
+  let y = height - margenSuperior - altoLogo - 28;
 
   const escribir = (texto, opciones = {}) => {
     const { x = 56, tamano = 11, negrita = false, salto = 18 } = opciones;
@@ -78,11 +99,21 @@ async function generarPdfCredencial(registro, codigoVerificacion) {
     y -= salto;
   };
 
+  const escribirCentrado = (texto, opciones = {}) => {
+    const { tamano = 15, negrita = true, salto = 30 } = opciones;
+    const f = negrita ? fuenteNegrita : fuente;
+    const anchoTexto = f.widthOfTextAtSize(texto, tamano);
+    pagina.drawText(texto, {
+      x: (width - anchoTexto) / 2,
+      y, size: tamano, font: f,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+    y -= salto;
+  };
+
   const nombreCompleto = [registro.nombres, registro.apellidos].filter(Boolean).join(" ");
 
-  escribir("REPÚBLICA BOLIVARIANA DE VENEZUELA", { tamano: 9, negrita: true, salto: 13 });
-  escribir("MINISTERIO DEL PODER POPULAR PARA LA EDUCACIÓN", { tamano: 9, negrita: true, salto: 26 });
-  escribir("NOTIFICACIÓN", { tamano: 15, negrita: true, salto: 30 });
+  escribirCentrado("NOTIFICACIÓN", { tamano: 15, negrita: true, salto: 30 });
 
   escribir(`CÓDIGO DEA: ${registro.codigo_plantel || "—"}`, { negrita: true });
   escribir(`MUNICIPIO: ${registro.municipio || "—"}`, { negrita: true });
