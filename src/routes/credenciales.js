@@ -299,6 +299,64 @@ router.post("/aprobar/:codigo", requireAuth, requireRol(...ROLES_CREDENCIALES), 
   }
 });
 
+// Lista TODAS las credenciales (pendientes, aprobadas y eliminadas) — solo admin,
+// para el panel de gestión donde también se pueden eliminar credenciales ya aprobadas.
+router.get("/todas", requireAuth, requireRol("admin"), async (req, res) => {
+  try {
+    const respuesta = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEETS_CREDENCIALES_ID,
+      range: `${NOMBRE_HOJA_CREDENCIALES}!A:I`,
+    });
+    const filas = (respuesta.data.values || []).slice(1);
+    const credenciales = filas.map((f) => ({
+      codigo_verificacion: f[0], cedula: f[1], nombre: f[2], cargo: f[3],
+      codigo_rac: f[4], plantel: f[5], codigo_dea: f[6], fecha_generacion: f[7],
+      estado: (f[8] || "").trim().toLowerCase(),
+    }));
+    res.json({ credenciales });
+  } catch (err) {
+    console.error("Error listando todas las credenciales:", err);
+    res.status(500).json({ error: "No se pudo consultar las credenciales." });
+  }
+});
+
+// Elimina (soft delete) una credencial: se marca estado = "eliminada" en la hoja,
+// nunca se borra la fila — mantiene rastro para auditoría. Solo admin.
+// Si la credencial ya estaba APROBADA, exige confirmarAprobada:true en el body
+// para evitar que se revoque una credencial ya entregada por accidente.
+router.delete("/:codigo", requireAuth, requireRol("admin"), async (req, res) => {
+  try {
+    const encontrado = await buscarCredencialPorCodigo(req.params.codigo);
+    if (!encontrado) {
+      return res.status(404).json({ error: "No se encontró esa credencial." });
+    }
+
+    const estadoActual = (encontrado.registro.estado || "").trim().toLowerCase();
+
+    if (estadoActual === "eliminada") {
+      return res.status(409).json({ error: "Esa credencial ya estaba eliminada." });
+    }
+
+    if (estadoActual === "aprobada" && req.body?.confirmarAprobada !== true) {
+      return res.status(409).json({
+        error: "Esta credencial ya fue APROBADA y probablemente ya fue entregada. Confirme la eliminación para continuar.",
+        requiereConfirmacion: true,
+      });
+    }
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEETS_CREDENCIALES_ID,
+      range: `${NOMBRE_HOJA_CREDENCIALES}!I${encontrado.numeroFila}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["eliminada"]] },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error eliminando credencial:", err);
+    res.status(500).json({ error: "Ocurrió un error eliminando la credencial." });
+  }
+});
+
 // ---------- Página pública de verificación (a donde apunta el QR, sin auth) ----------
 publico.get("/verificar/:codigo", async (req, res) => {
   let resultado;
@@ -359,7 +417,13 @@ publico.get("/verificar/:codigo", async (req, res) => {
   ` : `
     <div class="estado invalida">
       <div class="sello">✕ NO VÁLIDA</div>
-      <div>${resultado ? "Esta credencial aún no ha sido aprobada." : "No se encontró ninguna credencial con este código."}</div>
+      <div>${
+        !resultado
+          ? "No se encontró ninguna credencial con este código."
+          : ((r.estado || "").toLowerCase() === "eliminada"
+            ? "Esta credencial fue eliminada y ya no es válida."
+            : "Esta credencial aún no ha sido aprobada.")
+      }</div>
     </div>
   `}
 
