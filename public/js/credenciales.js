@@ -22,6 +22,20 @@ function dibujarPanel() {
       <p style="margin-bottom:12px;">Aprueba solo después de haber impreso, firmado físicamente y escaneado el documento.</p>
       <div id="tablaPendientes"></div>
     </div>
+
+    ${usuario.rol === "admin" ? `
+    <div class="panel" style="margin-top:24px;">
+      <div class="panel-cabecera">
+        <h2>Todas las credenciales (solo administrador)</h2>
+        <button class="btn btn-fantasma btn-sm" id="btnRefrescarTodas">Actualizar</button>
+      </div>
+      <p style="margin-bottom:12px;">
+        Eliminar marca la credencial como no válida (no se borra el registro, queda
+        guardado para auditoría). Si ya está aprobada, se pedirá una confirmación extra.
+      </p>
+      <div id="tablaTodas"></div>
+    </div>
+    ` : ""}
   `;
 
   document.getElementById("btnBuscar").addEventListener("click", buscarCedula);
@@ -31,6 +45,11 @@ function dibujarPanel() {
   document.getElementById("btnRefrescarPendientes").addEventListener("click", cargarPendientes);
 
   cargarPendientes();
+
+  if (usuario.rol === "admin") {
+    document.getElementById("btnRefrescarTodas").addEventListener("click", cargarTodas);
+    cargarTodas();
+  }
 }
 
 async function buscarCedula() {
@@ -95,6 +114,7 @@ async function generarCredencial(boton) {
     boton.textContent = "PDF descargado ✓";
     mostrarToast("Credencial generada y registrada como pendiente de aprobación.");
     cargarPendientes();
+    if (usuario.rol === "admin") cargarTodas();
   } catch (err) {
     boton.disabled = false;
     boton.textContent = "Generar credencial (PDF)";
@@ -145,9 +165,95 @@ async function aprobarCredencial(boton) {
     await RAC.post(`/api/credenciales/aprobar/${encodeURIComponent(codigo)}`, {});
     mostrarToast("Credencial aprobada.");
     cargarPendientes();
+    if (usuario.rol === "admin") cargarTodas();
   } catch (err) {
     boton.disabled = false;
     boton.textContent = "Aprobar";
+    mostrarToast(err.message, true);
+  }
+}
+
+// ---- Panel "Todas las credenciales" (solo admin) ----
+function etiquetaEstadoCredencial(estado) {
+  const mapa = {
+    pendiente: '<span class="badge">Pendiente</span>',
+    aprobada: '<span class="badge badge-resuelto">Aprobada</span>',
+    eliminada: '<span class="badge badge-descartado">Eliminada</span>',
+  };
+  return mapa[estado] || estado || "—";
+}
+
+async function cargarTodas() {
+  const cont = document.getElementById("tablaTodas");
+  if (!cont) return;
+  cont.innerHTML = `<div class="cargando">Cargando credenciales…</div>`;
+  try {
+    const data = await RAC.get("/api/credenciales/todas");
+    if (!data.credenciales.length) {
+      cont.innerHTML = `<div class="vacio"><strong>Aún no se ha generado ninguna credencial</strong></div>`;
+      return;
+    }
+    const filas = data.credenciales.map((c) => `
+      <tr>
+        <td>${c.codigo_verificacion}</td>
+        <td>${c.cedula}</td>
+        <td>${c.nombre}</td>
+        <td>${c.plantel || ""}</td>
+        <td>${etiquetaEstadoCredencial(c.estado)}</td>
+        <td>
+          ${c.estado === "eliminada"
+            ? ""
+            : `<button class="btn btn-fantasma btn-sm" data-eliminar-codigo="${c.codigo_verificacion}" data-estado="${c.estado}">Eliminar</button>`
+          }
+        </td>
+      </tr>
+    `).join("");
+    cont.innerHTML = `
+      <table>
+        <thead><tr><th>Código</th><th>Cédula</th><th>Nombre</th><th>Plantel</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    `;
+    cont.querySelectorAll("[data-eliminar-codigo]").forEach((btn) => {
+      btn.addEventListener("click", () => eliminarCredencial(btn));
+    });
+  } catch (err) {
+    cont.innerHTML = `<div class="vacio"><strong>No se pudo cargar</strong>${err.message}</div>`;
+  }
+}
+
+async function eliminarCredencial(boton) {
+  const codigo = boton.dataset.eliminarCodigo;
+  const estado = boton.dataset.estado;
+
+  const confirmarAprobada = estado === "aprobada";
+  const mensaje = confirmarAprobada
+    ? "Esta credencial YA FUE APROBADA (probablemente ya fue entregada). ¿Seguro que quieres eliminarla?"
+    : "¿Eliminar esta credencial pendiente?";
+  const ok = window.confirm(mensaje);
+  if (!ok) return;
+
+  boton.disabled = true;
+  boton.textContent = "Eliminando…";
+  try {
+    const resp = await fetch(`/api/credenciales/${encodeURIComponent(codigo)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: "Bearer " + RAC.getToken(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(confirmarAprobada ? { confirmarAprobada: true } : {}),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => null);
+      throw new Error((data && data.error) || `Error ${resp.status}`);
+    }
+    mostrarToast("Credencial eliminada.");
+    cargarTodas();
+    cargarPendientes();
+  } catch (err) {
+    boton.disabled = false;
+    boton.textContent = "Eliminar";
     mostrarToast(err.message, true);
   }
 }
