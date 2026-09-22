@@ -20,9 +20,10 @@ async function cargarResumen() {
     contenido.innerHTML = `
       <section class="dashboard-hero">
         <div class="hero-content">
-          <div class="hero-kicker">Secretaría de Educación · Estado Monagas</div>
+          <div class="hero-kicker">Centro de la Calidad Educativa · Estado Monagas</div>
           <h1 class="hero-title">RAC - Sistema</h1>
-          <p class="hero-text">Gestión, validación y control de la información del personal, planteles y cargas del Ministerio de Educación.</p>
+          <p class="hero-text">Registro de Asignación de Cargos · Gestión y control de la información
+  del personal y planteles educativos.</p>
         </div>
         <div class="hero-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7M8 13h5"/></svg></div>
       </section>
