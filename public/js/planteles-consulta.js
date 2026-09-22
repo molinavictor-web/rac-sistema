@@ -16,8 +16,19 @@ const CAMPO_NOMBRE = "nombre_plantel";
 const CAMPO_MUNICIPIO = "municipio";
 const CAMPO_PARROQUIA = "parroquia";
 const CAMPO_DIRECTOR = "director_nombre";
+const CAMPO_TEL_DIRECTOR = "telefono_director";
+const CAMPO_TEL_MOVIL_DIRECTOR = "telefono_movil_director";
 
+// Columnas de la tabla de resultados de la búsqueda (no lleva teléfonos --
+// se quedaría muy ancha).
 const CAMPOS_TABLA = [CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_MUNICIPIO, CAMPO_PARROQUIA, CAMPO_DIRECTOR];
+
+// Tarjetas destacadas arriba de la ficha (sí incluye los teléfonos, para
+// tenerlos a la vista sin bajar a buscarlos en "Todos los datos").
+const CAMPOS_DESTACADOS_FICHA = [
+  CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_MUNICIPIO, CAMPO_PARROQUIA,
+  CAMPO_DIRECTOR, CAMPO_TEL_DIRECTOR, CAMPO_TEL_MOVIL_DIRECTOR,
+];
 
 let ultimosResultados = [];
 let temporizadorBusqueda = null;
@@ -174,8 +185,8 @@ modalFichaFondo.addEventListener("click", (e) => {
 // archivos de Drive arranca vacía (con "Buscando…") y se llena aparte, en
 // cargarArchivosFicha, para no bloquear la apertura de la ficha.
 function renderizarFicha(plantel) {
-  const destacados = CAMPOS_TABLA.filter((c) => plantel[c]);
-  const resto = Object.keys(plantel).filter((c) => !CAMPOS_TABLA.includes(c) && plantel[c] !== "");
+  const destacados = CAMPOS_DESTACADOS_FICHA.filter((c) => plantel[c]);
+  const resto = Object.keys(plantel).filter((c) => !CAMPOS_DESTACADOS_FICHA.includes(c) && plantel[c] !== "");
 
   const tarjetasHtml = destacados.map((c) => `
     <div class="stat-card" style="min-height:auto; padding:13px 15px;">
@@ -184,14 +195,13 @@ function renderizarFicha(plantel) {
     </div>
   `).join("");
 
-  // Tabla de una sola columna de pares etiqueta/valor -- misma tabla que ya
-  // usa el resto del sistema (planteles, usuarios, etc.), en vez de cajitas
-  // sueltas en cuadrícula, que con muchos campos cortos se ven desordenadas.
+  // El resto de los campos se acomoda en 3 columnas (una sola no se
+  // aprovechaba el ancho de la pantalla y obligaba a bajar demasiado).
   const filasHtml = resto.map((c) => `
-    <tr>
-      <td style="width:260px; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#718096; white-space:nowrap;">${etiquetar(c)}</td>
-      <td style="font-size:.88rem; color:var(--text);">${valorFormateado(plantel[c])}</td>
-    </tr>
+    <div>
+      <div style="font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:#718096; margin-bottom:3px;">${etiquetar(c)}</div>
+      <div style="font-size:.85rem; color:var(--text);">${valorFormateado(plantel[c])}</div>
+    </div>
   `).join("");
 
   return `
@@ -203,7 +213,7 @@ function renderizarFicha(plantel) {
     ${filasHtml
       ? `<h3 style="margin-bottom:8px;">Todos los datos (GESCOLAR)</h3>
          <div class="panel" style="box-shadow:none;">
-           <table><tbody>${filasHtml}</tbody></table>
+           <div class="ficha-datos-grid">${filasHtml}</div>
          </div>`
       : ""}
   `;
