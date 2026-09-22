@@ -75,7 +75,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       <aside class="sidebar">
         <div class="sidebar-brand">
           <div class="sidebar-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7"/></svg></div>
-          <div class="sidebar-brand-text"><strong>RAC · Sistema</strong><span>Registro y Análisis de Cargas</span></div>
+          <div class="sidebar-brand-text"><strong>RAC · Sistema</strong><span>Registro de Asignación de Cargos</span></div>
         </div>
         <div class="sidebar-marca">Monagas · Educación</div>
         <div class="sidebar-titulo">Gestión educativa</div>
