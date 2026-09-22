@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAC Monagas — Consultar planteles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  /* Scoped a esta pantalla: la ficha (modal pantalla-completa) puede traer
+     hasta 55 campos, así que el encabezado (título + cerrar) queda fijo y
+     solo el cuerpo hace scroll, con una barra visible. No toca el
+     comportamiento de "pantalla-completa" en las otras pantallas que la usan
+     (rac.html, consultar-rac.html). */
+  #modalFichaFondo .modal{display:flex; flex-direction:column; overflow:hidden;}
+  .ficha-cabecera{flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding-bottom:14px; margin-bottom:4px; border-bottom:1px solid var(--border);}
+  .ficha-scroll{flex:1 1 auto; overflow-y:auto; margin-top:14px; padding-right:14px; scrollbar-width:thin; scrollbar-color:#b7c8dd var(--surface-2);}
+  .ficha-scroll::-webkit-scrollbar{width:10px;}
+  .ficha-scroll::-webkit-scrollbar-track{background:var(--surface-2); border-radius:8px;}
+  .ficha-scroll::-webkit-scrollbar-thumb{background:#b7c8dd; border-radius:8px;}
+  .ficha-scroll::-webkit-scrollbar-thumb:hover{background:#93aac8;}
+</style>
+</head>
+<body>
+  <div id="shell"></div>
+
+  <!-- Modal: ficha completa del plantel (pantalla completa porque GESCOLAR trae 55 columnas) -->
+  <div class="modal-fondo pantalla-completa" id="modalFichaFondo">
+    <div class="modal">
+      <div class="ficha-cabecera">
+        <div>
+          <h2 id="fichaTitulo" style="margin-bottom:2px;">Ficha del plantel</h2>
+          <p id="fichaSubtitulo" style="margin:0; color:var(--muted); font-size:.85rem;"></p>
+        </div>
+        <button type="button" class="btn btn-fantasma btn-sm" id="btnCerrarFicha">Cerrar ✕</button>
+      </div>
+      <div id="fichaContenido" class="ficha-scroll"></div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/planteles-consulta.js"></script>
+</body>
+</html>
