@@ -1,0 +1,226 @@
+// planteles-consulta.js — pantalla de consulta de la hoja GESCOLAR (Google Sheets).
+// Solo lectura: busca en /api/planteles-consulta/buscar y muestra la ficha
+// completa de un plantel en un modal a pantalla completa (son 55 columnas).
+
+const usuario = renderShell("planteles-consulta", "Consultar planteles");
+
+// Campos "confirmados" (coinciden EXACTO con CAMPOS_BUSQUEDA del backend) --
+// se usan para las columnas fijas de la tabla y el encabezado de la ficha.
+// El resto de las columnas de GESCOLAR se muestran igual, pero de forma
+// genérica (ver renderizarFicha), porque su nombre exacto en la hoja puede
+// variar y no vale la pena arriesgarse a que un campo real no se muestre
+// por una diferencia de mayúsculas/guion bajo.
+const CAMPO_CODIGO = "cod_plantel";
+const CAMPO_NOMBRE = "nombre_plantel";
+const CAMPO_MUNICIPIO = "municipio";
+const CAMPO_PARROQUIA = "parroquia";
+const CAMPO_DIRECTOR = "director_nombre";
+
+const CAMPOS_TABLA = [CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_MUNICIPIO, CAMPO_PARROQUIA, CAMPO_DIRECTOR];
+
+let ultimosResultados = [];
+let temporizadorBusqueda = null;
+const puedeRefrescar = usuario && (usuario.rol === "admin" || usuario.rol === "operador_plantel");
+
+if (usuario) dibujarPanel();
+
+function dibujarPanel() {
+  const contenido = document.getElementById("contenido");
+  contenido.innerHTML = `
+    <div class="panel">
+      <div class="panel-cabecera">
+        <div>
+          <h2>Consultar planteles (GESCOLAR)</h2>
+          <p class="panel-subtitulo">Datos importados de la hoja GESCOLAR en Google Sheets · solo lectura</p>
+        </div>
+        ${puedeRefrescar ? `<button class="btn btn-fantasma btn-sm" id="btnRefrescar">Actualizar desde Sheets</button>` : ""}
+      </div>
+      <div style="padding: 16px 20px 0;">
+        <div class="filtros">
+          <input type="text" id="qBuscar" placeholder="Buscar por nombre, código, municipio, parroquia, circuito, consejo comunal o director..." style="flex:1; min-width:280px;">
+        </div>
+      </div>
+      <div id="resumenBusqueda" style="padding: 10px 20px 0; color: var(--muted); font-size: .8rem;"></div>
+      <div id="tablaPlanteles" style="margin-top:12px;"></div>
+    </div>
+  `;
+
+  const input = document.getElementById("qBuscar");
+  input.addEventListener("input", () => {
+    clearTimeout(temporizadorBusqueda);
+    temporizadorBusqueda = setTimeout(() => buscarPlanteles(input.value.trim()), 380);
+  });
+
+  if (puedeRefrescar) {
+    document.getElementById("btnRefrescar").addEventListener("click", refrescarDatos);
+  }
+
+  mostrarEstadoInicial();
+}
+
+function mostrarEstadoInicial() {
+  document.getElementById("resumenBusqueda").textContent = "";
+  document.getElementById("tablaPlanteles").innerHTML = `
+    <div class="vacio">
+      <strong>Escribe para buscar</strong>
+      Mínimo 2 caracteres — busca por nombre del plantel, código, municipio, parroquia, circuito comunal, consejo comunal o director.
+    </div>`;
+}
+
+async function buscarPlanteles(q) {
+  const resumen = document.getElementById("resumenBusqueda");
+  const tabla = document.getElementById("tablaPlanteles");
+
+  if (!q) return mostrarEstadoInicial();
+  if (q.length < 2) {
+    resumen.textContent = "";
+    tabla.innerHTML = `<div class="vacio"><strong>Escribe al menos 2 caracteres</strong>para empezar la búsqueda.</div>`;
+    return;
+  }
+
+  tabla.innerHTML = `<div class="cargando">Buscando…</div>`;
+  try {
+    const resp = await RAC.get(`/api/planteles-consulta/buscar?q=${encodeURIComponent(q)}`);
+    ultimosResultados = RAC.lista(resp, "planteles");
+    resumen.textContent = resp && typeof resp.total === "number"
+      ? `${resp.total} resultado${resp.total === 1 ? "" : "s"}${resp.limitado ? " · mostrando los primeros 200" : ""}`
+      : "";
+    dibujarTabla(ultimosResultados);
+  } catch (err) {
+    resumen.textContent = "";
+    tabla.innerHTML = `<div class="vacio"><strong>No se pudo buscar</strong>${err.message}</div>`;
+  }
+}
+
+function dibujarTabla(planteles) {
+  const cont = document.getElementById("tablaPlanteles");
+  if (!planteles.length) {
+    cont.innerHTML = `<div class="vacio"><strong>Sin resultados</strong>Prueba con otro nombre, código o municipio.</div>`;
+    return;
+  }
+
+  const filas = planteles.map((p, i) => `
+    <tr>
+      <td><span class="cod">${escapar(p[CAMPO_CODIGO]) || "—"}</span></td>
+      <td>${escapar(p[CAMPO_NOMBRE]) || "—"}</td>
+      <td>${escapar(p[CAMPO_MUNICIPIO]) || "—"}</td>
+      <td>${escapar(p[CAMPO_PARROQUIA]) || "—"}</td>
+      <td>${escapar(p[CAMPO_DIRECTOR]) || "—"}</td>
+      <td><button class="btn btn-fantasma btn-sm" data-ver-ficha="${i}">Ver ficha</button></td>
+    </tr>
+  `).join("");
+
+  cont.innerHTML = `
+    <table>
+      <thead><tr><th>Código</th><th>Plantel</th><th>Municipio</th><th>Parroquia</th><th>Director</th><th></th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+  `;
+
+  cont.querySelectorAll("[data-ver-ficha]").forEach((btn) => {
+    const plantel = planteles[Number(btn.dataset.verFicha)];
+    btn.addEventListener("click", () => abrirFicha(plantel));
+  });
+}
+
+async function refrescarDatos() {
+  const btn = document.getElementById("btnRefrescar");
+  btn.disabled = true;
+  btn.textContent = "Actualizando…";
+  try {
+    const resp = await RAC.post("/api/planteles-consulta/refrescar", {});
+    mostrarToast(`Datos actualizados (${resp.total} planteles).`);
+    const q = document.getElementById("qBuscar").value.trim();
+    if (q.length >= 2) buscarPlanteles(q);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Actualizar desde Sheets";
+  }
+}
+
+// ---- Ficha completa (modal a pantalla completa) ----
+const modalFichaFondo = document.getElementById("modalFichaFondo");
+
+function abrirFicha(plantel) {
+  document.getElementById("fichaTitulo").textContent = plantel[CAMPO_NOMBRE] || "Plantel sin nombre";
+  const piezasSub = [plantel[CAMPO_CODIGO], plantel[CAMPO_MUNICIPIO], plantel[CAMPO_PARROQUIA]].filter(Boolean);
+  document.getElementById("fichaSubtitulo").textContent = piezasSub.join(" · ");
+  document.getElementById("fichaContenido").innerHTML = renderizarFicha(plantel);
+  modalFichaFondo.classList.add("visible");
+}
+
+function cerrarFicha() {
+  modalFichaFondo.classList.remove("visible");
+}
+
+document.getElementById("btnCerrarFicha").addEventListener("click", cerrarFicha);
+modalFichaFondo.addEventListener("click", (e) => {
+  if (e.target === modalFichaFondo) cerrarFicha();
+});
+
+// Recorre TODAS las columnas que vinieron de GESCOLAR (no solo las
+// "confirmadas") para que la ficha nunca se quede corta si la hoja trae
+// columnas con nombres que aquí no se conocen exacto. Los campos destacados
+// van primero, en tarjetas; el resto se agrupa como una cuadrícula
+// etiqueta/valor, en el mismo orden en que vienen en la hoja.
+function renderizarFicha(plantel) {
+  const destacados = CAMPOS_TABLA.filter((c) => plantel[c]);
+  const resto = Object.keys(plantel).filter((c) => !CAMPOS_TABLA.includes(c) && plantel[c] !== "");
+
+  const tarjetasHtml = destacados.map((c) => `
+    <div class="stat-card" style="min-height:auto; padding:13px 15px;">
+      <h3 style="margin-bottom:6px;">${etiquetar(c)}</h3>
+      <div style="font-size:.95rem; font-weight:600; color:var(--navy-900);">${valorFormateado(plantel[c])}</div>
+    </div>
+  `).join("");
+
+  const filasHtml = resto.map((c) => `
+    <div style="padding:9px 0; border-bottom:1px solid #e8edf3;">
+      <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:#718096; margin-bottom:3px;">${etiquetar(c)}</div>
+      <div style="font-size:.86rem; color:var(--text);">${valorFormateado(plantel[c])}</div>
+    </div>
+  `).join("");
+
+  return `
+    ${tarjetasHtml ? `<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); margin-bottom:22px;">${tarjetasHtml}</div>` : ""}
+    ${filasHtml
+      ? `<h3 style="margin-bottom:8px;">Todos los datos (GESCOLAR)</h3>
+         <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:0 20px;">${filasHtml}</div>`
+      : ""}
+  `;
+}
+
+// Convierte una llave de columna (ej. "NOMB_CIRCUITO", "director_correo") en
+// una etiqueta legible ("Nomb circuito" → se deja tal cual si ya está en
+// mayúsculas por ser sigla/código de hoja; si es snake_case normal, la
+// capitaliza palabra por palabra).
+function etiquetar(clave) {
+  if (clave === clave.toUpperCase() && /_/.test(clave)) {
+    return clave.replace(/_/g, " ");
+  }
+  return clave
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letra) => letra.toUpperCase());
+}
+
+// Valores tipo SI/NO/#N/A (banderas de documentos: fotos, informe, etc.) se
+// muestran como badge en vez de texto plano.
+function valorFormateado(valor) {
+  const texto = String(valor ?? "").trim();
+  if (!texto) return "—";
+  const normal = texto.toUpperCase();
+  if (normal === "SI" || normal === "SÍ") return `<span class="badge badge-resuelto">Sí</span>`;
+  if (normal === "NO") return `<span class="badge badge-descartado">No</span>`;
+  if (normal === "#N/A") return `<span class="badge badge-pendiente">Sin dato</span>`;
+  return escapar(texto);
+}
+
+function escapar(valor) {
+  if (valor === undefined || valor === null) return "";
+  return String(valor)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
