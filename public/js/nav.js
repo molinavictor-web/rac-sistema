@@ -1,84 +1,30 @@
-// nav.js — dibuja el shell (sidebar + topbar) igual en todas las páginas,
-// ajustando qué enlaces se ven según el rol del usuario.
-//
-// REDISEÑO (2026-09-12): con 13 enlaces el menú plano ya se veía muy largo,
-// sobre todo para admin (que ve casi todos). Se agrupan en secciones
-// colapsables (clic en el título del grupo para expandir/contraer).
-// "General" queda sin encabezado y siempre visible -- son los enlaces de
-// uso diario (Resumen, Consultar RAC, Exportar RAC). Los demás grupos
-// arrancan CERRADOS por decisión del usuario, EXCEPTO si el grupo contiene
-// la página activa -- así nunca se esconde en qué sección está parado.
-//
-// REDISEÑO (2026-09-13): "Cargar nómina Ministerio", "Cargar RAC completo"
-// y "Cargar planteles" eran 3 enlaces separados en "Cargas y catálogos" --
-// se combinaron en un solo enlace ("Carga completa mensual") que lleva a
-// una pantalla con los 3 pasos + "Revisar obsoletos" numerados, porque en
-// la práctica siempre se hacen juntos, en ese orden, solo durante una
-// recarga mensual completa (a diferencia de "Cargar por municipio", que sí
-// es una tarea frecuente y se deja separada). Ver public/js/carga-completa.js.
-//
-// AGREGADO (2026-09-21): grupo "Planteles (GESCOLAR)" con la pantalla de
-// consulta que lee de Google Sheets (no de Postgres) -- ver
-// src/routes/plantelesConsulta.js. Rol nuevo: operador_plantel.
+// nav.js — shell visual compartido del sistema RAC.
 function renderShell(paginaActiva, tituloTopbar) {
   const usuario = RAC.exigirSesion();
   if (!usuario) return null;
 
   const grupos = [
-    {
-      id: null, // "General": sin título, siempre expandido, no colapsable.
-      titulo: null,
-      enlaces: [
-        { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
-        { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
-        { id: "exportar-rac", href: "/exportar-rac.html", label: "Exportar RAC", roles: ["admin", "operador"] },
-      ],
-    },
-    {
-      id: "alertas-calidad",
-      titulo: "Alertas y calidad de datos",
-      enlaces: [
-        { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
-        { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
-        { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin"] },
-      ],
-    },
-    {
-      id: "cargas-catalogos",
-      titulo: "Cargas y catálogos",
-      enlaces: [
-        { id: "cargas", href: "/cargas.html", label: "Cargar por muncipio", roles: ["encargado_municipio", "operador", "admin"] },
-        { id: "carga-completa", href: "/carga-completa.html", label: "Carga completa mensual", roles: ["admin"] },
-        { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
-      ],
-    },
-    {
-      id: "credenciales-grupo",
-      // Grupo separado de "Administración" -- decisión explícita del
-      // usuario (2026-09-12), aunque hoy solo tenga un enlace adentro.
-      titulo: "Credenciales",
-      enlaces: [
-        { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador", "operador_credenciales"] },
-      ],
-    },
-    {
-      id: "planteles-consulta-grupo",
-      // Grupo nuevo (2026-09-21), separado de "Cargas y catálogos" porque
-      // esta pantalla no carga nada -- solo consulta la hoja de GESCOLAR
-      // en Google Sheets. Mismo patrón que "Credenciales": grupo propio
-      // aunque tenga un solo enlace por ahora.
-      titulo: "Planteles (GESCOLAR)",
-      enlaces: [
-        { id: "planteles-consulta", href: "/planteles-consulta.html", label: "Consultar planteles", roles: ["admin", "operador_plantel"] },
-      ],
-    },
-    {
-      id: "administracion",
-      titulo: "Administración",
-      enlaces: [
-        { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
-      ],
-    },
+    { id: null, titulo: null, enlaces: [
+      { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
+      { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
+      { id: "exportar-rac", href: "/exportar-rac.html", label: "Exportar RAC", roles: ["admin", "operador"] },
+    ]},
+    { id: "alertas-calidad", titulo: "Alertas y calidad de datos", enlaces: [
+      { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
+      { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
+      { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin"] },
+    ]},
+    { id: "cargas-catalogos", titulo: "Cargas y catálogos", enlaces: [
+      { id: "cargas", href: "/cargas.html", label: "Cargar por municipio", roles: ["encargado_municipio", "operador", "admin"] },
+      { id: "carga-completa", href: "/carga-completa.html", label: "Carga completa mensual", roles: ["admin"] },
+      { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
+    ]},
+    { id: "credenciales-grupo", titulo: "Credenciales", enlaces: [
+      { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador", "operador_credenciales"] },
+    ]},
+    { id: "administracion", titulo: "Administración", enlaces: [
+      { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
+    ]},
   ];
 
   const rolLabel = {
@@ -86,88 +32,75 @@ function renderShell(paginaActiva, tituloTopbar) {
     operador: "Operador",
     encargado_municipio: "Encargado de municipio",
     operador_credenciales: "Operador de credenciales",
-    operador_plantel: "Operador de plantel",
   }[usuario.rol] || usuario.rol;
 
-  // Filtra por rol y descarta de una vez cualquier grupo que quede sin
-  // ningún enlace visible para este usuario (ej. "Credenciales" para un
-  // encargado_municipio no debería ni mostrar el título del grupo).
+  const iconos = {
+    dashboard: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h7V3H3v10Zm11 8h7V3h-7v18ZM3 21h7v-4H3v4Zm11 0h7v-4h-7v4Z"/></svg>`,
+    rac: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>`,
+    "exportar-rac": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>`,
+    alertas: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>`,
+    "codigos-sin-catalogar": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>`,
+    "depurar-archivo": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 20 5-5m-2-6 5-5 8 8-5 5H7V9Z"/><path d="M14 6 18 10"/></svg>`,
+    cargas: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/></svg>`,
+    "carga-completa": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg>`,
+    planteles: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/></svg>`,
+    credenciales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M13 10h5M13 14h4"/></svg>`,
+    usuarios: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3"/><path d="M5 20c1.3-4 3.6-6 7-6s5.7 2 7 6"/></svg>`,
+  };
+
   const gruposVisibles = grupos
-    .map((g) => ({
-      ...g,
-      enlaces: g.enlaces.filter((e) => !e.roles || e.roles.includes(usuario.rol)),
-    }))
+    .map((g) => ({ ...g, enlaces: g.enlaces.filter((e) => !e.roles || e.roles.includes(usuario.rol)) }))
     .filter((g) => g.enlaces.length > 0);
 
-  const navHtml = gruposVisibles
-    .map((g) => {
-      const enlacesHtml = g.enlaces
-        .map(
-          (e) =>
-            `<a class="nav-link ${e.id === paginaActiva ? "activo" : ""}" href="${e.href}">${e.label}</a>`
-        )
-        .join("");
+  const navHtml = gruposVisibles.map((g) => {
+    const enlacesHtml = g.enlaces.map((e) => `
+      <a class="nav-link ${e.id === paginaActiva ? "activo" : ""}" data-nav-id="${e.id}" href="${e.href}">
+        <span class="nav-icon">${iconos[e.id] || ""}</span><span>${e.label}</span>
+      </a>`).join("");
 
-      if (!g.titulo) {
-        return `<div class="nav-grupo-plano">${enlacesHtml}</div>`;
-      }
+    if (!g.titulo) return `<div class="nav-grupo-plano">${enlacesHtml}</div>`;
 
-      const contieneActiva = g.enlaces.some((e) => e.id === paginaActiva);
-      const abierto = contieneActiva;
-
-      return `
-        <div class="nav-grupo" data-grupo="${g.id}">
-          <button type="button" class="nav-grupo-titulo" data-toggle-grupo="${g.id}">
-            <span>${g.titulo}</span>
-            <span class="nav-grupo-flecha ${abierto ? "abierto" : ""}" data-flecha-grupo="${g.id}">▸</span>
-          </button>
-          <div class="nav-grupo-contenido ${abierto ? "abierto" : ""}" data-contenido-grupo="${g.id}">
-            ${enlacesHtml}
-          </div>
-        </div>
-      `;
-    })
-    .join("");
+    const abierto = g.enlaces.some((e) => e.id === paginaActiva);
+    return `
+      <div class="nav-grupo" data-grupo="${g.id}">
+        <button type="button" class="nav-grupo-titulo" data-toggle-grupo="${g.id}">
+          <span>${g.titulo}</span><span class="nav-grupo-flecha ${abierto ? "abierto" : ""}" data-flecha-grupo="${g.id}">▸</span>
+        </button>
+        <div class="nav-grupo-contenido ${abierto ? "abierto" : ""}" data-contenido-grupo="${g.id}">${enlacesHtml}</div>
+      </div>`;
+  }).join("");
 
   document.getElementById("shell").innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
-        <div>
-          <div class="sidebar-marca">Monagas · Educación</div>
-          <div class="sidebar-titulo">RAC</div>
+        <div class="sidebar-brand">
+          <div class="sidebar-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7"/></svg></div>
+          <div class="sidebar-brand-text"><strong>RAC · Sistema</strong><span>Registro y Análisis de Cargas</span></div>
         </div>
+        <div class="sidebar-marca">Monagas · Educación</div>
+        <div class="sidebar-titulo">Gestión educativa</div>
         <nav>${navHtml}</nav>
         <div class="sidebar-pie">
-          <div class="usuario-chip">
-            <strong>${usuario.nombre}</strong>
-            <span class="rol-badge">${rolLabel}</span>
-          </div>
+          <div class="usuario-chip"><strong>${usuario.nombre}</strong><span class="rol-badge">${rolLabel}</span></div>
           <button class="btn btn-fantasma btn-sm btn-ancho" id="btnSalir">Cerrar sesión</button>
         </div>
       </aside>
       <div class="main-col">
-        <header class="topbar"><h1>${tituloTopbar}</h1></header>
+        <header class="topbar">
+          <div class="topbar-title"><div><div class="crumb">MONAGAS · EDUCACIÓN</div><div class="title">${tituloTopbar}</div></div></div>
+          <div class="topbar-user"><div class="topbar-user-avatar">${(usuario.nombre || "U").charAt(0).toUpperCase()}</div><span>${rolLabel}</span></div>
+        </header>
         <main class="contenido" id="contenido"></main>
       </div>
-    </div>
-  `;
+    </div>`;
 
   document.getElementById("btnSalir").addEventListener("click", RAC.cerrarSesion);
-
-  // Clic en el título de un grupo: alterna la clase "abierto" en su
-  // contenido y en su flecha (que gira 90° vía CSS, ver .nav-grupo-flecha
-  // en style.css). Estado en memoria del DOM nada más -- no se guarda
-  // entre recargas ni entre páginas, cada carga vuelve a arrancar cerrado
-  // (salvo el grupo de la página activa).
   document.querySelectorAll("[data-toggle-grupo]").forEach((boton) => {
     boton.addEventListener("click", () => {
       const id = boton.dataset.toggleGrupo;
-      const contenido = document.querySelector(`[data-contenido-grupo="${id}"]`);
-      const flecha = document.querySelector(`[data-flecha-grupo="${id}"]`);
-      contenido.classList.toggle("abierto");
-      flecha.classList.toggle("abierto");
+      document.querySelector(`[data-contenido-grupo="${id}"]`).classList.toggle("abierto");
+      document.querySelector(`[data-flecha-grupo="${id}"]`).classList.toggle("abierto");
     });
   });
-
   return usuario;
 }
