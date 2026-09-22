@@ -1,6 +1,7 @@
 // planteles-consulta.js — pantalla de consulta de la hoja GESCOLAR (Google Sheets).
 // Solo lectura: busca en /api/planteles-consulta/buscar y muestra la ficha
-// completa de un plantel en un modal a pantalla completa (son 55 columnas).
+// completa de un plantel en un modal a pantalla completa (son 55 columnas),
+// incluyendo los archivos disponibles en Drive para ese código DEA.
 
 const usuario = renderShell("planteles-consulta", "Consultar planteles");
 
@@ -149,6 +150,9 @@ function abrirFicha(plantel) {
   document.getElementById("fichaSubtitulo").textContent = piezasSub.join(" · ");
   document.getElementById("fichaContenido").innerHTML = renderizarFicha(plantel);
   modalFichaFondo.classList.add("visible");
+
+  const codigoDea = plantel[CAMPO_CODIGO];
+  if (codigoDea) cargarArchivosFicha(codigoDea);
 }
 
 function cerrarFicha() {
@@ -164,7 +168,9 @@ modalFichaFondo.addEventListener("click", (e) => {
 // "confirmadas") para que la ficha nunca se quede corta si la hoja trae
 // columnas con nombres que aquí no se conocen exacto. Los campos destacados
 // van primero, en tarjetas; el resto se agrupa como una cuadrícula
-// etiqueta/valor, en el mismo orden en que vienen en la hoja.
+// etiqueta/valor, en el mismo orden en que vienen en la hoja. La sección de
+// archivos de Drive arranca vacía (con "Buscando…") y se llena aparte, en
+// cargarArchivosFicha, para no bloquear la apertura de la ficha.
 function renderizarFicha(plantel) {
   const destacados = CAMPOS_TABLA.filter((c) => plantel[c]);
   const resto = Object.keys(plantel).filter((c) => !CAMPOS_TABLA.includes(c) && plantel[c] !== "");
@@ -184,12 +190,117 @@ function renderizarFicha(plantel) {
   `).join("");
 
   return `
+    <div id="fichaArchivosBox" style="margin-bottom:22px;">
+      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
+      <div class="cargando">Buscando archivos…</div>
+    </div>
     ${tarjetasHtml ? `<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); margin-bottom:22px;">${tarjetasHtml}</div>` : ""}
     ${filasHtml
       ? `<h3 style="margin-bottom:8px;">Todos los datos (GESCOLAR)</h3>
          <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:0 20px;">${filasHtml}</div>`
       : ""}
   `;
+}
+
+// ---- Archivos de Drive para el código DEA de la ficha abierta ----
+
+async function cargarArchivosFicha(codigoDea) {
+  const caja = document.getElementById("fichaArchivosBox");
+  if (!caja) return; // la ficha pudo cerrarse antes de que responda el servidor
+
+  try {
+    const resp = await RAC.get(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos`);
+    // Si el usuario ya cerró esta ficha o abrió otra, no pisar contenido ajeno.
+    if (!document.getElementById("fichaArchivosBox")) return;
+    dibujarArchivosFicha(codigoDea, resp);
+  } catch (err) {
+    const cajaActual = document.getElementById("fichaArchivosBox");
+    if (!cajaActual) return;
+    cajaActual.innerHTML = `
+      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
+      <div class="vacio"><strong>No se pudo consultar Drive</strong>${escapar(err.message)}</div>
+    `;
+  }
+}
+
+function dibujarArchivosFicha(codigoDea, resp) {
+  const caja = document.getElementById("fichaArchivosBox");
+  if (!caja) return;
+
+  const archivos = (resp && resp.archivos) || [];
+
+  if (resp && resp.carpetaEncontrada === false) {
+    caja.innerHTML = `
+      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
+      <div class="vacio"><strong>Sin carpeta en Drive</strong>No existe una carpeta con el código ${escapar(codigoDea)} dentro de "Planteles".</div>
+    `;
+    return;
+  }
+
+  if (!archivos.length) {
+    caja.innerHTML = `
+      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
+      <div class="vacio"><strong>Carpeta vacía</strong>La carpeta de este plantel en Drive no tiene archivos todavía.</div>
+    `;
+    return;
+  }
+
+  const filas = archivos.map((a, i) => `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px;">
+      <div style="min-width:0;">
+        <div style="font-size:.86rem; font-weight:600; color:var(--navy-900); overflow-wrap:anywhere;">${escapar(a.nombre)}</div>
+        <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)}</div>
+      </div>
+      <button class="btn btn-fantasma btn-sm" data-descargar="${i}" style="flex:0 0 auto;">Descargar</button>
+    </div>
+  `).join("");
+
+  caja.innerHTML = `
+    <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
+    <div>${filas}</div>
+  `;
+
+  caja.querySelectorAll("[data-descargar]").forEach((btn) => {
+    const archivo = archivos[Number(btn.dataset.descargar)];
+    btn.addEventListener("click", () => descargarArchivoDrive(codigoDea, archivo, btn));
+  });
+}
+
+// Descarga binaria: no se puede usar un <a href> simple porque la sesión va
+// por header Authorization (Bearer), no por cookie -- se trae como blob y se
+// fuerza la descarga con un enlace temporal (mismo patrón que credenciales.js).
+async function descargarArchivoDrive(codigoDea, archivo, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = "Descargando…";
+  try {
+    const resp = await fetch(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos/${encodeURIComponent(archivo.id)}/descargar`, {
+      headers: { Authorization: "Bearer " + RAC.getToken() },
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => null);
+      throw new Error((data && data.error) || `Error ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = archivo.nombre;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
+}
+
+function formatoTamano(bytes) {
+  if (!bytes && bytes !== 0) return "Tamaño no disponible";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Convierte una llave de columna (ej. "NOMB_CIRCUITO", "director_correo") en
