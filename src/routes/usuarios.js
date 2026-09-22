@@ -5,7 +5,7 @@ const { requireAuth, requireRol } = require("../middleware/auth");
 
 const router = express.Router();
 
-const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "admin"];
+const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "operador_plantel", "admin"];
 
 // Crear un usuario nuevo (solo admin)
 router.post("/", requireAuth, requireRol("admin"), async (req, res) => {
@@ -57,9 +57,9 @@ router.get("/", requireAuth, requireRol("admin"), async (req, res) => {
   }
 });
 
-// Editar un usuario existente: nombre, email, rol y, opcionalmente, restablecer
-// la contraseña (solo admin). Si "password" viene vacío/ausente, el hash actual
-// no se toca.
+// Editar un usuario existente: nombre, email, rol y, opcionalmente,
+// restablecer la contraseña (solo admin). Si "password" viene vacío/ausente,
+// el hash actual no se toca.
 router.patch("/:id", requireAuth, requireRol("admin"), async (req, res) => {
   const { id } = req.params;
   const { nombre, email, rol, municipio_id, password } = req.body;
