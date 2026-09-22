@@ -150,6 +150,7 @@ function abrirFicha(plantel) {
   document.getElementById("fichaSubtitulo").textContent = piezasSub.join(" · ");
   document.getElementById("fichaContenido").innerHTML = renderizarFicha(plantel);
   modalFichaFondo.classList.add("visible");
+  document.body.style.overflow = "hidden";
 
   const codigoDea = plantel[CAMPO_CODIGO];
   if (codigoDea) cargarArchivosFicha(codigoDea);
@@ -157,6 +158,7 @@ function abrirFicha(plantel) {
 
 function cerrarFicha() {
   modalFichaFondo.classList.remove("visible");
+  document.body.style.overflow = "";
 }
 
 document.getElementById("btnCerrarFicha").addEventListener("click", cerrarFicha);
@@ -182,11 +184,14 @@ function renderizarFicha(plantel) {
     </div>
   `).join("");
 
+  // Tabla de una sola columna de pares etiqueta/valor -- misma tabla que ya
+  // usa el resto del sistema (planteles, usuarios, etc.), en vez de cajitas
+  // sueltas en cuadrícula, que con muchos campos cortos se ven desordenadas.
   const filasHtml = resto.map((c) => `
-    <div style="padding:9px 0; border-bottom:1px solid #e8edf3;">
-      <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:#718096; margin-bottom:3px;">${etiquetar(c)}</div>
-      <div style="font-size:.86rem; color:var(--text);">${valorFormateado(plantel[c])}</div>
-    </div>
+    <tr>
+      <td style="width:260px; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#718096; white-space:nowrap;">${etiquetar(c)}</td>
+      <td style="font-size:.88rem; color:var(--text);">${valorFormateado(plantel[c])}</td>
+    </tr>
   `).join("");
 
   return `
@@ -197,7 +202,9 @@ function renderizarFicha(plantel) {
     ${tarjetasHtml ? `<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); margin-bottom:22px;">${tarjetasHtml}</div>` : ""}
     ${filasHtml
       ? `<h3 style="margin-bottom:8px;">Todos los datos (GESCOLAR)</h3>
-         <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:0 20px;">${filasHtml}</div>`
+         <div class="panel" style="box-shadow:none;">
+           <table><tbody>${filasHtml}</tbody></table>
+         </div>`
       : ""}
   `;
 }
