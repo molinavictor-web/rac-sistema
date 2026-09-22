@@ -13,7 +13,15 @@
      solo el cuerpo hace scroll, con una barra visible. No toca el
      comportamiento de "pantalla-completa" en las otras pantallas que la usan
      (rac.html, consultar-rac.html). */
-  #modalFichaFondo .modal{display:flex; flex-direction:column; overflow:hidden;}
+  /* Blindaje: el modal-fondo compartido centra su contenido con flexbox
+     (pensado para modales chicos). Para esta ficha a pantalla completa no
+     hace falta centrar nada -- se fuerza display:block (un div de bloque
+     con position:fixed + inset:0 SIEMPRE cubre el viewport completo, sin
+     depender de ningún cálculo de flexbox) y se sube el z-index bien por
+     encima del menú lateral, por si alguna otra regla llegara a competir. */
+  #modalFichaFondo{z-index:999;}
+  #modalFichaFondo.visible{display:block;}
+  #modalFichaFondo .modal{width:100%; height:100vh; margin:0; display:flex; flex-direction:column; overflow:hidden;}
   .ficha-cabecera{flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding-bottom:14px; margin-bottom:4px; border-bottom:1px solid var(--border);}
   .ficha-scroll{flex:1 1 auto; overflow-y:auto; margin-top:14px; padding-right:14px; scrollbar-width:thin; scrollbar-color:#b7c8dd var(--surface-2);}
   .ficha-scroll::-webkit-scrollbar{width:10px;}
