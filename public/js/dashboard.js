@@ -20,7 +20,7 @@ async function cargarResumen() {
     contenido.innerHTML = `
       <section class="dashboard-hero">
         <div class="hero-copy">
-          <span class="hero-eyebrow">SECRETARÍA DE EDUCACIÓN · ESTADO MONAGAS</span>
+          <span class="hero-eyebrow">CENTRO DE LA CALIDAD EDUCATIVA · ESTADO MONAGAS</span>
           <h2>RAC · Sistema</h2>
           <p>Registro de Asignación de Cargos</p>
           <small>Gestión, validación y control de la información del personal y planteles educativos.</small>
