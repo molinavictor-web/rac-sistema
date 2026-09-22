@@ -143,6 +143,7 @@ const usuario = renderShell("usuarios", "Usuarios");
         operador: "Operador",
         encargado_municipio: "Encargado de municipio",
         operador_credenciales: "Operador de credenciales",
+        operador_plantel: "Operador de plantel",
       };
       return mapa[rol] || rol;
     }

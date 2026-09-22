@@ -16,6 +16,10 @@
 // la práctica siempre se hacen juntos, en ese orden, solo durante una
 // recarga mensual completa (a diferencia de "Cargar por municipio", que sí
 // es una tarea frecuente y se deja separada). Ver public/js/carga-completa.js.
+//
+// AGREGADO (2026-09-21): grupo "Planteles (GESCOLAR)" con la pantalla de
+// consulta que lee de Google Sheets (no de Postgres) -- ver
+// src/routes/plantelesConsulta.js. Rol nuevo: operador_plantel.
 function renderShell(paginaActiva, tituloTopbar) {
   const usuario = RAC.exigirSesion();
   if (!usuario) return null;
@@ -58,6 +62,17 @@ function renderShell(paginaActiva, tituloTopbar) {
       ],
     },
     {
+      id: "planteles-consulta-grupo",
+      // Grupo nuevo (2026-09-21), separado de "Cargas y catálogos" porque
+      // esta pantalla no carga nada -- solo consulta la hoja de GESCOLAR
+      // en Google Sheets. Mismo patrón que "Credenciales": grupo propio
+      // aunque tenga un solo enlace por ahora.
+      titulo: "Planteles (GESCOLAR)",
+      enlaces: [
+        { id: "planteles-consulta", href: "/planteles-consulta.html", label: "Consultar planteles", roles: ["admin", "operador_plantel"] },
+      ],
+    },
+    {
       id: "administracion",
       titulo: "Administración",
       enlaces: [
@@ -71,6 +86,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     operador: "Operador",
     encargado_municipio: "Encargado de municipio",
     operador_credenciales: "Operador de credenciales",
+    operador_plantel: "Operador de plantel",
   }[usuario.rol] || usuario.rol;
 
   // Filtra por rol y descarta de una vez cualquier grupo que quede sin
