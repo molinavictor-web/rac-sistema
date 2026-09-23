@@ -245,42 +245,76 @@ function dibujarArchivosFicha(codigoDea, resp) {
   if (!caja) return;
 
   const archivos = (resp && resp.archivos) || [];
+  const sinCarpeta = resp && resp.carpetaEncontrada === false;
 
-  if (resp && resp.carpetaEncontrada === false) {
-    caja.innerHTML = `
-      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
-      <div class="vacio"><strong>Sin carpeta en Drive</strong>No existe una carpeta con el código ${escapar(codigoDea)} dentro de "Planteles".</div>
-    `;
-    return;
-  }
+  const botonSubir = puedeRefrescar ? `
+    <div style="margin-bottom:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <input type="file" id="inputSubirArchivos" multiple style="display:none;">
+      <button class="btn btn-fantasma btn-sm" id="btnSubirArchivos">+ Subir archivos</button>
+      <span id="estadoSubida" style="font-size:.78rem; color:var(--muted);"></span>
+    </div>` : "";
 
-  if (!archivos.length) {
-    caja.innerHTML = `
-      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
-      <div class="vacio"><strong>Carpeta vacía</strong>La carpeta de este plantel en Drive no tiene archivos todavía.</div>
-    `;
-    return;
-  }
-
-  const filas = archivos.map((a, i) => `
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px;">
-      <div style="min-width:0;">
-        <div style="font-size:.86rem; font-weight:600; color:var(--navy-900); overflow-wrap:anywhere;">${escapar(a.nombre)}</div>
-        <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)}</div>
+  let listaHtml;
+  if (sinCarpeta) {
+    listaHtml = `<div class="vacio"><strong>Sin carpeta en Drive</strong>No existe una carpeta con el código ${escapar(codigoDea)} dentro de "Planteles"${puedeRefrescar ? " todavía — sube un archivo y se crea sola." : "."}</div>`;
+  } else if (!archivos.length) {
+    listaHtml = `<div class="vacio"><strong>Carpeta vacía</strong>La carpeta de este plantel en Drive no tiene archivos todavía.</div>`;
+  } else {
+    listaHtml = `<div>${archivos.map((a, i) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:.86rem; font-weight:600; color:var(--navy-900); overflow-wrap:anywhere;">${escapar(a.nombre)}</div>
+          <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)}</div>
+        </div>
+        <button class="btn btn-fantasma btn-sm" data-descargar="${i}" style="flex:0 0 auto;">Descargar</button>
       </div>
-      <button class="btn btn-fantasma btn-sm" data-descargar="${i}" style="flex:0 0 auto;">Descargar</button>
-    </div>
-  `).join("");
+    `).join("")}</div>`;
+  }
 
-  caja.innerHTML = `
-    <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
-    <div>${filas}</div>
-  `;
+  caja.innerHTML = `<h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>${botonSubir}${listaHtml}`;
 
-  caja.querySelectorAll("[data-descargar]").forEach((btn) => {
-    const archivo = archivos[Number(btn.dataset.descargar)];
-    btn.addEventListener("click", () => descargarArchivoDrive(codigoDea, archivo, btn));
-  });
+  if (!sinCarpeta && archivos.length) {
+    caja.querySelectorAll("[data-descargar]").forEach((btn) => {
+      const archivo = archivos[Number(btn.dataset.descargar)];
+      btn.addEventListener("click", () => descargarArchivoDrive(codigoDea, archivo, btn));
+    });
+  }
+
+  if (puedeRefrescar) {
+    document.getElementById("btnSubirArchivos").addEventListener("click", () => document.getElementById("inputSubirArchivos").click());
+    document.getElementById("inputSubirArchivos").addEventListener("change", (e) => subirArchivosDrive(codigoDea, e.target.files));
+  }
+}
+
+// Sube (multipart/form-data) uno o varios archivos a la carpeta del código
+// DEA -- el backend la crea sola si todavía no existe. Al terminar, refresca
+// la lista de archivos de la ficha.
+async function subirArchivosDrive(codigoDea, fileList) {
+  if (!fileList || !fileList.length) return;
+  const estado = document.getElementById("estadoSubida");
+  const input = document.getElementById("inputSubirArchivos");
+  const formData = new FormData();
+  Array.from(fileList).forEach((f) => formData.append("archivos", f));
+
+  if (estado) estado.textContent = `Subiendo ${fileList.length} archivo(s)…`;
+  try {
+    const resp = await fetch(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + RAC.getToken() },
+      body: formData,
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => null);
+      throw new Error((data && data.error) || `Error ${resp.status}`);
+    }
+    mostrarToast(`Subido${fileList.length === 1 ? "" : "s"} a Drive (${fileList.length}).`);
+    cargarArchivosFicha(codigoDea);
+  } catch (err) {
+    if (estado) estado.textContent = "";
+    mostrarToast(err.message, true);
+  } finally {
+    if (input) input.value = "";
+  }
 }
 
 // Descarga binaria: no se puede usar un <a href> simple porque la sesión va
