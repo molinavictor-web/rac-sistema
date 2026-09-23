@@ -1,16 +1,9 @@
-// planteles-consulta.js — pantalla de consulta de la hoja GESCOLAR (Google Sheets).
-// Solo lectura: busca en /api/planteles-consulta/buscar y muestra la ficha
-// completa de un plantel en un modal a pantalla completa (son 55 columnas),
-// incluyendo los archivos disponibles en Drive para ese código DEA.
+// planteles-consulta.js — Consulta GESCOLAR.
+// Rediseño visual 2026: se conserva la lógica de búsqueda, Drive, subida y
+// descarga; solo se reorganiza la presentación para que la ficha sea más clara.
 
 const usuario = renderShell("planteles-consulta", "Consultar planteles");
 
-// Campos "confirmados" (coinciden EXACTO con CAMPOS_BUSQUEDA del backend) --
-// se usan para las columnas fijas de la tabla y el encabezado de la ficha.
-// El resto de las columnas de GESCOLAR se muestran igual, pero de forma
-// genérica (ver renderizarFicha), porque su nombre exacto en la hoja puede
-// variar y no vale la pena arriesgarse a que un campo real no se muestre
-// por una diferencia de mayúsculas/guion bajo.
 const CAMPO_CODIGO = "cod_plantel";
 const CAMPO_NOMBRE = "nombre_plantel";
 const CAMPO_MUNICIPIO = "municipio";
@@ -19,12 +12,7 @@ const CAMPO_DIRECTOR = "director_nombre";
 const CAMPO_TEL_DIRECTOR = "telefono_director";
 const CAMPO_TEL_MOVIL_DIRECTOR = "telefono_movil_director";
 
-// Columnas de la tabla de resultados de la búsqueda (no lleva teléfonos --
-// se quedaría muy ancha).
 const CAMPOS_TABLA = [CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_MUNICIPIO, CAMPO_PARROQUIA, CAMPO_DIRECTOR];
-
-// Tarjetas destacadas arriba de la ficha (sí incluye los teléfonos, para
-// tenerlos a la vista sin bajar a buscarlos en "Todos los datos").
 const CAMPOS_DESTACADOS_FICHA = [
   CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_MUNICIPIO, CAMPO_PARROQUIA,
   CAMPO_DIRECTOR, CAMPO_TEL_DIRECTOR, CAMPO_TEL_MOVIL_DIRECTOR,
@@ -39,28 +27,65 @@ if (usuario) dibujarPanel();
 function dibujarPanel() {
   const contenido = document.getElementById("contenido");
   contenido.innerHTML = `
-    <div class="panel">
-      <div class="panel-cabecera">
-        <div>
-          <h2>Consultar planteles (GESCOLAR)</h2>
-          <p class="panel-subtitulo">Datos importados de la hoja GESCOLAR en Google Sheets · solo lectura</p>
+    <div class="planteles-consulta-page">
+      <section class="pc-hero">
+        <div class="pc-hero-content">
+          <div class="pc-kicker"><span class="pc-kicker-dot"></span> GESCOLAR · Consulta institucional</div>
+          <h2>Consulta de planteles</h2>
+          <p>Localiza rápidamente un plantel por nombre, código DEA, municipio, parroquia, circuito, consejo comunal o director. Consulta su ficha completa y los documentos asociados en Drive.</p>
         </div>
-        ${puedeRefrescar ? `<button class="btn btn-fantasma btn-sm" id="btnRefrescar">Actualizar desde Sheets</button>` : ""}
-      </div>
-      <div style="padding: 16px 20px 0;">
-        <div class="filtros">
-          <input type="text" id="qBuscar" placeholder="Buscar por nombre, código, municipio, parroquia, circuito, consejo comunal o director..." style="flex:1; min-width:280px;">
+      </section>
+
+      <section class="pc-search-panel" aria-label="Búsqueda de planteles">
+        <div class="pc-search-row">
+          <div class="pc-search-field">
+            <label class="pc-search-label" for="qBuscar">Buscar plantel</label>
+            <div class="pc-search-input-wrap">
+              <span class="pc-search-icon" aria-hidden="true">⌕</span>
+              <input class="pc-search-input" type="search" id="qBuscar" autocomplete="off" spellcheck="false"
+                placeholder="Nombre, código DEA, municipio, parroquia, circuito, consejo comunal o director…"
+                aria-describedby="ayudaBusqueda">
+              <button type="button" class="pc-clear" id="btnLimpiarBusqueda" title="Limpiar búsqueda" aria-label="Limpiar búsqueda">×</button>
+            </div>
+          </div>
+          ${puedeRefrescar ? `<button class="btn btn-fantasma pc-refresh" id="btnRefrescar" type="button">↻ &nbsp;Actualizar GESCOLAR</button>` : ""}
         </div>
-      </div>
-      <div id="resumenBusqueda" style="padding: 10px 20px 0; color: var(--muted); font-size: .8rem;"></div>
-      <div id="tablaPlanteles" style="margin-top:12px;"></div>
+        <div class="pc-meta">
+          <div class="pc-results-count" id="resumenBusqueda" aria-live="polite"></div>
+          <div class="pc-hint" id="ayudaBusqueda">Escribe al menos 2 caracteres · máximo 200 resultados visibles</div>
+        </div>
+      </section>
+
+      <section class="pc-results" aria-label="Resultados de planteles">
+        <div class="pc-results-head">
+          <div>
+            <h3>Resultados de consulta</h3>
+          </div>
+          <span>Fuente: GESCOLAR</span>
+        </div>
+        <div id="tablaPlanteles"></div>
+      </section>
     </div>
   `;
 
   const input = document.getElementById("qBuscar");
   input.addEventListener("input", () => {
     clearTimeout(temporizadorBusqueda);
-    temporizadorBusqueda = setTimeout(() => buscarPlanteles(input.value.trim()), 380);
+    temporizadorBusqueda = setTimeout(() => buscarPlanteles(input.value.trim()), 320);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      input.value = "";
+      mostrarEstadoInicial();
+      input.focus();
+    }
+  });
+
+  document.getElementById("btnLimpiarBusqueda").addEventListener("click", () => {
+    input.value = "";
+    mostrarEstadoInicial();
+    input.focus();
   });
 
   if (puedeRefrescar) {
@@ -71,62 +96,80 @@ function dibujarPanel() {
 }
 
 function mostrarEstadoInicial() {
-  document.getElementById("resumenBusqueda").textContent = "";
-  document.getElementById("tablaPlanteles").innerHTML = `
-    <div class="vacio">
-      <strong>Escribe para buscar</strong>
-      Mínimo 2 caracteres — busca por nombre del plantel, código, municipio, parroquia, circuito comunal, consejo comunal o director.
+  const resumen = document.getElementById("resumenBusqueda");
+  const tabla = document.getElementById("tablaPlanteles");
+  if (!resumen || !tabla) return;
+  resumen.textContent = "";
+  tabla.innerHTML = `
+    <div class="pc-empty">
+      <div class="pc-empty-icon" aria-hidden="true">⌕</div>
+      <strong>Busca un plantel para comenzar</strong>
+      <span>Utiliza el campo superior para consultar por nombre, código DEA, municipio, parroquia, circuito, consejo comunal o director.</span>
     </div>`;
 }
 
 async function buscarPlanteles(q) {
   const resumen = document.getElementById("resumenBusqueda");
   const tabla = document.getElementById("tablaPlanteles");
+  if (!resumen || !tabla) return;
 
   if (!q) return mostrarEstadoInicial();
   if (q.length < 2) {
     resumen.textContent = "";
-    tabla.innerHTML = `<div class="vacio"><strong>Escribe al menos 2 caracteres</strong>para empezar la búsqueda.</div>`;
+    tabla.innerHTML = `<div class="pc-empty"><div class="pc-empty-icon" aria-hidden="true">⌕</div><strong>Escribe al menos 2 caracteres</strong><span>La búsqueda comenzará cuando introduzcas más información.</span></div>`;
     return;
   }
 
-  tabla.innerHTML = `<div class="cargando">Buscando…</div>`;
+  tabla.innerHTML = `<div class="pc-loading"><span class="pc-loading-dot"></span>Buscando en GESCOLAR…</div>`;
   try {
     const resp = await RAC.get(`/api/planteles-consulta/buscar?q=${encodeURIComponent(q)}`);
     ultimosResultados = RAC.lista(resp, "planteles");
     resumen.textContent = resp && typeof resp.total === "number"
-      ? `${resp.total} resultado${resp.total === 1 ? "" : "s"}${resp.limitado ? " · mostrando los primeros 200" : ""}`
+      ? `${resp.total.toLocaleString("es-VE")} resultado${resp.total === 1 ? "" : "s"}${resp.limitado ? " · mostrando los primeros 200" : ""}`
       : "";
     dibujarTabla(ultimosResultados);
   } catch (err) {
     resumen.textContent = "";
-    tabla.innerHTML = `<div class="vacio"><strong>No se pudo buscar</strong>${err.message}</div>`;
+    tabla.innerHTML = `<div class="pc-empty"><div class="pc-empty-icon" aria-hidden="true">!</div><strong>No se pudo realizar la búsqueda</strong><span>${escapar(err.message)}</span></div>`;
   }
 }
 
 function dibujarTabla(planteles) {
   const cont = document.getElementById("tablaPlanteles");
+  if (!cont) return;
+
   if (!planteles.length) {
-    cont.innerHTML = `<div class="vacio"><strong>Sin resultados</strong>Prueba con otro nombre, código o municipio.</div>`;
+    cont.innerHTML = `<div class="pc-empty"><div class="pc-empty-icon" aria-hidden="true">⌕</div><strong>Sin resultados</strong><span>No encontramos planteles con ese criterio. Prueba con otro nombre, código DEA, municipio o director.</span></div>`;
     return;
   }
 
   const filas = planteles.map((p, i) => `
     <tr>
-      <td><span class="cod">${escapar(p[CAMPO_CODIGO]) || "—"}</span></td>
-      <td>${escapar(p[CAMPO_NOMBRE]) || "—"}</td>
+      <td><span class="pc-code">${escapar(p[CAMPO_CODIGO]) || "—"}</span></td>
+      <td><div class="pc-plantel-name">${escapar(p[CAMPO_NOMBRE]) || "Sin nombre registrado"}</div></td>
       <td>${escapar(p[CAMPO_MUNICIPIO]) || "—"}</td>
       <td>${escapar(p[CAMPO_PARROQUIA]) || "—"}</td>
       <td>${escapar(p[CAMPO_DIRECTOR]) || "—"}</td>
-      <td><button class="btn btn-fantasma btn-sm" data-ver-ficha="${i}">Ver ficha</button></td>
+      <td class="pc-action"><button class="btn btn-fantasma btn-sm pc-view-btn" type="button" data-ver-ficha="${i}" aria-label="Ver ficha de ${escapar(p[CAMPO_NOMBRE]) || "plantel"}">Ver ficha <span aria-hidden="true">→</span></button></td>
     </tr>
   `).join("");
 
   cont.innerHTML = `
-    <table>
-      <thead><tr><th>Código</th><th>Plantel</th><th>Municipio</th><th>Parroquia</th><th>Director</th><th></th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
+    <div class="pc-table-wrap">
+      <table class="pc-table">
+        <thead>
+          <tr>
+            <th scope="col">Código DEA</th>
+            <th scope="col">Plantel</th>
+            <th scope="col">Municipio</th>
+            <th scope="col">Parroquia</th>
+            <th scope="col">Director</th>
+            <th scope="col"><span class="sr-only">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
   `;
 
   cont.querySelectorAll("[data-ver-ficha]").forEach((btn) => {
@@ -137,34 +180,39 @@ function dibujarTabla(planteles) {
 
 async function refrescarDatos() {
   const btn = document.getElementById("btnRefrescar");
+  if (!btn) return;
   btn.disabled = true;
   btn.textContent = "Actualizando…";
   try {
     const resp = await RAC.post("/api/planteles-consulta/refrescar", {});
     mostrarToast(`Datos actualizados (${resp.total} planteles).`);
     const q = document.getElementById("qBuscar").value.trim();
-    if (q.length >= 2) buscarPlanteles(q);
+    if (q.length >= 2) await buscarPlanteles(q);
+    else mostrarEstadoInicial();
   } catch (err) {
     mostrarToast(err.message, true);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Actualizar desde Sheets";
+    btn.textContent = "↻  Actualizar GESCOLAR";
   }
 }
 
-// ---- Ficha completa (modal a pantalla completa) ----
+// -------------------------------------------------------------------------
+// Ficha completa
+// -------------------------------------------------------------------------
 const modalFichaFondo = document.getElementById("modalFichaFondo");
 
 function abrirFicha(plantel) {
   document.getElementById("fichaTitulo").textContent = plantel[CAMPO_NOMBRE] || "Plantel sin nombre";
   const piezasSub = [plantel[CAMPO_CODIGO], plantel[CAMPO_MUNICIPIO], plantel[CAMPO_PARROQUIA]].filter(Boolean);
-  document.getElementById("fichaSubtitulo").textContent = piezasSub.join(" · ");
+  document.getElementById("fichaSubtitulo").textContent = piezasSub.join(" · ") || "Información institucional";
   document.getElementById("fichaContenido").innerHTML = renderizarFicha(plantel);
   modalFichaFondo.classList.add("visible");
   document.body.style.overflow = "hidden";
 
   const codigoDea = plantel[CAMPO_CODIGO];
   if (codigoDea) cargarArchivosFicha(codigoDea);
+  document.getElementById("btnCerrarFicha").focus();
 }
 
 function cerrarFicha() {
@@ -176,67 +224,78 @@ document.getElementById("btnCerrarFicha").addEventListener("click", cerrarFicha)
 modalFichaFondo.addEventListener("click", (e) => {
   if (e.target === modalFichaFondo) cerrarFicha();
 });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && modalFichaFondo.classList.contains("visible")) cerrarFicha();
+});
 
-// Recorre TODAS las columnas que vinieron de GESCOLAR (no solo las
-// "confirmadas") para que la ficha nunca se quede corta si la hoja trae
-// columnas con nombres que aquí no se conocen exacto. Los campos destacados
-// van primero, en tarjetas; el resto se agrupa como una cuadrícula
-// etiqueta/valor, en el mismo orden en que vienen en la hoja. La sección de
-// archivos de Drive arranca vacía (con "Buscando…") y se llena aparte, en
-// cargarArchivosFicha, para no bloquear la apertura de la ficha.
 function renderizarFicha(plantel) {
   const destacados = CAMPOS_DESTACADOS_FICHA.filter((c) => plantel[c]);
   const resto = Object.keys(plantel).filter((c) => !CAMPOS_DESTACADOS_FICHA.includes(c) && plantel[c] !== "");
 
   const tarjetasHtml = destacados.map((c) => `
-    <div class="stat-card" style="min-height:auto; padding:13px 15px;">
-      <h3 style="margin-bottom:6px;">${etiquetar(c)}</h3>
-      <div style="font-size:.95rem; font-weight:600; color:var(--navy-900);">${valorFormateado(plantel[c])}</div>
+    <div class="pc-highlight">
+      <div class="pc-highlight-label">${etiquetar(c)}</div>
+      <div class="pc-highlight-value">${valorFormateado(plantel[c])}</div>
     </div>
   `).join("");
 
-  // El resto de los campos se acomoda en 3 columnas (una sola no se
-  // aprovechaba el ancho de la pantalla y obligaba a bajar demasiado).
   const filasHtml = resto.map((c) => `
-    <div>
-      <div style="font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:#718096; margin-bottom:3px;">${etiquetar(c)}</div>
-      <div style="font-size:.85rem; color:var(--text);">${valorFormateado(plantel[c])}</div>
+    <div class="pc-data-item">
+      <div class="pc-data-label">${etiquetar(c)}</div>
+      <div class="pc-data-value">${valorFormateado(plantel[c])}</div>
     </div>
   `).join("");
 
   return `
-    <div id="fichaArchivosBox" style="margin-bottom:22px;">
-      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
-      <div class="cargando">Buscando archivos…</div>
-    </div>
-    ${tarjetasHtml ? `<div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); margin-bottom:22px;">${tarjetasHtml}</div>` : ""}
-    ${filasHtml
-      ? `<h3 style="margin-bottom:8px;">Todos los datos (GESCOLAR)</h3>
-         <div class="panel" style="box-shadow:none;">
-           <div class="ficha-datos-grid">${filasHtml}</div>
-         </div>`
-      : ""}
+    <section class="pc-section" id="fichaArchivosBox" aria-labelledby="tituloArchivos">
+      <div class="pc-section-head">
+        <h3 id="tituloArchivos">Documentos del plantel</h3>
+        <span>Google Drive · código DEA ${escapar(plantel[CAMPO_CODIGO]) || "—"}</span>
+      </div>
+      <div class="pc-drive">
+        <div class="pc-drive-toolbar">
+          <div class="pc-drive-toolbar-left"><span class="pc-drive-count">…</span><span class="pc-muted">Consultando archivos asociados</span></div>
+        </div>
+        <div class="pc-drive-list"><div class="pc-loading">Buscando archivos en Drive…</div></div>
+      </div>
+    </section>
+
+    ${tarjetasHtml ? `
+      <section class="pc-section" aria-labelledby="tituloResumenPlantel">
+        <div class="pc-section-head">
+          <h3 id="tituloResumenPlantel">Resumen institucional</h3>
+          <span>Información principal</span>
+        </div>
+        <div class="pc-highlight-grid">${tarjetasHtml}</div>
+      </section>` : ""}
+
+    ${filasHtml ? `
+      <section class="pc-section" aria-labelledby="tituloDatosGescolar">
+        <div class="pc-section-head">
+          <h3 id="tituloDatosGescolar">Todos los datos GESCOLAR</h3>
+          <span>${resto.length} campos disponibles</span>
+        </div>
+        <div class="pc-data-card"><div class="pc-data-grid">${filasHtml}</div></div>
+      </section>` : ""}
   `;
 }
 
-// ---- Archivos de Drive para el código DEA de la ficha abierta ----
-
+// -------------------------------------------------------------------------
+// Archivos de Drive
+// -------------------------------------------------------------------------
 async function cargarArchivosFicha(codigoDea) {
   const caja = document.getElementById("fichaArchivosBox");
-  if (!caja) return; // la ficha pudo cerrarse antes de que responda el servidor
+  if (!caja) return;
 
   try {
     const resp = await RAC.get(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos`);
-    // Si el usuario ya cerró esta ficha o abrió otra, no pisar contenido ajeno.
     if (!document.getElementById("fichaArchivosBox")) return;
     dibujarArchivosFicha(codigoDea, resp);
   } catch (err) {
     const cajaActual = document.getElementById("fichaArchivosBox");
     if (!cajaActual) return;
-    cajaActual.innerHTML = `
-      <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
-      <div class="vacio"><strong>No se pudo consultar Drive</strong>${escapar(err.message)}</div>
-    `;
+    cajaActual.querySelector(".pc-drive").innerHTML = `
+      <div class="pc-drive-list"><div class="pc-empty" style="padding:34px 20px;"><div class="pc-empty-icon" aria-hidden="true">!</div><strong>No se pudo consultar Drive</strong><span>${escapar(err.message)}</span></div></div>`;
   }
 }
 
@@ -246,49 +305,59 @@ function dibujarArchivosFicha(codigoDea, resp) {
 
   const archivos = (resp && resp.archivos) || [];
   const sinCarpeta = resp && resp.carpetaEncontrada === false;
+  const drive = caja.querySelector(".pc-drive");
+  if (!drive) return;
 
   const botonSubir = puedeRefrescar ? `
-    <div style="margin-bottom:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div class="pc-upload">
       <input type="file" id="inputSubirArchivos" multiple style="display:none;">
-      <button class="btn btn-fantasma btn-sm" id="btnSubirArchivos">+ Subir archivos</button>
-      <span id="estadoSubida" style="font-size:.78rem; color:var(--muted);"></span>
+      <button class="btn btn-fantasma btn-sm" id="btnSubirArchivos" type="button">＋ Subir archivos</button>
+      <span id="estadoSubida" class="pc-upload-status"></span>
     </div>` : "";
 
   let listaHtml;
   if (sinCarpeta) {
-    listaHtml = `<div class="vacio"><strong>Sin carpeta en Drive</strong>No existe una carpeta con el código ${escapar(codigoDea)} dentro de "Planteles"${puedeRefrescar ? " todavía — sube un archivo y se crea sola." : "."}</div>`;
+    listaHtml = `<div class="pc-empty" style="padding:34px 20px;"><div class="pc-empty-icon" aria-hidden="true">📁</div><strong>Sin carpeta en Drive</strong><span>No existe una carpeta con el código ${escapar(codigoDea)} dentro de “Planteles”${puedeRefrescar ? ". Puedes subir un archivo y la carpeta se creará automáticamente." : "."}</span></div>`;
   } else if (!archivos.length) {
-    listaHtml = `<div class="vacio"><strong>Carpeta vacía</strong>La carpeta de este plantel en Drive no tiene archivos todavía.</div>`;
+    listaHtml = `<div class="pc-empty" style="padding:34px 20px;"><div class="pc-empty-icon" aria-hidden="true">📁</div><strong>Carpeta vacía</strong><span>La carpeta de este plantel existe, pero todavía no contiene archivos.</span></div>`;
   } else {
-    listaHtml = `<div>${archivos.map((a, i) => `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px;">
-        <div style="min-width:0;">
-          <div style="font-size:.86rem; font-weight:600; color:var(--navy-900); overflow-wrap:anywhere;">${escapar(a.nombre)}</div>
-          <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)}</div>
+    listaHtml = `<div class="pc-drive-list">${archivos.map((a, i) => `
+      <div class="pc-drive-file">
+        <div class="pc-file-icon" aria-hidden="true">${iconoArchivo(a.mimeType, a.nombre)}</div>
+        <div class="pc-file-info">
+          <div class="pc-file-name">${escapar(a.nombre)}</div>
+          <div class="pc-file-meta">${formatoTamano(a.tamano)}${a.modificado ? ` · ${formatoFecha(a.modificado)}` : ""}</div>
         </div>
-        <button class="btn btn-fantasma btn-sm" data-descargar="${i}" style="flex:0 0 auto;">Descargar</button>
+        <button class="btn btn-fantasma btn-sm" type="button" data-descargar="${i}">Descargar</button>
       </div>
     `).join("")}</div>`;
   }
 
-  caja.innerHTML = `<h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>${botonSubir}${listaHtml}`;
+  drive.innerHTML = `
+    <div class="pc-drive-toolbar">
+      <div class="pc-drive-toolbar-left"><span class="pc-drive-count">${archivos.length}</span><span class="pc-muted">${archivos.length === 1 ? "archivo asociado" : "archivos asociados"}</span></div>
+      ${botonSubir}
+    </div>
+    ${listaHtml}
+  `;
 
   if (!sinCarpeta && archivos.length) {
-    caja.querySelectorAll("[data-descargar]").forEach((btn) => {
+    drive.querySelectorAll("[data-descargar]").forEach((btn) => {
       const archivo = archivos[Number(btn.dataset.descargar)];
       btn.addEventListener("click", () => descargarArchivoDrive(codigoDea, archivo, btn));
     });
   }
 
   if (puedeRefrescar) {
-    document.getElementById("btnSubirArchivos").addEventListener("click", () => document.getElementById("inputSubirArchivos").click());
-    document.getElementById("inputSubirArchivos").addEventListener("change", (e) => subirArchivosDrive(codigoDea, e.target.files));
+    const input = document.getElementById("inputSubirArchivos");
+    const boton = document.getElementById("btnSubirArchivos");
+    if (boton && input) {
+      boton.addEventListener("click", () => input.click());
+      input.addEventListener("change", (e) => subirArchivosDrive(codigoDea, e.target.files));
+    }
   }
 }
 
-// Sube (multipart/form-data) uno o varios archivos a la carpeta del código
-// DEA -- el backend la crea sola si todavía no existe. Al terminar, refresca
-// la lista de archivos de la ficha.
 async function subirArchivosDrive(codigoDea, fileList) {
   if (!fileList || !fileList.length) return;
   const estado = document.getElementById("estadoSubida");
@@ -308,7 +377,7 @@ async function subirArchivosDrive(codigoDea, fileList) {
       throw new Error((data && data.error) || `Error ${resp.status}`);
     }
     mostrarToast(`Subido${fileList.length === 1 ? "" : "s"} a Drive (${fileList.length}).`);
-    cargarArchivosFicha(codigoDea);
+    await cargarArchivosFicha(codigoDea);
   } catch (err) {
     if (estado) estado.textContent = "";
     mostrarToast(err.message, true);
@@ -317,9 +386,6 @@ async function subirArchivosDrive(codigoDea, fileList) {
   }
 }
 
-// Descarga binaria: no se puede usar un <a href> simple porque la sesión va
-// por header Authorization (Bearer), no por cookie -- se trae como blob y se
-// fuerza la descarga con un enlace temporal (mismo patrón que credenciales.js).
 async function descargarArchivoDrive(codigoDea, archivo, boton) {
   const textoOriginal = boton.textContent;
   boton.disabled = true;
@@ -338,13 +404,23 @@ async function descargarArchivoDrive(codigoDea, archivo, boton) {
     a.href = url;
     a.download = archivo.nombre;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (err) {
     mostrarToast(err.message, true);
   } finally {
     boton.disabled = false;
     boton.textContent = textoOriginal;
   }
+}
+
+function iconoArchivo(mimeType, nombre) {
+  const tipo = String(mimeType || "").toLowerCase();
+  const ext = String(nombre || "").split(".").pop().toLowerCase();
+  if (tipo.includes("pdf") || ext === "pdf") return "PDF";
+  if (tipo.includes("spreadsheet") || ["xls", "xlsx", "csv"].includes(ext)) return "XLS";
+  if (tipo.includes("document") || ["doc", "docx"].includes(ext)) return "DOC";
+  if (tipo.includes("image") || ["png", "jpg", "jpeg", "webp"].includes(ext)) return "IMG";
+  return "FILE";
 }
 
 function formatoTamano(bytes) {
@@ -354,21 +430,19 @@ function formatoTamano(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Convierte una llave de columna (ej. "NOMB_CIRCUITO", "director_correo") en
-// una etiqueta legible ("Nomb circuito" → se deja tal cual si ya está en
-// mayúsculas por ser sigla/código de hoja; si es snake_case normal, la
-// capitaliza palabra por palabra).
-function etiquetar(clave) {
-  if (clave === clave.toUpperCase() && /_/.test(clave)) {
-    return clave.replace(/_/g, " ");
+function formatoFecha(valor) {
+  try {
+    return new Intl.DateTimeFormat("es-VE", { dateStyle: "medium" }).format(new Date(valor));
+  } catch (_) {
+    return "Fecha no disponible";
   }
-  return clave
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letra) => letra.toUpperCase());
 }
 
-// Valores tipo SI/NO/#N/A (banderas de documentos: fotos, informe, etc.) se
-// muestran como badge en vez de texto plano.
+function etiquetar(clave) {
+  if (clave === clave.toUpperCase() && /_/.test(clave)) return clave.replace(/_/g, " ");
+  return clave.replace(/_/g, " ").replace(/\b\w/g, (letra) => letra.toUpperCase());
+}
+
 function valorFormateado(valor) {
   const texto = String(valor ?? "").trim();
   if (!texto) return "—";
@@ -384,5 +458,7 @@ function escapar(valor) {
   return String(valor)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
