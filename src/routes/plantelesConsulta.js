@@ -71,8 +71,15 @@ async function asegurarCredencialesEscritura() {
   if (!oauth2Client) return false;
   if (credencialesCargadas) return true;
 
-  const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_REFRESH_TOKEN]);
-  const refreshToken = rows[0] ? rows[0].valor : process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  let refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  try {
+    const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_REFRESH_TOKEN]);
+    if (rows[0] && rows[0].valor) refreshToken = rows[0].valor;
+  } catch (err) {
+    // Falta crear la tabla `configuracion` todavía -- no es motivo para
+    // romper la subida, se sigue usando el token de la variable de entorno.
+    console.error("No se pudo leer la tabla 'configuracion' (¿falta crearla?):", err.message);
+  }
   if (!refreshToken) return false;
 
   oauth2Client.setCredentials({ refresh_token: refreshToken });
@@ -364,8 +371,14 @@ router.get("/drive-oauth/estado", requireAuth, requireRol("admin"), async (req, 
   if (!oauth2Client) {
     return res.json({ configurado: false, conectado: false });
   }
-  const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_REFRESH_TOKEN]);
-  const conectado = Boolean(rows[0] ? rows[0].valor : process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
+  let guardado = null;
+  try {
+    const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_REFRESH_TOKEN]);
+    guardado = rows[0] ? rows[0].valor : null;
+  } catch (err) {
+    console.error("No se pudo leer la tabla 'configuracion' (¿falta crearla?):", err.message);
+  }
+  const conectado = Boolean(guardado || process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
   res.json({ configurado: true, conectado });
 });
 
@@ -410,11 +423,18 @@ router.get("/drive-oauth/callback", async (req, res) => {
       return res.status(400).send(paginaHtml("No se recibió permiso permanente", "Google no devolvió un refresh token. Intenta de nuevo -- si vuelve a pasar, revisa que la pantalla de consentimiento esté en modo Prueba o Producción (no debería afectar, pero por si acaso)."));
     }
 
-    await pool.query(
-      `INSERT INTO configuracion (clave, valor) VALUES ($1, $2)
-       ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor`,
-      [CLAVE_REFRESH_TOKEN, tokens.refresh_token]
-    );
+    try {
+      await pool.query(
+        `INSERT INTO configuracion (clave, valor) VALUES ($1, $2)
+         ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor`,
+        [CLAVE_REFRESH_TOKEN, tokens.refresh_token]
+      );
+    } catch (err) {
+      console.error("No se pudo guardar en 'configuracion' (¿falta crearla?):", err.message);
+      oauth2Client.setCredentials(tokens);
+      credencialesCargadas = true;
+      return res.send(paginaHtml("Conectado, pero sin guardar de forma permanente", "Falta crear la tabla 'configuracion' en la base de datos -- por ahora funciona hasta que el servidor reinicie. Pídele a tu desarrollador que corra el SQL pendiente."));
+    }
     oauth2Client.setCredentials(tokens);
     credencialesCargadas = true;
 
