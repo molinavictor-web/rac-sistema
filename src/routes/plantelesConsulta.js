@@ -1,10 +1,17 @@
 const express = require("express");
+const multer = require("multer");
+const { Readable } = require("stream");
 const { google } = require("googleapis");
 const { requireAuth, requireRol } = require("../middleware/auth");
 
 const router = express.Router(); // rutas montadas en /api/planteles-consulta
 
 const ROLES_CONSULTA_PLANTELES = ["admin", "operador_plantel"];
+const LIMITE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 20);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: LIMITE_MB * 1024 * 1024 },
+});
 
 const SHEETS_GESCOLAR_ID = process.env.SHEETS_GESCOLAR_ID;
 const NOMBRE_HOJA_GESCOLAR = "GESCOLAR";
@@ -15,13 +22,16 @@ const DURACION_CACHE_MS = 15 * 60 * 1000; // 15 minutos
 const DRIVE_FOLDER_PLANTELES_ID = process.env.DRIVE_FOLDER_PLANTELES_ID;
 const DURACION_CACHE_CARPETAS_MS = 15 * 60 * 1000; // 15 minutos
 
-// Lectura de Sheets (GESCOLAR) + lectura de Drive (archivos por código DEA).
-// Solo lectura -- esta pantalla es de consulta/descarga únicamente.
+// Lectura de Sheets (GESCOLAR) + lectura Y ESCRITURA de Drive (archivos por
+// código DEA -- ahora también se sube directo desde la ficha, estilo
+// "Upload" de GitHub). IMPORTANTE: para que la subida funcione, la carpeta
+// "Planteles" en Drive debe estar compartida con la cuenta de servicio como
+// EDITOR (antes bastaba con Lector, que solo permitía listar/descargar).
 const auth = new google.auth.GoogleAuth({
   keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
   scopes: [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",
   ],
 });
 const sheets = google.sheets({ version: "v4", auth });
@@ -130,6 +140,24 @@ async function ubicarCarpetaDea(codigoDea) {
   return carpeta ? carpeta.id : null;
 }
 
+// Igual que ubicarCarpetaDea, pero si no existe la CREA (para poder subir
+// archivos de un plantel que todavía no tiene carpeta en Drive).
+async function ubicarOCrearCarpetaDea(codigoDea) {
+  const existente = await ubicarCarpetaDea(codigoDea);
+  if (existente) return existente;
+
+  const creada = await drive.files.create({
+    requestBody: {
+      name: codigoDea,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [DRIVE_FOLDER_PLANTELES_ID],
+    },
+    fields: "id",
+  });
+  cacheCarpetasPorDea.set(codigoDea, { id: creada.data.id, cargadoEn: Date.now() });
+  return creada.data.id;
+}
+
 // Lista los archivos disponibles en Drive para un código DEA.
 router.get("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
   const codigoDea = (req.params.codigoDea || "").trim();
@@ -163,6 +191,41 @@ router.get("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PLA
   } catch (err) {
     console.error("Error listando archivos de Drive:", err);
     res.status(500).json({ error: "No se pudo consultar Drive. Verifica que la carpeta 'Planteles' esté compartida con la cuenta de servicio." });
+  }
+});
+
+// Sube uno o varios archivos a la carpeta del código DEA (la crea si no
+// existe todavía), estilo "Upload files" de GitHub.
+router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), upload.array("archivos", 20), async (req, res) => {
+  const codigoDea = (req.params.codigoDea || "").trim();
+  if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
+  if (!DRIVE_FOLDER_PLANTELES_ID) {
+    return res.status(500).json({ error: "Falta configurar DRIVE_FOLDER_PLANTELES_ID en el servidor." });
+  }
+  if (!req.files || !req.files.length) {
+    return res.status(400).json({ error: "No llegó ningún archivo." });
+  }
+
+  try {
+    const carpetaId = await ubicarOCrearCarpetaDea(codigoDea);
+    const subidos = [];
+    for (const archivo of req.files) {
+      const creado = await drive.files.create({
+        requestBody: { name: archivo.originalname, parents: [carpetaId] },
+        media: { mimeType: archivo.mimetype || "application/octet-stream", body: Readable.from(archivo.buffer) },
+        fields: "id, name",
+      });
+      subidos.push(creado.data.name);
+    }
+    res.json({ ok: true, subidos, total: subidos.length });
+  } catch (err) {
+    console.error("Error subiendo archivos a Drive:", err);
+    const esPermiso = err && err.code === 403;
+    res.status(500).json({
+      error: esPermiso
+        ? "Sin permiso de escritura en Drive. La carpeta 'Planteles' debe estar compartida con la cuenta de servicio como Editor (hoy puede estar solo como Lector)."
+        : "No se pudo subir el archivo a Drive.",
+    });
   }
 });
 
