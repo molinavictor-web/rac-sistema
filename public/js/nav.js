@@ -97,6 +97,28 @@ function renderShell(paginaActiva, tituloTopbar) {
       </div>
     </div>`;
 
+  const sidebar = document.querySelector(".sidebar");
+  const mainCol = document.querySelector(".main-col");
+  const topbar = document.querySelector(".topbar");
+  const menuBtn = document.createElement("button");
+  menuBtn.type = "button";
+  menuBtn.className = "mobile-menu";
+  menuBtn.setAttribute("aria-label", "Abrir menú");
+  menuBtn.setAttribute("aria-expanded", "false");
+  menuBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`;
+  const backdrop = document.createElement("div");
+  backdrop.className = "sidebar-backdrop";
+  mainCol.insertBefore(backdrop, mainCol.firstChild);
+  topbar.querySelector(".topbar-title")?.prepend(menuBtn);
+  const cerrarMenuMovil = () => { sidebar.classList.remove("movil-abierto"); backdrop.classList.remove("visible"); menuBtn.setAttribute("aria-expanded", "false"); };
+  menuBtn.addEventListener("click", () => {
+    const abierto = sidebar.classList.toggle("movil-abierto");
+    backdrop.classList.toggle("visible", abierto);
+    menuBtn.setAttribute("aria-expanded", String(abierto));
+  });
+  backdrop.addEventListener("click", cerrarMenuMovil);
+  document.querySelectorAll(".nav-link").forEach((link) => link.addEventListener("click", cerrarMenuMovil));
+
   document.getElementById("btnSalir").addEventListener("click", RAC.cerrarSesion);
   document.querySelectorAll("[data-toggle-grupo]").forEach((boton) => {
     boton.addEventListener("click", () => {
