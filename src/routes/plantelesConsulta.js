@@ -1,8 +1,10 @@
 const express = require("express");
 const multer = require("multer");
+const crypto = require("crypto");
 const { Readable } = require("stream");
 const { google } = require("googleapis");
 const { requireAuth, requireRol } = require("../middleware/auth");
+const { pool } = require("../db/pool");
 
 const router = express.Router(); // rutas montadas en /api/planteles-consulta
 
@@ -40,16 +42,54 @@ const drive = google.drive({ version: "v3", auth });
 // Drive, así que pueden crear carpetas (no ocupan espacio) pero fallan al
 // subir contenido de archivo a un Drive personal (Gmail normal, sin Google
 // Workspace/Unidad compartida). Por eso la escritura se hace con OAuth,
-// autenticado como la cuenta Gmail real dueña de "Planteles" (mismo dueño
-// que ya tiene permiso de sobra sobre toda esa carpeta).
+// autenticado como la cuenta Gmail real dueña de "Planteles".
+//
+// El refresh token NO vive en una variable de entorno fija -- se guarda en
+// la tabla `configuracion` de Postgres, para poder renovarlo desde el botón
+// "Reconectar Google Drive" (ver rutas /drive-oauth/* más abajo) sin tener
+// que tocar Render cada vez que expire (cada 7 días, mientras la app de
+// Google Cloud siga en modo "Prueba").
+const CLAVE_REFRESH_TOKEN = "drive_refresh_token";
+let oauth2Client = null;
 let driveEscritura = null;
-if (process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REFRESH_TOKEN) {
-  const oauth2Client = new google.auth.OAuth2(
+let credencialesCargadas = false;
+
+if (process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET) {
+  oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_OAUTH_CLIENT_ID,
-    process.env.GOOGLE_OAUTH_CLIENT_SECRET
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    `${process.env.URL_PUBLICA || ""}/api/planteles-consulta/drive-oauth/callback`
   );
-  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN });
   driveEscritura = google.drive({ version: "v3", auth: oauth2Client });
+}
+
+// Antes de cualquier operación de escritura, asegura que oauth2Client tenga
+// el refresh token más reciente (lo carga de Postgres una sola vez por
+// arranque del servidor; después de un /drive-oauth/callback exitoso se
+// actualiza también en memoria, sin esperar a un reinicio).
+async function asegurarCredencialesEscritura() {
+  if (!oauth2Client) return false;
+  if (credencialesCargadas) return true;
+
+  const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_REFRESH_TOKEN]);
+  const refreshToken = rows[0] ? rows[0].valor : process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  if (!refreshToken) return false;
+
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  credencialesCargadas = true;
+  return true;
+}
+
+// Estados temporales del flujo OAuth (protege /drive-oauth/callback contra
+// que alguien active la reconexión sin haber pasado por /drive-oauth/iniciar
+// primero, ya que un redirect de Google no puede llevar el token JWT normal
+// del sistema). Se limpian solos a los 10 minutos.
+const estadosOAuthPendientes = new Map();
+function limpiarEstadosVencidos() {
+  const ahora = Date.now();
+  for (const [estado, creado] of estadosOAuthPendientes) {
+    if (ahora - creado > 10 * 60 * 1000) estadosOAuthPendientes.delete(estado);
+  }
 }
 
 // Campos por los que se puede buscar un plantel. Deben coincidir EXACTO
@@ -162,8 +202,9 @@ async function ubicarCarpetaDea(codigoDea) {
 async function ubicarOCrearCarpetaDea(codigoDea) {
   const existente = await ubicarCarpetaDea(codigoDea);
   if (existente) return existente;
-  if (!driveEscritura) {
-    const err = new Error("Faltan configurar las credenciales OAuth (GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN) para poder crear carpetas o subir archivos.");
+  const listo = await asegurarCredencialesEscritura();
+  if (!listo) {
+    const err = new Error("Falta conectar Google Drive (usa el botón 'Reconectar Google Drive') para poder crear carpetas o subir archivos.");
     err.sinCredencialesEscritura = true;
     throw err;
   }
@@ -228,7 +269,11 @@ router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PL
     return res.status(400).json({ error: "No llegó ningún archivo." });
   }
   if (!driveEscritura) {
-    return res.status(500).json({ error: "Faltan configurar las credenciales OAuth (GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN) en Render para poder subir archivos." });
+    return res.status(500).json({ error: "Faltan configurar GOOGLE_OAUTH_CLIENT_ID/SECRET en Render." });
+  }
+  const listo = await asegurarCredencialesEscritura();
+  if (!listo) {
+    return res.status(409).json({ error: "Falta conectar Google Drive. Usa el botón 'Reconectar Google Drive' y vuelve a intentar." });
   }
 
   try {
@@ -249,7 +294,10 @@ router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PL
     if (err && err.sinCredencialesEscritura) {
       mensaje = err.message;
     } else if (err && err.code === 403) {
-      mensaje = "Sin permiso de escritura en Drive. Revisa que el refresh token OAuth sea de la cuenta dueña de 'Planteles'.";
+      mensaje = "Sin permiso de escritura en Drive. Reconecta con la cuenta correcta (botón 'Reconectar Google Drive').";
+    } else if (err && (err.code === 401 || (err.response && err.response.status === 401))) {
+      mensaje = "La conexión con Google Drive expiró. Usa el botón 'Reconectar Google Drive' y vuelve a intentar.";
+      credencialesCargadas = false; // fuerza a releer/renovar en el próximo intento
     }
     res.status(500).json({ error: mensaje });
   }
@@ -305,6 +353,75 @@ router.get("/:codigoDea/archivos/:fileId/descargar", requireAuth, requireRol(...
   } catch (err) {
     console.error("Error descargando archivo de Drive:", err);
     res.status(500).json({ error: "No se pudo descargar el archivo." });
+  }
+});
+
+// ---- Reconectar Google Drive (renovar el refresh token sin tocar Render) ----
+
+// Estado actual: si hay credenciales OAuth configuradas y si ya hay un
+// refresh token guardado (en BD o en la variable de entorno original).
+router.get("/drive-oauth/estado", requireAuth, requireRol("admin"), async (req, res) => {
+  if (!oauth2Client) {
+    return res.json({ configurado: false, conectado: false });
+  }
+  const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_REFRESH_TOKEN]);
+  const conectado = Boolean(rows[0] ? rows[0].valor : process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
+  res.json({ configurado: true, conectado });
+});
+
+// Genera la URL de Google para iniciar sesión y dar permiso de Drive. El
+// frontend abre esta URL en una pestaña nueva (no es un fetch normal,
+// porque el login pasa por la pantalla de Google, fuera del sistema).
+router.get("/drive-oauth/iniciar", requireAuth, requireRol("admin"), (req, res) => {
+  if (!oauth2Client) {
+    return res.status(500).json({ error: "Faltan configurar GOOGLE_OAUTH_CLIENT_ID/SECRET en Render." });
+  }
+  limpiarEstadosVencidos();
+  const estado = crypto.randomBytes(16).toString("hex");
+  estadosOAuthPendientes.set(estado, Date.now());
+
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent", // fuerza a que Google mande SIEMPRE un refresh_token nuevo
+    scope: ["https://www.googleapis.com/auth/drive"],
+    state: estado,
+  });
+  res.json({ url });
+});
+
+// Google redirige aquí (navegación normal del navegador, no puede llevar el
+// token del sistema) después de que el usuario acepta el permiso.
+router.get("/drive-oauth/callback", async (req, res) => {
+  const { code, state } = req.query;
+  const paginaHtml = (titulo, mensaje) => `
+    <html><body style="font-family:sans-serif; padding:40px; text-align:center;">
+      <h2>${titulo}</h2><p>${mensaje}</p>
+      <p style="color:#888; font-size:.85rem;">Puedes cerrar esta pestaña.</p>
+    </body></html>`;
+
+  if (!state || !estadosOAuthPendientes.has(state)) {
+    return res.status(400).send(paginaHtml("Enlace vencido o inválido", "Vuelve a la pantalla de Consultar planteles y presiona 'Reconectar Google Drive' de nuevo."));
+  }
+  estadosOAuthPendientes.delete(state); // un solo uso
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    if (!tokens.refresh_token) {
+      return res.status(400).send(paginaHtml("No se recibió permiso permanente", "Google no devolvió un refresh token. Intenta de nuevo -- si vuelve a pasar, revisa que la pantalla de consentimiento esté en modo Prueba o Producción (no debería afectar, pero por si acaso)."));
+    }
+
+    await pool.query(
+      `INSERT INTO configuracion (clave, valor) VALUES ($1, $2)
+       ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor`,
+      [CLAVE_REFRESH_TOKEN, tokens.refresh_token]
+    );
+    oauth2Client.setCredentials(tokens);
+    credencialesCargadas = true;
+
+    res.send(paginaHtml("Google Drive reconectado ✔", "Ya puedes volver a subir archivos desde la ficha del plantel."));
+  } catch (err) {
+    console.error("Error en drive-oauth/callback:", err);
+    res.status(500).send(paginaHtml("Error al reconectar", "No se pudo completar la conexión con Google. Intenta de nuevo."));
   }
 });
 
