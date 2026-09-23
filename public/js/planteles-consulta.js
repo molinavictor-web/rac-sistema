@@ -145,12 +145,12 @@ function dibujarTabla(planteles) {
 
   const filas = planteles.map((p, i) => `
     <tr>
-      <td><span class="pc-code">${escapar(p[CAMPO_CODIGO]) || "—"}</span></td>
-      <td><div class="pc-plantel-name">${escapar(p[CAMPO_NOMBRE]) || "Sin nombre registrado"}</div></td>
-      <td>${escapar(p[CAMPO_MUNICIPIO]) || "—"}</td>
-      <td>${escapar(p[CAMPO_PARROQUIA]) || "—"}</td>
-      <td>${escapar(p[CAMPO_DIRECTOR]) || "—"}</td>
-      <td class="pc-action"><button class="btn btn-fantasma btn-sm pc-view-btn" type="button" data-ver-ficha="${i}" aria-label="Ver ficha de ${escapar(p[CAMPO_NOMBRE]) || "plantel"}">Ver ficha <span aria-hidden="true">→</span></button></td>
+      <td data-label="Código DEA"><span class="pc-code">${escapar(p[CAMPO_CODIGO]) || "—"}</span></td>
+      <td data-label="Plantel"><div class="pc-plantel-name">${escapar(p[CAMPO_NOMBRE]) || "Sin nombre registrado"}</div></td>
+      <td data-label="Municipio">${escapar(p[CAMPO_MUNICIPIO]) || "—"}</td>
+      <td data-label="Parroquia">${escapar(p[CAMPO_PARROQUIA]) || "—"}</td>
+      <td data-label="Director">${escapar(p[CAMPO_DIRECTOR]) || "—"}</td>
+      <td data-label="Acción" class="pc-action"><button class="btn btn-fantasma btn-sm pc-view-btn" type="button" data-ver-ficha="${i}" aria-label="Ver ficha de ${escapar(p[CAMPO_NOMBRE]) || "plantel"}">Ver ficha <span aria-hidden="true">→</span></button></td>
     </tr>
   `).join("");
 
