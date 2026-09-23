@@ -76,6 +76,10 @@ function renderShell(paginaActiva, tituloTopbar) {
   document.getElementById("shell").innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
+        <div class="sidebar-mobile-head">
+          <div><strong>RAC · Sistema</strong><span>Registro de Asignación de Cargos</span></div>
+          <button type="button" class="sidebar-mobile-close" id="btnCerrarMenuMovil" aria-label="Cerrar menú">×</button>
+        </div>
         <div class="sidebar-brand">
           <div class="sidebar-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7"/></svg></div>
           <div class="sidebar-brand-text"><strong>RAC · Sistema</strong><span>Registro de Asignación de Cargos</span></div>
@@ -91,7 +95,10 @@ function renderShell(paginaActiva, tituloTopbar) {
       <div class="main-col">
         <header class="topbar">
           <div class="topbar-title"><div><div class="crumb">MONAGAS · EDUCACIÓN</div><div class="title">${tituloTopbar}</div></div></div>
-          <div class="topbar-user"><div class="topbar-user-avatar">${(usuario.nombre || "U").charAt(0).toUpperCase()}</div><span>${rolLabel}</span></div>
+          <div class="topbar-user" aria-label="Sesión activa">
+            <div class="topbar-user-avatar">${(usuario.nombre || "U").charAt(0).toUpperCase()}</div>
+            <div class="topbar-user-info"><strong>${usuario.nombre || "Usuario"}</strong><span>${rolLabel}</span></div>
+          </div>
         </header>
         <main class="contenido" id="contenido"></main>
       </div>
@@ -108,18 +115,34 @@ function renderShell(paginaActiva, tituloTopbar) {
   menuBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`;
   const backdrop = document.createElement("div");
   backdrop.className = "sidebar-backdrop";
-  mainCol.insertBefore(backdrop, mainCol.firstChild);
+  backdrop.setAttribute("aria-hidden", "true");
+  document.body.appendChild(backdrop);
   topbar.querySelector(".topbar-title")?.prepend(menuBtn);
-  const cerrarMenuMovil = () => { sidebar.classList.remove("movil-abierto"); backdrop.classList.remove("visible"); menuBtn.setAttribute("aria-expanded", "false"); };
+  const cerrarMenuMovil = () => {
+    sidebar.classList.remove("movil-abierto");
+    backdrop.classList.remove("visible");
+    backdrop.setAttribute("aria-hidden", "true");
+    menuBtn.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("menu-movil-abierto");
+  };
   menuBtn.addEventListener("click", () => {
     const abierto = sidebar.classList.toggle("movil-abierto");
     backdrop.classList.toggle("visible", abierto);
+    backdrop.setAttribute("aria-hidden", String(!abierto));
     menuBtn.setAttribute("aria-expanded", String(abierto));
+    document.body.classList.toggle("menu-movil-abierto", abierto);
   });
   backdrop.addEventListener("click", cerrarMenuMovil);
+  document.addEventListener("keydown", (evento) => {
+    if (evento.key === "Escape" && sidebar.classList.contains("movil-abierto")) cerrarMenuMovil();
+  });
+  document.getElementById("btnCerrarMenuMovil")?.addEventListener("click", cerrarMenuMovil);
   document.querySelectorAll(".nav-link").forEach((link) => link.addEventListener("click", cerrarMenuMovil));
 
-  document.getElementById("btnSalir").addEventListener("click", RAC.cerrarSesion);
+  document.getElementById("btnSalir").addEventListener("click", () => {
+    cerrarMenuMovil();
+    RAC.cerrarSesion();
+  });
   document.querySelectorAll("[data-toggle-grupo]").forEach((boton) => {
     boton.addEventListener("click", () => {
       const id = boton.dataset.toggleGrupo;
