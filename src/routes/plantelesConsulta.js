@@ -22,20 +22,35 @@ const DURACION_CACHE_MS = 15 * 60 * 1000; // 15 minutos
 const DRIVE_FOLDER_PLANTELES_ID = process.env.DRIVE_FOLDER_PLANTELES_ID;
 const DURACION_CACHE_CARPETAS_MS = 15 * 60 * 1000; // 15 minutos
 
-// Lectura de Sheets (GESCOLAR) + lectura Y ESCRITURA de Drive (archivos por
-// código DEA -- ahora también se sube directo desde la ficha, estilo
-// "Upload" de GitHub). IMPORTANTE: para que la subida funcione, la carpeta
-// "Planteles" en Drive debe estar compartida con la cuenta de servicio como
-// EDITOR (antes bastaba con Lector, que solo permitía listar/descargar).
+// Lectura de Sheets (GESCOLAR) + lectura de Drive (archivos por código DEA)
+// con la cuenta de servicio -- funciona perfecto para LEER, sin permisos
+// especiales.
 const auth = new google.auth.GoogleAuth({
   keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
   scopes: [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.readonly",
   ],
 });
 const sheets = google.sheets({ version: "v4", auth });
 const drive = google.drive({ version: "v3", auth });
+
+// Para ESCRIBIR (crear carpeta / subir archivo) NO se puede usar la cuenta
+// de servicio: las cuentas de servicio tienen 0 bytes de cuota propia de
+// Drive, así que pueden crear carpetas (no ocupan espacio) pero fallan al
+// subir contenido de archivo a un Drive personal (Gmail normal, sin Google
+// Workspace/Unidad compartida). Por eso la escritura se hace con OAuth,
+// autenticado como la cuenta Gmail real dueña de "Planteles" (mismo dueño
+// que ya tiene permiso de sobra sobre toda esa carpeta).
+let driveEscritura = null;
+if (process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REFRESH_TOKEN) {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_OAUTH_CLIENT_ID,
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET
+  );
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_OAUTH_REFRESH_TOKEN });
+  driveEscritura = google.drive({ version: "v3", auth: oauth2Client });
+}
 
 // Campos por los que se puede buscar un plantel. Deben coincidir EXACTO
 // (mayúsculas/minúsculas incluidas) con los encabezados reales de la hoja.
@@ -141,12 +156,19 @@ async function ubicarCarpetaDea(codigoDea) {
 }
 
 // Igual que ubicarCarpetaDea, pero si no existe la CREA (para poder subir
-// archivos de un plantel que todavía no tiene carpeta en Drive).
+// archivos de un plantel que todavía no tiene carpeta en Drive). La
+// creación usa driveEscritura (OAuth) -- ver nota arriba sobre por qué la
+// cuenta de servicio no sirve para esto.
 async function ubicarOCrearCarpetaDea(codigoDea) {
   const existente = await ubicarCarpetaDea(codigoDea);
   if (existente) return existente;
+  if (!driveEscritura) {
+    const err = new Error("Faltan configurar las credenciales OAuth (GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN) para poder crear carpetas o subir archivos.");
+    err.sinCredencialesEscritura = true;
+    throw err;
+  }
 
-  const creada = await drive.files.create({
+  const creada = await driveEscritura.files.create({
     requestBody: {
       name: codigoDea,
       mimeType: "application/vnd.google-apps.folder",
@@ -205,12 +227,15 @@ router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PL
   if (!req.files || !req.files.length) {
     return res.status(400).json({ error: "No llegó ningún archivo." });
   }
+  if (!driveEscritura) {
+    return res.status(500).json({ error: "Faltan configurar las credenciales OAuth (GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN) en Render para poder subir archivos." });
+  }
 
   try {
     const carpetaId = await ubicarOCrearCarpetaDea(codigoDea);
     const subidos = [];
     for (const archivo of req.files) {
-      const creado = await drive.files.create({
+      const creado = await driveEscritura.files.create({
         requestBody: { name: archivo.originalname, parents: [carpetaId] },
         media: { mimeType: archivo.mimetype || "application/octet-stream", body: Readable.from(archivo.buffer) },
         fields: "id, name",
@@ -220,12 +245,13 @@ router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PL
     res.json({ ok: true, subidos, total: subidos.length });
   } catch (err) {
     console.error("Error subiendo archivos a Drive:", err);
-    const esPermiso = err && err.code === 403;
-    res.status(500).json({
-      error: esPermiso
-        ? "Sin permiso de escritura en Drive. La carpeta 'Planteles' debe estar compartida con la cuenta de servicio como Editor (hoy puede estar solo como Lector)."
-        : "No se pudo subir el archivo a Drive.",
-    });
+    let mensaje = "No se pudo subir el archivo a Drive.";
+    if (err && err.sinCredencialesEscritura) {
+      mensaje = err.message;
+    } else if (err && err.code === 403) {
+      mensaje = "Sin permiso de escritura en Drive. Revisa que el refresh token OAuth sea de la cuenta dueña de 'Planteles'.";
+    }
+    res.status(500).json({ error: mensaje });
   }
 });
 
