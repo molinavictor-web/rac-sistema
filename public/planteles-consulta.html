@@ -156,3 +156,222 @@
   <script src="/js/planteles-consulta.js"></script>
 </body>
 </html>
+<style>
+/* =========================================================
+   RAC · Planteles Consulta — adaptación móvil 2026
+   La versión de escritorio permanece sin cambios.
+   ========================================================= */
+@media (max-width: 720px) {
+  /* La barra superior ocupa menos espacio en móvil. */
+  .topbar {
+    min-height: 58px;
+    padding: 10px 14px;
+  }
+  .topbar h1 { font-size: 16px; }
+
+  .contenido {
+    padding: 12px;
+  }
+
+  .planteles-consulta-page { width: 100%; }
+
+  .pc-hero {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+  .pc-hero h2 {
+    font-size: clamp(20px, 6vw, 25px);
+    line-height: 1.12;
+    margin: 7px 0 8px;
+  }
+  .pc-hero p {
+    font-size: 12px;
+    line-height: 1.55;
+    margin-bottom: 0;
+  }
+  .pc-kicker { font-size: 9px; }
+
+  .pc-search-panel {
+    padding: 14px;
+    margin-top: 10px;
+    border-radius: 14px;
+  }
+  .pc-search-row { gap: 10px; }
+  .pc-search-input {
+    min-height: 46px;
+    font-size: 13px;
+    padding-left: 40px;
+    padding-right: 38px;
+  }
+  .pc-refresh {
+    min-height: 44px;
+    font-size: 12px;
+  }
+  .pc-meta { margin-top: 9px; }
+  .pc-results-count { font-size: 11px; }
+  .pc-hint { font-size: 9px; line-height: 1.4; }
+
+  .pc-results {
+    margin-top: 10px;
+    border-radius: 14px;
+  }
+  .pc-results-head {
+    padding: 12px 14px;
+    align-items: flex-start;
+  }
+  .pc-results-head h3 { font-size: 13px; }
+  .pc-results-head > span { font-size: 9px; }
+
+  /* La tabla se convierte en tarjetas táctiles. */
+  .pc-table-wrap {
+    overflow: visible;
+    padding: 10px;
+  }
+  .pc-table,
+  .pc-table tbody,
+  .pc-table tr,
+  .pc-table td {
+    display: block;
+    width: 100%;
+  }
+  .pc-table thead { display: none; }
+  .pc-table tbody { display: grid; gap: 9px; }
+  .pc-table tr {
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e1e8f0;
+    border-radius: 12px;
+    box-shadow: 0 3px 12px rgba(13,43,82,.045);
+  }
+  .pc-table td {
+    border: 0;
+    padding: 5px 0;
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .pc-table td::before {
+    content: attr(data-label);
+    color: #8291a4;
+    font-size: 8px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .055em;
+    padding-top: 2px;
+  }
+  .pc-table td:first-child { padding-top: 0; }
+  .pc-table .pc-code { justify-self: start; }
+  .pc-table .pc-plantel-name { font-size: 12px; line-height: 1.35; }
+  .pc-table .pc-action {
+    display: block;
+    padding-top: 9px;
+    margin-top: 5px;
+    border-top: 1px solid #edf1f5;
+  }
+  .pc-table .pc-action::before { display: none; }
+  .pc-view-btn {
+    width: 100%;
+    min-height: 42px;
+    justify-content: center;
+  }
+
+  /* Ficha móvil: usa casi toda la pantalla y evita paneles demasiado altos. */
+  #modalFichaFondo .pc-ficha-modal {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #modalFichaFondo .pc-ficha-top {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding: 11px 13px;
+    min-height: 62px;
+  }
+  .pc-ficha-heading { min-width: 0; }
+  .pc-ficha-emblem {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    font-size: 16px;
+  }
+  .pc-ficha-title h2 {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+  .pc-ficha-title p {
+    font-size: 9px;
+    line-height: 1.35;
+    max-width: calc(100vw - 145px);
+  }
+  .pc-close {
+    min-height: 38px;
+    padding: 0 9px;
+    white-space: nowrap;
+  }
+  #modalFichaFondo .pc-ficha-scroll {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 13px 12px 28px;
+  }
+
+  .pc-section { margin-bottom: 15px; }
+  .pc-section-head {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .pc-section-head h3 { font-size: 12px; }
+  .pc-section-head span {
+    display: block;
+    margin-top: 3px;
+    font-size: 9px;
+  }
+
+  .pc-highlight-grid { grid-template-columns: 1fr; gap: 7px; }
+  .pc-highlight {
+    padding: 11px 12px;
+    border-radius: 10px;
+  }
+  .pc-highlight-label { font-size: 8px; margin-bottom: 4px; }
+  .pc-highlight-value { font-size: 11px; }
+
+  .pc-data-card { border-radius: 10px; }
+  .pc-data-grid { grid-template-columns: 1fr; }
+  .pc-data-item,
+  .pc-data-item:nth-child(n) {
+    border-right: 0;
+    padding: 10px 12px;
+  }
+  .pc-data-label { font-size: 8px; }
+  .pc-data-value { font-size: 10.5px; }
+
+  .pc-drive { border-radius: 10px; }
+  .pc-drive-toolbar {
+    padding: 10px 11px;
+    align-items: flex-start;
+  }
+  .pc-drive-file { padding: 9px 4px; gap: 8px; }
+  .pc-file-icon { width: 32px; height: 32px; flex-basis: 32px; }
+  .pc-file-name { font-size: 10.5px; }
+  .pc-file-meta { font-size: 9px; }
+  .pc-upload { display: grid; grid-template-columns: 1fr; }
+  .pc-upload .btn { width: 100%; min-height: 40px; }
+}
+
+@media (max-width: 380px) {
+  .contenido { padding: 8px; }
+  .pc-hero { padding: 15px 13px; }
+  .pc-search-panel { padding: 11px; }
+  .pc-table-wrap { padding: 7px; }
+  .pc-table td { grid-template-columns: 72px minmax(0,1fr); gap: 7px; }
+  .pc-ficha-title p { max-width: 145px; }
+}
+</style>
