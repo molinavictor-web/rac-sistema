@@ -182,7 +182,10 @@ function abrirFicha(plantel) {
   document.body.style.overflow = "hidden";
 
   const codigoDea = plantel[CAMPO_CODIGO];
-  if (codigoDea) cargarArchivosFicha(codigoDea);
+  if (codigoDea) {
+    cargarArchivosFicha(codigoDea); // esta también busca la foto de fachada, ver dibujarArchivosFicha
+    cargarUbicacionFicha(codigoDea);
+  }
 }
 
 function cerrarFicha() {
@@ -223,6 +226,14 @@ function renderizarFicha(plantel) {
   `).join("");
 
   return `
+    <div class="ficha-encabezado-visual">
+      <div id="fichaFotoBox" class="ficha-visual-caja">
+        <div class="cargando">Buscando foto…</div>
+      </div>
+      <div id="fichaMapaBox" class="ficha-visual-caja">
+        <div class="cargando">Buscando ubicación…</div>
+      </div>
+    </div>
     <div id="fichaArchivosBox" style="margin-bottom:22px;">
       <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
       <div class="cargando">Buscando archivos…</div>
@@ -237,6 +248,125 @@ function renderizarFicha(plantel) {
   `;
 }
 
+// ---- Foto de fachada + ubicación (arriba de la ficha) ----
+
+// Tipos de imagen que cuentan como "foto de fachada" al buscar entre los
+// archivos de Drive de este plantel.
+const MIME_IMAGENES = ["image/jpeg", "image/png", "image/webp", "image/heic"];
+
+async function mostrarFotoFachada(codigoDea, archivos) {
+  const caja = document.getElementById("fichaFotoBox");
+  if (!caja) return;
+
+  // Prioriza el archivo con nombre fijo FACHADA_<código>; si el plantel
+  // todavía no tiene uno (fotos subidas antes de este botón, por ejemplo),
+  // cae a la primera imagen que encuentre en la carpeta.
+  const foto = (archivos || []).find((a) => /^FACHADA_/i.test(a.nombre) && MIME_IMAGENES.includes(a.mimeType))
+    || (archivos || []).find((a) => MIME_IMAGENES.includes(a.mimeType));
+
+  const botonSubir = puedeRefrescar ? `
+    <input type="file" id="inputFotoFachada" accept="image/jpeg,image/png,image/webp,image/heic" style="display:none;">
+    <button class="btn btn-fantasma btn-sm" id="btnFotoFachada" style="position:absolute; ${foto ? "bottom:8px; right:8px;" : ""}">${foto ? "Cambiar foto" : "Subir foto de fachada"}</button>
+  ` : "";
+
+  if (!foto) {
+    caja.innerHTML = `<div style="position:relative; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:12px; color:var(--muted); font-size:.82rem;">
+      <div style="margin-bottom:10px;">Sin foto todavía</div>
+      ${botonSubir}
+    </div>`;
+    engancharBotonFotoFachada(codigoDea);
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos/${encodeURIComponent(foto.id)}/descargar`, {
+      headers: { Authorization: "Bearer " + RAC.getToken() },
+    });
+    if (!resp.ok) throw new Error("No se pudo cargar la foto");
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    caja.innerHTML = `
+      <div style="position:relative; height:100%;">
+        <img src="${url}" alt="Fachada del plantel" style="width:100%; height:100%; object-fit:cover; border-radius:10px;">
+        ${foto.modificado ? `<span style="position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,.6); color:#fff; font-size:.7rem; padding:3px 8px; border-radius:6px;">${fechaRelativa(foto.modificado)}</span>` : ""}
+        ${botonSubir}
+      </div>`;
+    engancharBotonFotoFachada(codigoDea);
+  } catch (err) {
+    caja.innerHTML = `<div class="vacio"><strong>No se pudo cargar la foto</strong>${escapar(err.message)}</div>`;
+  }
+}
+
+function engancharBotonFotoFachada(codigoDea) {
+  const btn = document.getElementById("btnFotoFachada");
+  const input = document.getElementById("inputFotoFachada");
+  if (!btn || !input) return;
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    if (input.files && input.files[0]) subirFotoFachada(codigoDea, input.files[0]);
+  });
+}
+
+async function subirFotoFachada(codigoDea, archivo) {
+  const caja = document.getElementById("fichaFotoBox");
+  if (caja) caja.innerHTML = `<div class="cargando" style="height:100%; display:flex; align-items:center; justify-content:center;">Subiendo foto…</div>`;
+
+  const formData = new FormData();
+  formData.append("foto", archivo);
+  try {
+    const resp = await fetch(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/foto-fachada`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + RAC.getToken() },
+      body: formData,
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => null);
+      throw new Error((data && data.error) || `Error ${resp.status}`);
+    }
+    mostrarToast("Foto de fachada actualizada.");
+    cargarArchivosFicha(codigoDea); // refresca la lista Y vuelve a llamar mostrarFotoFachada
+  } catch (err) {
+    mostrarToast(err.message, true);
+    cargarArchivosFicha(codigoDea); // restaura la foto/lista anterior
+  }
+}
+
+// "hace X" a partir de una fecha ISO (la que devuelve Drive en modifiedTime).
+function fechaRelativa(fechaISO) {
+  const diffMs = Date.now() - new Date(fechaISO).getTime();
+  const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (dias < 1) return "Actualizada hoy";
+  if (dias === 1) return "Actualizada ayer";
+  if (dias < 30) return `Actualizada hace ${dias} días`;
+  const meses = Math.floor(dias / 30);
+  if (meses < 12) return `Actualizada hace ${meses} mes${meses === 1 ? "" : "es"}`;
+  const anios = Math.floor(meses / 12);
+  return `Actualizada hace ${anios} año${anios === 1 ? "" : "s"}`;
+}
+
+async function cargarUbicacionFicha(codigoDea) {
+  const caja = document.getElementById("fichaMapaBox");
+  if (!caja) return;
+
+  try {
+    const resp = await RAC.get(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/coordenadas`);
+    if (!document.getElementById("fichaMapaBox")) return; // la ficha pudo cerrarse
+    if (!resp || !resp.encontrado) {
+      caja.innerHTML = `<div class="vacio" style="height:100%; display:flex; flex-direction:column; justify-content:center;"><strong>Sin coordenadas todavía</strong>Se cargan desde el bot de WhatsApp (comando "foto").</div>`;
+      return;
+    }
+    const { latitud, longitud } = resp;
+    caja.innerHTML = `
+      <iframe
+        src="https://www.google.com/maps?q=${encodeURIComponent(latitud)},${encodeURIComponent(longitud)}&output=embed"
+        style="width:100%; height:100%; border:0; border-radius:10px;"
+        loading="lazy" referrerpolicy="no-referrer-when-downgrade">
+      </iframe>`;
+  } catch (err) {
+    caja.innerHTML = `<div class="vacio"><strong>No se pudo cargar la ubicación</strong>${escapar(err.message)}</div>`;
+  }
+}
+
 // ---- Archivos de Drive para el código DEA de la ficha abierta ----
 
 async function cargarArchivosFicha(codigoDea) {
@@ -248,6 +378,7 @@ async function cargarArchivosFicha(codigoDea) {
     // Si el usuario ya cerró esta ficha o abrió otra, no pisar contenido ajeno.
     if (!document.getElementById("fichaArchivosBox")) return;
     dibujarArchivosFicha(codigoDea, resp);
+    mostrarFotoFachada(codigoDea, resp && resp.archivos);
   } catch (err) {
     const cajaActual = document.getElementById("fichaArchivosBox");
     if (!cajaActual) return;
