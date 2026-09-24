@@ -1,7 +1,7 @@
 {
   "name": "rac-sistema",
   "version": "1.0.0",
-  "description": "Sistema web para gestión y validación del RAC (Registro de Asignación de Carga) contra la nómina del Ministerio de Educación",
+  "description": "Sistema web para gestión y validación del RAC (Registro de Asignación de Cargo) contra la nómina del Ministerio de Educación",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
