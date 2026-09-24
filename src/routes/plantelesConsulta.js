@@ -20,6 +20,14 @@ const NOMBRE_HOJA_GESCOLAR = "GESCOLAR";
 const RANGO_HOJA_GESCOLAR = `${NOMBRE_HOJA_GESCOLAR}!A:BC`; // 55 columnas (A..BC)
 const DURACION_CACHE_MS = 15 * 60 * 1000; // 15 minutos
 
+// Hoja "Coordenadas Planteles" -- la misma que ya usa whatsapp-credenciales
+// para guardar lat/long capturada en campo (comando "foto <código DEA>").
+// Columnas: codigo_dea, codigo_infraestructura, latitud, longitud,
+// fecha_captura, ingeniero.
+const SHEETS_COORDENADAS_ID = process.env.SHEETS_COORDENADAS_ID;
+const RANGO_HOJA_COORDENADAS = "A:F";
+let cacheCoordenadas = { datos: [], cargadoEn: 0 };
+
 // Carpeta raíz "Planteles" en Drive (contiene una subcarpeta por código DEA).
 const DRIVE_FOLDER_PLANTELES_ID = process.env.DRIVE_FOLDER_PLANTELES_ID;
 const DURACION_CACHE_CARPETAS_MS = 15 * 60 * 1000; // 15 minutos
@@ -146,6 +154,45 @@ async function cargarGescolar(forzar = false) {
   cache = { datos: filasAObjetos(filas), cargadoEn: Date.now() };
   return cache.datos;
 }
+
+async function cargarCoordenadas() {
+  const vencido = Date.now() - cacheCoordenadas.cargadoEn > DURACION_CACHE_MS;
+  if (!vencido && cacheCoordenadas.datos.length) return cacheCoordenadas.datos;
+
+  const respuesta = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEETS_COORDENADAS_ID,
+    range: RANGO_HOJA_COORDENADAS,
+  });
+  const filas = respuesta.data.values || [];
+  cacheCoordenadas = { datos: filasAObjetos(filas), cargadoEn: Date.now() };
+  return cacheCoordenadas.datos;
+}
+
+// Coordenadas GPS capturadas en campo para un código DEA (o para el código
+// de infraestructura que agrupa varios planteles en un mismo edificio).
+router.get("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  const codigoDea = (req.params.codigoDea || "").trim();
+  if (!SHEETS_COORDENADAS_ID) {
+    return res.json({ encontrado: false });
+  }
+  try {
+    const filas = await cargarCoordenadas();
+    const fila = filas.find((f) => f.codigo_dea === codigoDea || f.codigo_infraestructura === codigoDea);
+    if (!fila || !fila.latitud || !fila.longitud) {
+      return res.json({ encontrado: false });
+    }
+    res.json({
+      encontrado: true,
+      latitud: fila.latitud,
+      longitud: fila.longitud,
+      fecha_captura: fila.fecha_captura || null,
+      ingeniero: fila.ingeniero || null,
+    });
+  } catch (err) {
+    console.error("Error consultando coordenadas:", err);
+    res.json({ encontrado: false });
+  }
+});
 
 // Búsqueda: coincidencia parcial, sin distinguir mayúsculas, sobre
 // cualquiera de los CAMPOS_BUSQUEDA.
@@ -309,6 +356,59 @@ router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PL
     res.status(500).json({ error: mensaje });
   }
 });
+
+// Tipos de imagen válidos para la foto de fachada.
+const MIME_IMAGENES_FACHADA = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+};
+
+// Sube (o reemplaza) la foto de fachada con nombre fijo FACHADA_<código>.ext,
+// para que siempre se pueda identificar sin depender de qué otros archivos
+// haya en la carpeta.
+router.post("/:codigoDea/foto-fachada", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), upload.single("foto"), async (req, res) => {
+  const codigoDea = (req.params.codigoDea || "").trim();
+  if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
+  if (!req.file) return res.status(400).json({ error: "No llegó ninguna foto." });
+  const extension = MIME_IMAGENES_FACHADA[req.file.mimetype];
+  if (!extension) {
+    return res.status(400).json({ error: "La foto debe ser JPG, PNG, WEBP o HEIC." });
+  }
+  if (!driveEscritura) {
+    return res.status(500).json({ error: "Faltan configurar GOOGLE_OAUTH_CLIENT_ID/SECRET en Render." });
+  }
+  const listo = await asegurarCredencialesEscritura();
+  if (!listo) {
+    return res.status(409).json({ error: "Falta conectar Google Drive. Usa el botón 'Reconectar Google Drive' y vuelve a intentar." });
+  }
+
+  try {
+    const carpetaId = await ubicarOCrearCarpetaDea(codigoDea);
+
+    // Borra cualquier FACHADA_* anterior (pudo quedar con otra extensión).
+    const anteriores = await drive.files.list({
+      q: `'${carpetaId}' in parents and name contains 'FACHADA_' and trashed = false`,
+      fields: "files(id)",
+    });
+    for (const f of anteriores.data.files || []) {
+      await driveEscritura.files.delete({ fileId: f.id }).catch(() => {});
+    }
+
+    const nombre = `FACHADA_${codigoDea}.${extension}`;
+    await driveEscritura.files.create({
+      requestBody: { name: nombre, parents: [carpetaId] },
+      media: { mimeType: req.file.mimetype, body: Readable.from(req.file.buffer) },
+      fields: "id, name",
+    });
+    res.json({ ok: true, nombre });
+  } catch (err) {
+    console.error("Error subiendo foto de fachada:", err);
+    res.status(500).json({ error: "No se pudo subir la foto." });
+  }
+});
+
 
 // Tipos nativos de Google (Docs/Sheets/Slides/Dibujos) no se pueden
 // descargar tal cual -- hay que exportarlos a un formato de archivo real.
