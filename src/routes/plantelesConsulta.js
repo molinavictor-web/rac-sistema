@@ -32,25 +32,27 @@ let cacheCoordenadas = { datos: [], cargadoEn: 0 };
 const DRIVE_FOLDER_PLANTELES_ID = process.env.DRIVE_FOLDER_PLANTELES_ID;
 const DURACION_CACHE_CARPETAS_MS = 15 * 60 * 1000; // 15 minutos
 
-// Lectura de Sheets (GESCOLAR) + lectura de Drive (archivos por código DEA)
-// con la cuenta de servicio -- funciona perfecto para LEER, sin permisos
-// especiales.
+// Lectura de Sheets (GESCOLAR) + lectura/ESCRITURA de la hoja "Coordenadas
+// Planteles" + lectura de Drive (archivos por código DEA), todo con la
+// cuenta de servicio. La hoja de Coordenadas ya está compartida como
+// Editor con esa cuenta, así que no hace falta OAuth para escribir ahí
+// (a diferencia de Drive -- ver más abajo).
 const auth = new google.auth.GoogleAuth({
   keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
   scopes: [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.readonly",
   ],
 });
 const sheets = google.sheets({ version: "v4", auth });
 const drive = google.drive({ version: "v3", auth });
 
-// Para ESCRIBIR (crear carpeta / subir archivo) NO se puede usar la cuenta
-// de servicio: las cuentas de servicio tienen 0 bytes de cuota propia de
-// Drive, así que pueden crear carpetas (no ocupan espacio) pero fallan al
+// Para ESCRIBIR en Drive (crear carpeta / subir archivo) NO se puede usar la
+// cuenta de servicio: las cuentas de servicio tienen 0 bytes de cuota propia
+// de Drive, así que pueden crear carpetas (no ocupan espacio) pero fallan al
 // subir contenido de archivo a un Drive personal (Gmail normal, sin Google
-// Workspace/Unidad compartida). Por eso la escritura se hace con OAuth,
-// autenticado como la cuenta Gmail real dueña de "Planteles".
+// Workspace/Unidad compartida). Por eso la escritura en Drive se hace con
+// OAuth, autenticado como la cuenta Gmail real dueña de "Planteles".
 //
 // El refresh token NO vive en una variable de entorno fija -- se guarda en
 // la tabla `configuracion` de Postgres, para poder renovarlo desde el botón
@@ -71,10 +73,10 @@ if (process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET
   driveEscritura = google.drive({ version: "v3", auth: oauth2Client });
 }
 
-// Antes de cualquier operación de escritura, asegura que oauth2Client tenga
-// el refresh token más reciente (lo carga de Postgres una sola vez por
-// arranque del servidor; después de un /drive-oauth/callback exitoso se
-// actualiza también en memoria, sin esperar a un reinicio).
+// Antes de cualquier operación de escritura en Drive, asegura que
+// oauth2Client tenga el refresh token más reciente (lo carga de Postgres
+// una sola vez por arranque del servidor; después de un /drive-oauth/callback
+// exitoso se actualiza también en memoria, sin esperar a un reinicio).
 async function asegurarCredencialesEscritura() {
   if (!oauth2Client) return false;
   if (credencialesCargadas) return true;
@@ -170,16 +172,39 @@ async function cargarCoordenadas() {
 
 // Coordenadas GPS capturadas en campo para un código DEA (o para el código
 // de infraestructura que agrupa varios planteles en un mismo edificio).
+// Además de la coordenada propia, incluye "compartidos": otros códigos DEA
+// que están en el MISMO edificio (mismo codigo_infraestructura), con su
+// nombre resuelto contra GESCOLAR, para poder avisar "este edificio también
+// aloja a...".
 router.get("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
   const codigoDea = (req.params.codigoDea || "").trim();
   if (!SHEETS_COORDENADAS_ID) {
-    return res.json({ encontrado: false });
+    return res.json({ encontrado: false, compartidos: [] });
   }
   try {
     const filas = await cargarCoordenadas();
     const fila = filas.find((f) => f.codigo_dea === codigoDea || f.codigo_infraestructura === codigoDea);
+
+    let compartidos = [];
+    const codigoInfra = fila && fila.codigo_infraestructura ? fila.codigo_infraestructura : null;
+    if (codigoInfra) {
+      const otras = filas.filter(
+        (f) => f.codigo_infraestructura === codigoInfra && f.codigo_dea && f.codigo_dea !== codigoDea
+      );
+      if (otras.length) {
+        const gescolar = await cargarGescolar().catch(() => []);
+        compartidos = otras.map((otra) => {
+          const match = gescolar.find((p) => p.cod_plantel === otra.codigo_dea);
+          return {
+            codigo_dea: otra.codigo_dea,
+            nombre_plantel: match ? match.nombre_plantel : null,
+          };
+        });
+      }
+    }
+
     if (!fila || !fila.latitud || !fila.longitud) {
-      return res.json({ encontrado: false });
+      return res.json({ encontrado: false, compartidos });
     }
     res.json({
       encontrado: true,
@@ -187,10 +212,89 @@ router.get("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA_
       longitud: fila.longitud,
       fecha_captura: fila.fecha_captura || null,
       ingeniero: fila.ingeniero || null,
+      compartidos,
     });
   } catch (err) {
     console.error("Error consultando coordenadas:", err);
-    res.json({ encontrado: false });
+    res.json({ encontrado: false, compartidos: [] });
+  }
+});
+
+// Guarda o actualiza a mano la coordenada de un plantel desde la página web
+// (para cuando todavía no se cargó desde el bot). Si ya existe una fila
+// para este código DEA en "Coordenadas Planteles" la actualiza (conservando
+// su codigo_infraestructura si ya tenía uno); si no existe, agrega una fila
+// nueva. Requiere que esa hoja esté compartida como Editor con la cuenta de
+// servicio (spreadsheetId en SHEETS_COORDENADAS_ID).
+router.post("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  const codigoDea = (req.params.codigoDea || "").trim();
+  const { latitud, longitud } = req.body || {};
+  if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
+
+  const lat = Number(latitud);
+  const lng = Number(longitud);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: "Latitud y longitud deben ser números válidos." });
+  }
+  if (!SHEETS_COORDENADAS_ID) {
+    return res.status(500).json({ error: "Falta configurar SHEETS_COORDENADAS_ID en el servidor." });
+  }
+
+  // NOTA: se asume que el usuario autenticado trae su nombre en
+  // req.user.nombre (con caídas a nombre_completo / email si no existe).
+  // Si el middleware de auth guarda el nombre bajo otra llave, ajusta esta
+  // línea.
+  const ingeniero =
+    (req.user && (req.user.nombre || req.user.nombre_completo || req.user.email)) || "Desconocido";
+  const fechaCaptura = new Date().toISOString().slice(0, 10);
+
+  try {
+    const respuesta = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEETS_COORDENADAS_ID,
+      range: RANGO_HOJA_COORDENADAS,
+    });
+    const filas = respuesta.data.values || [];
+
+    let indiceFila = -1;
+    let codigoInfraExistente = "";
+    for (let i = 1; i < filas.length; i++) {
+      if ((filas[i][0] || "").trim() === codigoDea) {
+        indiceFila = i;
+        codigoInfraExistente = filas[i][1] || "";
+        break;
+      }
+    }
+
+    if (indiceFila >= 0) {
+      const numeroFilaSheet = indiceFila + 1; // filas de Sheets son 1-indexadas
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEETS_COORDENADAS_ID,
+        range: `A${numeroFilaSheet}:F${numeroFilaSheet}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[codigoDea, codigoInfraExistente, lat, lng, fechaCaptura, ingeniero]],
+        },
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEETS_COORDENADAS_ID,
+        range: RANGO_HOJA_COORDENADAS,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: {
+          values: [[codigoDea, "", lat, lng, fechaCaptura, ingeniero]],
+        },
+      });
+    }
+
+    cacheCoordenadas.cargadoEn = 0; // fuerza a releer en la próxima consulta
+    res.json({ ok: true, latitud: lat, longitud: lng, fecha_captura: fechaCaptura, ingeniero });
+  } catch (err) {
+    console.error("Error guardando coordenadas:", err);
+    res.status(500).json({
+      error:
+        "No se pudo guardar la coordenada. Verifica que la hoja 'Coordenadas Planteles' esté compartida como Editor con la cuenta de servicio.",
+    });
   }
 });
 
@@ -367,7 +471,10 @@ const MIME_IMAGENES_FACHADA = {
 
 // Sube (o reemplaza) la foto de fachada con nombre fijo FACHADA_<código>.ext,
 // para que siempre se pueda identificar sin depender de qué otros archivos
-// haya en la carpeta.
+// haya en la carpeta. A PROPÓSITO no depende de que ya existan coordenadas
+// para el código DEA -- la foto y la coordenada son independientes, así que
+// esta ruta se puede llamar aunque /:codigoDea/coordenadas todavía devuelva
+// "encontrado: false".
 router.post("/:codigoDea/foto-fachada", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), upload.single("foto"), async (req, res) => {
   const codigoDea = (req.params.codigoDea || "").trim();
   if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
