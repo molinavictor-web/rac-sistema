@@ -254,6 +254,9 @@ function renderizarFicha(plantel) {
 // archivos de Drive de este plantel.
 const MIME_IMAGENES = ["image/jpeg", "image/png", "image/webp", "image/heic"];
 
+// La subida de foto de fachada es INDEPENDIENTE de que existan coordenadas
+// -- este botón se muestra siempre que el usuario tenga permiso
+// (puedeRefrescar), exista o no ubicación para el plantel.
 async function mostrarFotoFachada(codigoDea, archivos) {
   const caja = document.getElementById("fichaFotoBox");
   if (!caja) return;
@@ -344,6 +347,9 @@ function fechaRelativa(fechaISO) {
   return `Actualizada hace ${anios} año${anios === 1 ? "" : "s"}`;
 }
 
+// ---- Ubicación: mapa, "capturado por", "cómo llegar", edificio compartido
+// y formulario para cargar coordenadas a mano cuando no existan ----
+
 async function cargarUbicacionFicha(codigoDea) {
   const caja = document.getElementById("fichaMapaBox");
   if (!caja) return;
@@ -351,20 +357,86 @@ async function cargarUbicacionFicha(codigoDea) {
   try {
     const resp = await RAC.get(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/coordenadas`);
     if (!document.getElementById("fichaMapaBox")) return; // la ficha pudo cerrarse
-    if (!resp || !resp.encontrado) {
-      caja.innerHTML = `<div class="vacio" style="height:100%; display:flex; flex-direction:column; justify-content:center;"><strong>Sin coordenadas todavía</strong>Se cargan desde el bot de WhatsApp (comando "foto").</div>`;
-      return;
-    }
-    const { latitud, longitud } = resp;
+    dibujarUbicacionFicha(codigoDea, resp || {});
+  } catch (err) {
+    const cajaActual = document.getElementById("fichaMapaBox");
+    if (!cajaActual) return;
+    cajaActual.innerHTML = `<div class="vacio"><strong>No se pudo cargar la ubicación</strong>${escapar(err.message)}</div>`;
+  }
+}
+
+function avisoEdificioCompartidoHtml(compartidos) {
+  if (!compartidos || !compartidos.length) return "";
+  const nombres = compartidos.map((c) => escapar(c.nombre_plantel || c.codigo_dea)).join(", ");
+  return `<div style="font-size:.75rem; color:var(--muted); margin-top:6px;">Este edificio también aloja: ${nombres}</div>`;
+}
+
+function dibujarUbicacionFicha(codigoDea, resp) {
+  const caja = document.getElementById("fichaMapaBox");
+  if (!caja) return;
+
+  const avisoCompartido = avisoEdificioCompartidoHtml(resp.compartidos);
+
+  if (!resp.encontrado) {
     caja.innerHTML = `
+      <div style="height:100%; overflow-y:auto; padding:12px; display:flex; flex-direction:column; justify-content:center; gap:10px;">
+        <div class="vacio" style="margin:0;"><strong>Sin coordenadas todavía</strong>Se cargan desde el bot de WhatsApp (comando "foto") o a mano aquí abajo.</div>
+        ${puedeRefrescar ? formularioCoordenadasHtml() : ""}
+        ${avisoCompartido}
+      </div>`;
+    if (puedeRefrescar) engancharFormularioCoordenadas(codigoDea);
+    return;
+  }
+
+  const { latitud, longitud, fecha_captura, ingeniero } = resp;
+  const linkComoLlegar = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(latitud)},${encodeURIComponent(longitud)}`;
+  const capturadoPor = (ingeniero || fecha_captura)
+    ? `<div style="font-size:.75rem; color:var(--muted); margin-top:6px;">Capturado por ${escapar(ingeniero || "—")}${fecha_captura ? `, ${escapar(fecha_captura)}` : ""}</div>`
+    : "";
+
+  caja.innerHTML = `
+    <div style="height:100%; display:flex; flex-direction:column;">
       <iframe
         src="https://www.google.com/maps?q=${encodeURIComponent(latitud)},${encodeURIComponent(longitud)}&output=embed"
-        style="width:100%; height:100%; border:0; border-radius:10px;"
+        style="width:100%; flex:1 1 auto; border:0; border-radius:10px;"
         loading="lazy" referrerpolicy="no-referrer-when-downgrade">
-      </iframe>`;
-  } catch (err) {
-    caja.innerHTML = `<div class="vacio"><strong>No se pudo cargar la ubicación</strong>${escapar(err.message)}</div>`;
-  }
+      </iframe>
+      <div style="padding-top:8px;">
+        <a class="btn btn-fantasma btn-sm" href="${linkComoLlegar}" target="_blank" rel="noopener">Cómo llegar</a>
+        ${capturadoPor}
+        ${avisoCompartido}
+      </div>
+    </div>`;
+}
+
+function formularioCoordenadasHtml() {
+  return `
+    <form id="formCoordenadas" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <input type="number" step="any" id="inputLatitud" placeholder="Latitud" style="width:110px;" required>
+      <input type="number" step="any" id="inputLongitud" placeholder="Longitud" style="width:110px;" required>
+      <button type="submit" class="btn btn-fantasma btn-sm">Guardar coordenadas</button>
+      <span id="estadoCoordenadas" style="font-size:.78rem; color:var(--muted);"></span>
+    </form>`;
+}
+
+function engancharFormularioCoordenadas(codigoDea) {
+  const form = document.getElementById("formCoordenadas");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const estado = document.getElementById("estadoCoordenadas");
+    const latitud = document.getElementById("inputLatitud").value;
+    const longitud = document.getElementById("inputLongitud").value;
+    if (estado) estado.textContent = "Guardando…";
+    try {
+      await RAC.post(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/coordenadas`, { latitud, longitud });
+      mostrarToast("Coordenadas guardadas.");
+      cargarUbicacionFicha(codigoDea); // repinta ya con el mapa y el botón "Cómo llegar"
+    } catch (err) {
+      if (estado) estado.textContent = "";
+      mostrarToast(err.message, true);
+    }
+  });
 }
 
 // ---- Archivos de Drive para el código DEA de la ficha abierta ----
