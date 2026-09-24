@@ -1,0 +1,270 @@
+/*
+ * RAC · CONSULTAR PLANTELES · RESPONSIVE V6
+ * ------------------------------------------------------------
+ * Capa visual aislada para planteles-consulta.
+ * No modifica APIs, autenticación ni lógica JavaScript.
+ */
+
+@media (max-width: 760px) {
+  /* ---------- Pantalla principal ---------- */
+  #contenido .panel-cabecera {
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  #contenido .panel-cabecera > div:last-child {
+    width: 100%;
+  }
+
+  #contenido .panel-cabecera > div:last-child .btn {
+    flex: 1 1 180px;
+    min-height: 42px;
+  }
+
+  #contenido #qBuscar {
+    width: 100%;
+    min-width: 0 !important;
+    box-sizing: border-box;
+    min-height: 46px;
+    font-size: .9rem;
+  }
+
+  #contenido #tablaPlanteles {
+    margin-top: 10px !important;
+    padding: 0 10px 14px;
+  }
+
+  /* La tabla se convierte en tarjetas sin tocar planteles-consulta.js */
+  #contenido #tablaPlanteles table {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+  }
+
+  #contenido #tablaPlanteles thead {
+    display: none;
+  }
+
+  #contenido #tablaPlanteles tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  #contenido #tablaPlanteles tr {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 13px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface, #fff);
+    box-shadow: 0 3px 12px rgba(15,39,71,.06);
+  }
+
+  #contenido #tablaPlanteles td {
+    display: grid;
+    grid-template-columns: 86px minmax(0,1fr);
+    gap: 9px;
+    align-items: start;
+    width: auto;
+    padding: 7px 0;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
+    font-size: .82rem;
+  }
+
+  #contenido #tablaPlanteles td:nth-child(1)::before { content: "Código"; }
+  #contenido #tablaPlanteles td:nth-child(2)::before { content: "Plantel"; }
+  #contenido #tablaPlanteles td:nth-child(3)::before { content: "Municipio"; }
+  #contenido #tablaPlanteles td:nth-child(4)::before { content: "Parroquia"; }
+  #contenido #tablaPlanteles td:nth-child(5)::before { content: "Director"; }
+
+  #contenido #tablaPlanteles td::before {
+    font-size: .65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+  }
+
+  #contenido #tablaPlanteles td:last-child {
+    display: block;
+    padding-top: 12px;
+    border-bottom: 0;
+  }
+
+  #contenido #tablaPlanteles td:last-child::before {
+    display: none;
+  }
+
+  #contenido #tablaPlanteles td:last-child .btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  #contenido .vacio {
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+
+  /* ---------- Ficha completa ---------- */
+  #modalFichaFondo .modal {
+    width: 100%;
+    height: 100dvh;
+    min-height: 100vh;
+  }
+
+  #modalFichaFondo .ficha-cabecera {
+    gap: 10px;
+    padding: 12px 12px 10px;
+  }
+
+  #modalFichaFondo .ficha-cabecera h2 {
+    font-size: 1.05rem;
+    line-height: 1.2;
+  }
+
+  #modalFichaFondo .ficha-cabecera p {
+    font-size: .75rem !important;
+    line-height: 1.35;
+  }
+
+  #modalFichaFondo #btnCerrarFicha {
+    flex: 0 0 auto;
+    min-height: 40px;
+    white-space: nowrap;
+  }
+
+  #modalFichaFondo .ficha-scroll {
+    margin-top: 8px;
+    padding: 0 10px 24px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #modalFichaFondo .ficha-encabezado-visual {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  #modalFichaFondo .ficha-visual-caja {
+    min-height: 200px;
+    height: 225px;
+    overflow: hidden;
+    border-radius: 10px;
+  }
+
+  #modalFichaFondo .stats-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    margin-bottom: 16px !important;
+  }
+
+  #modalFichaFondo .stats-grid .stat-card {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  #modalFichaFondo .ficha-datos-grid {
+    grid-template-columns: 1fr !important;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  #modalFichaFondo .ficha-datos-grid > div {
+    padding: 10px 12px;
+    border-right: 0 !important;
+  }
+
+  #modalFichaFondo .ficha-datos-grid > div:last-child {
+    border-bottom: 0;
+  }
+
+  /* ---------- Drive / archivos ---------- */
+  #modalFichaFondo #fichaArchivosBox > div > div {
+    align-items: center !important;
+    padding: 10px 11px !important;
+  }
+
+  #modalFichaFondo #fichaArchivosBox [data-descargar] {
+    min-width: 92px;
+    min-height: 40px;
+  }
+
+  #modalFichaFondo #btnFotoFachada,
+  #modalFichaFondo #btnSubirArchivos {
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 430px) {
+  #contenido .panel-cabecera {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  #contenido .panel-cabecera h2 {
+    font-size: 1.05rem;
+  }
+
+  #contenido #tablaPlanteles {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+
+  #contenido #tablaPlanteles tr {
+    padding: 11px;
+  }
+
+  #contenido #tablaPlanteles td {
+    grid-template-columns: 76px minmax(0,1fr);
+    gap: 8px;
+    font-size: .8rem;
+  }
+
+  #modalFichaFondo .ficha-cabecera {
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+
+  #modalFichaFondo .ficha-scroll {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  #modalFichaFondo .ficha-visual-caja {
+    height: 205px;
+  }
+}
+
+@media (min-width: 761px) {
+  /* Escritorio: la tabla original conserva su comportamiento. */
+  #contenido #tablaPlanteles {
+    overflow-x: auto;
+  }
+
+  #modalFichaFondo .ficha-encabezado-visual {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    gap: 16px;
+    margin-bottom: 22px;
+  }
+
+  #modalFichaFondo .ficha-visual-caja {
+    min-height: 250px;
+    height: 300px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2,#f6f8fb);
+  }
+}
+
+@media (min-width: 761px) and (max-width: 900px) {
+  #modalFichaFondo .ficha-encabezado-visual {
+    grid-template-columns: 1fr;
+  }
+}
