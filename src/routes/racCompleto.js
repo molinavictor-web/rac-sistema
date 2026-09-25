@@ -47,7 +47,7 @@ function parseNumero(valor) {
 // del archivo fuente), no se escribe en esa columna -- se deja null y se
 // genera una alerta para que se corrija a mano, en vez de adivinar la
 // corrección o tumbar toda la fila.
-const LIMITE_HORAS_ACADEMICAS = 53.33;
+const LIMITE_HORAS_ACADEMICAS = 54;
 const LIMITE_HORAS_ADM = 168;
 
 function validarRangoHoras(cedula, codigoPlantelArchivo, nuevo) {
