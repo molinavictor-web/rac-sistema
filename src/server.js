@@ -16,7 +16,33 @@ const mapeoCodigosPlantelRoutes = require('./routes/mapeoCodigosPlantel');
 const depurarArchivoRoutes = require('./routes/depurarArchivo');
 const plantelesConsultaRoutes = require('./routes/plantelesConsulta');
 const app = express();
-app.use(helmet());
+
+// Helmet por defecto trae una Content-Security-Policy que bloquea cosas que
+// el frontend SÍ necesita:
+//  - img-src 'self' data:  -> bloquea la foto de fachada, que se muestra
+//    como blob: (URL.createObjectURL) en planteles-consulta.js. Hay que
+//    agregar blob: a mano.
+//  - frame-src 'self'      -> bloquearía el <iframe> de Google Maps que se
+//    usa para mostrar la ubicación del plantel (maps.google.com).
+//  - style-src / font-src  -> el <head> de planteles-consulta.html (y demás
+//    páginas) cargan la tipografía desde fonts.googleapis.com /
+//    fonts.gstatic.com.
+// Se parte de los valores por defecto de Helmet (getDefaultDirectives) y
+// solo se amplían estas cuatro directivas, para no perder el resto de las
+// protecciones que ya trae por defecto.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "img-src": ["'self'", "data:", "blob:"],
+        "frame-src": ["'self'", "https://www.google.com"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        "font-src": ["'self'", "https://fonts.gstatic.com"],
+      },
+    },
+  })
+);
 app.use(cors());
 app.use(express.json());
 app.use(express.static(require("path").join(__dirname, "../public"))); 
