@@ -1690,3 +1690,14 @@ tr:hover td { background: #f8fbff; }
   .planteles-page .contenido { padding-left: 10px !important; padding-right: 10px !important; }
   .planteles-page .planteles-results-head { padding: 15px 14px; }
 }
+
+/* =========================================================
+   CORRECCIÓN (2026-09-25): modal a pantalla completa tapado por el sidebar
+   El sidebar tiene z-index:50 (y hasta 2001 en el drawer móvil), pero
+   .modal-fondo se quedó en z-index:30 -- por eso el sidebar se dibujaba
+   POR ENCIMA del modal "Editar registro"/"Agregar registro" y le tapaba
+   físicamente la primera columna de campos (con sus etiquetas incluidas).
+   Se sube el z-index del modal por encima de cualquier estado del sidebar,
+   sin tocar ninguna otra regla.
+   ========================================================= */
+.modal-fondo { z-index: 2100; }
