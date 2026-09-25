@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAC Monagas — Directorio de directores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="shell"></div>
+
+  <div class="modal-fondo" id="modalDirectorFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:4px;" id="modalDirectorTitulo">Editar director</h2>
+      <p id="modalDirectorSubtitulo" style="margin:0 0 16px; color:var(--muted); font-size:.85rem;"></p>
+      <div class="error-msg" id="errorModalDirector"></div>
+      <form id="formDirector">
+        <div class="campo">
+          <label for="dirNombre">Nombre del director</label>
+          <input type="text" id="dirNombre">
+        </div>
+        <div class="campo">
+          <label for="dirTipoDocumento">Tipo de documento</label>
+          <select id="dirTipoDocumento">
+            <option value="">—</option>
+            <option value="V">V</option>
+            <option value="E">E</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="dirDocumento">Número de documento</label>
+          <input type="text" id="dirDocumento" placeholder="Ej. 12345678">
+        </div>
+        <div class="campo">
+          <label for="dirTelefono">Teléfono</label>
+          <input type="text" id="dirTelefono" placeholder="Ej. 02911234567">
+        </div>
+        <div class="campo">
+          <label for="dirTelefonoMovil">Teléfono móvil</label>
+          <input type="text" id="dirTelefonoMovil" placeholder="Ej. 04141234567">
+        </div>
+        <div class="campo">
+          <label for="dirCorreo">Correo</label>
+          <input type="email" id="dirCorreo" placeholder="Ej. director@correo.com">
+        </div>
+
+        <div class="acciones-form" style="grid-column:1/-1; display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarDirector">Guardar cambios</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarDirector">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/directorio-directores.js"></script>
+</body>
+</html>
