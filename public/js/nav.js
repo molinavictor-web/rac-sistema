@@ -19,6 +19,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       { id: "carga-completa", href: "/carga-completa.html", label: "Carga completa mensual", roles: ["admin"] },
       { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
       { id: "planteles-consulta", href: "/planteles-consulta.html", label: "Consultar planteles", roles: ["admin", "operador_plantel"] },
+      { id: "directorio-directores", href: "/directorio-directores.html", label: "Directorio de directores", roles: ["admin", "operador_plantel"] },
     ]},
     { id: "credenciales-grupo", titulo: "Credenciales", enlaces: [
       { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador", "operador_credenciales"] },
@@ -47,6 +48,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     "carga-completa": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/></svg>`,
     planteles: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/></svg>`,
     "planteles-consulta": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/><circle cx="17.5" cy="17.5" r="3.2"/><path d="m21 21-1.6-1.6"/></svg>`,
+    "directorio-directores": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
     credenciales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M13 10h5M13 14h4"/></svg>`,
     usuarios: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3"/><path d="M5 20c1.3-4 3.6-6 7-6s5.7 2 7 6"/></svg>`,
   };
