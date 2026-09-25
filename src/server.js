@@ -15,6 +15,7 @@ const credencialesRoutes = require('./routes/credenciales');
 const mapeoCodigosPlantelRoutes = require('./routes/mapeoCodigosPlantel');
 const depurarArchivoRoutes = require('./routes/depurarArchivo');
 const plantelesConsultaRoutes = require('./routes/plantelesConsulta');
+const directorioDirectoresRoutes = require('./routes/directorioDirectores');
 const app = express();
 
 // Helmet por defecto trae una Content-Security-Policy que bloquea cosas que
@@ -61,6 +62,7 @@ app.use('/', credencialesRoutes.publico);
 app.use('/api/mapeo-codigos-plantel', mapeoCodigosPlantelRoutes);
 app.use('/api/rac', depurarArchivoRoutes);
 app.use('/api/planteles-consulta', plantelesConsultaRoutes);
+app.use('/api/directorio-directores', directorioDirectoresRoutes);
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {
   console.error(err);
