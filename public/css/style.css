@@ -142,7 +142,8 @@ a:focus-visible {
 .btn-ancho { width: 100%; }
 .btn-fantasma { background: transparent; border: 1px solid var(--borde); color: var(--tinta); }
 .btn-fantasma:hover { border-color: var(--tinta-suave); }
-.btn-peligro { background: var(--riesgo); color: #fff; }
+.btn-peligro { background: #fff; color: var(--riesgo); border: 1px solid var(--riesgo); }
+.btn-peligro:hover { background: var(--riesgo-suave); }
 .btn-sm { padding: 6px 10px; font-size: 0.82rem; }
 
 .error-msg {
@@ -1217,6 +1218,8 @@ tr:hover td { background: #f8fbff; }
 .planteles-hero p { margin:7px 0 0; color:rgba(255,255,255,.76); font-size:12px; max-width:610px; }
 .planteles-nuevo-btn { position:relative; z-index:1; white-space:nowrap; background:#fff; color:#0c3c6c; box-shadow:0 8px 18px rgba(0,0,0,.13); }
 .planteles-nuevo-btn:hover { background:#f3f8fd; color:#0c3c6c; }
+.planteles-hero-btn-secundario { position:relative; z-index:1; white-space:nowrap; background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.4); }
+.planteles-hero-btn-secundario:hover { background:rgba(255,255,255,.2); color:#fff; border-color:rgba(255,255,255,.6); }
 .planteles-toolbar { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:17px 20px; margin-bottom:18px; }
 .planteles-toolbar-copy { display:flex; flex-direction:column; gap:4px; min-width:190px; }
 .planteles-toolbar-copy strong { font-size:13px; color:var(--rac-navy); }
