@@ -78,6 +78,7 @@ function renderShell(paginaActiva, tituloTopbar) {
   document.getElementById("shell").innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
+        <div class="sidebar-decor" aria-hidden="true"></div>
         <div class="sidebar-mobile-head">
           <div><strong>RAC · Sistema</strong><span>Registro de Asignación de Cargos</span></div>
           <button type="button" class="sidebar-mobile-close" id="btnCerrarMenuMovil" aria-label="Cerrar menú">×</button>
@@ -90,8 +91,11 @@ function renderShell(paginaActiva, tituloTopbar) {
         <div class="sidebar-titulo">Gestión educativa</div>
         <nav>${navHtml}</nav>
         <div class="sidebar-pie">
-          <div class="usuario-chip"><strong>${usuario.nombre}</strong><span class="rol-badge">${rolLabel}</span></div>
-          <button class="btn btn-fantasma btn-sm btn-ancho" id="btnSalir">Cerrar sesión</button>
+          <div class="usuario-chip">
+            <div class="avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.4-4.3 3.9-6.4 7-6.4s5.6 2.1 7 6.4"/></svg></div>
+            <div class="usuario-datos"><strong>${usuario.nombre}</strong><span class="rol-badge">${rolLabel}</span></div>
+          </div>
+          <button class="btn btn-fantasma btn-sm btn-ancho btn-salir" id="btnSalir"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg> Cerrar sesión</button>
         </div>
       </aside>
       <div class="main-col">
