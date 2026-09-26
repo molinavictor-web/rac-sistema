@@ -344,7 +344,7 @@ tr:hover td { background: #fafbf9; }
 .modal-fondo.visible { display: flex; }
 .modal {
   background: var(--papel-2); border-radius: var(--radio); padding: 24px;
-  width: 100%; max-width: 420px; box-shadow: var(--sombra);
+  width: 100%; max-width: 420px; max-height: calc(100dvh - 40px); overflow-y: auto; box-shadow: var(--sombra);
 }
 
 /* Variante de modal a pantalla completa -- para formularios largos (ej.
