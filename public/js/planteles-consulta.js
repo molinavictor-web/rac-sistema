@@ -131,10 +131,12 @@ function dibujarTabla(planteles) {
   `).join("");
 
   cont.innerHTML = `
-    <table>
-      <thead><tr><th>Código</th><th>Plantel</th><th>Municipio</th><th>Parroquia</th><th>Director</th><th></th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
+    <div class="tabla-responsive">
+      <table>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Municipio</th><th>Parroquia</th><th>Director</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
   `;
 
   cont.querySelectorAll("[data-ver-ficha]").forEach((btn) => {

@@ -96,10 +96,12 @@ function dibujarTablaDirectores(planteles) {
   `).join("");
 
   cont.innerHTML = `
-    <table>
-      <thead><tr><th>Código</th><th>Plantel</th><th>Director</th><th>Teléfono(s)</th><th>Correo</th><th></th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
+    <div class="tabla-responsive">
+      <table>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Director</th><th>Teléfono(s)</th><th>Correo</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
   `;
 
   cont.querySelectorAll("[data-editar]").forEach((btn) => {
