@@ -3,25 +3,116 @@
  * ------------------------------------------------------------
  * Capa visual aislada para planteles-consulta.
  * No modifica APIs, autenticación ni lógica JavaScript.
+ *
+ * Integración V6:
+ * - Usa el mismo lenguaje visual de rac.html.
+ * - Mantiene la tabla de escritorio.
+ * - Convierte la tabla en tarjetas en móvil.
+ * - Mantiene intacta la ficha/modal y sus funciones.
  */
 
+/* ============================================================
+   IDENTIDAD DE PÁGINA V6
+   ============================================================ */
+
+body.rac-page.planteles-page {
+  min-width: 0;
+}
+
+body.rac-page.planteles-page #contenido {
+  min-width: 0;
+}
+
+/* El contenido debe respirar igual que las demás pantallas V6. */
+body.rac-page.planteles-page #contenido .panel,
+body.rac-page.planteles-page #contenido .panel-cabecera {
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   CABECERA DE CONSULTA
+   ============================================================ */
+
+body.rac-page.planteles-page #contenido .panel-cabecera {
+  gap: 16px;
+}
+
+body.rac-page.planteles-page #contenido .panel-cabecera h2 {
+  margin-top: 0;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+body.rac-page.planteles-page #contenido #qBuscar {
+  box-sizing: border-box;
+  min-width: 220px;
+}
+
+/* ============================================================
+   TABLA — ESCRITORIO
+   ============================================================ */
+
+@media (min-width: 761px) {
+  body.rac-page.planteles-page #contenido #tablaPlanteles {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.rac-page.planteles-page #contenido #tablaPlanteles table {
+    width: 100%;
+    min-width: 760px;
+  }
+
+  body.rac-page.planteles-page #contenido #tablaPlanteles td,
+  body.rac-page.planteles-page #contenido #tablaPlanteles th {
+    vertical-align: middle;
+  }
+
+  #modalFichaFondo .ficha-encabezado-visual {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+    gap: 16px;
+    margin-bottom: 22px;
+  }
+
+  #modalFichaFondo .ficha-visual-caja {
+    min-height: 250px;
+    height: 300px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2,#f6f8fb);
+  }
+}
+
+@media (min-width: 761px) and (max-width: 900px) {
+  #modalFichaFondo .ficha-encabezado-visual {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   MÓVIL
+   ============================================================ */
+
 @media (max-width: 760px) {
-  /* ---------- Pantalla principal ---------- */
-  #contenido .panel-cabecera {
+  body.rac-page.planteles-page #contenido .panel-cabecera {
     align-items: stretch;
     gap: 12px;
   }
 
-  #contenido .panel-cabecera > div:last-child {
+  body.rac-page.planteles-page #contenido .panel-cabecera > div:last-child {
     width: 100%;
   }
 
-  #contenido .panel-cabecera > div:last-child .btn {
+  body.rac-page.planteles-page #contenido .panel-cabecera > div:last-child .btn {
     flex: 1 1 180px;
     min-height: 42px;
   }
 
-  #contenido #qBuscar {
+  body.rac-page.planteles-page #contenido #qBuscar {
     width: 100%;
     min-width: 0 !important;
     box-sizing: border-box;
@@ -29,29 +120,31 @@
     font-size: .9rem;
   }
 
-  #contenido #tablaPlanteles {
+  body.rac-page.planteles-page #contenido #tablaPlanteles {
+    width: 100%;
     margin-top: 10px !important;
     padding: 0 10px 14px;
+    box-sizing: border-box;
   }
 
-  /* La tabla se convierte en tarjetas sin tocar planteles-consulta.js */
-  #contenido #tablaPlanteles table {
+  /* La tabla se convierte en tarjetas sin tocar planteles-consulta.js. */
+  body.rac-page.planteles-page #contenido #tablaPlanteles table {
     display: block;
     width: 100%;
     border: 0;
     background: transparent;
   }
 
-  #contenido #tablaPlanteles thead {
+  body.rac-page.planteles-page #contenido #tablaPlanteles thead {
     display: none;
   }
 
-  #contenido #tablaPlanteles tbody {
+  body.rac-page.planteles-page #contenido #tablaPlanteles tbody {
     display: grid;
     gap: 12px;
   }
 
-  #contenido #tablaPlanteles tr {
+  body.rac-page.planteles-page #contenido #tablaPlanteles tr {
     display: grid;
     grid-template-columns: 1fr;
     gap: 0;
@@ -62,7 +155,7 @@
     box-shadow: 0 3px 12px rgba(15,39,71,.06);
   }
 
-  #contenido #tablaPlanteles td {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td {
     display: grid;
     grid-template-columns: 86px minmax(0,1fr);
     gap: 9px;
@@ -73,15 +166,16 @@
     border-bottom: 1px solid var(--border);
     overflow-wrap: anywhere;
     font-size: .82rem;
+    min-width: 0;
   }
 
-  #contenido #tablaPlanteles td:nth-child(1)::before { content: "Código"; }
-  #contenido #tablaPlanteles td:nth-child(2)::before { content: "Plantel"; }
-  #contenido #tablaPlanteles td:nth-child(3)::before { content: "Municipio"; }
-  #contenido #tablaPlanteles td:nth-child(4)::before { content: "Parroquia"; }
-  #contenido #tablaPlanteles td:nth-child(5)::before { content: "Director"; }
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:nth-child(1)::before { content:"Código"; }
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:nth-child(2)::before { content:"Plantel"; }
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:nth-child(3)::before { content:"Municipio"; }
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:nth-child(4)::before { content:"Parroquia"; }
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:nth-child(5)::before { content:"Director"; }
 
-  #contenido #tablaPlanteles td::before {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td::before {
     font-size: .65rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -89,27 +183,28 @@
     color: var(--muted);
   }
 
-  #contenido #tablaPlanteles td:last-child {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:last-child {
     display: block;
     padding-top: 12px;
     border-bottom: 0;
   }
 
-  #contenido #tablaPlanteles td:last-child::before {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:last-child::before {
     display: none;
   }
 
-  #contenido #tablaPlanteles td:last-child .btn {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td:last-child .btn {
     width: 100%;
     min-height: 42px;
   }
 
-  #contenido .vacio {
+  body.rac-page.planteles-page #contenido .vacio {
     margin-left: 10px;
     margin-right: 10px;
   }
 
   /* ---------- Ficha completa ---------- */
+
   #modalFichaFondo .modal {
     width: 100%;
     height: 100dvh;
@@ -184,6 +279,7 @@
   }
 
   /* ---------- Drive / archivos ---------- */
+
   #modalFichaFondo #fichaArchivosBox > div > div {
     align-items: center !important;
     padding: 10px 11px !important;
@@ -200,26 +296,30 @@
   }
 }
 
+/* ============================================================
+   TELÉFONOS PEQUEÑOS
+   ============================================================ */
+
 @media (max-width: 430px) {
-  #contenido .panel-cabecera {
+  body.rac-page.planteles-page #contenido .panel-cabecera {
     padding-left: 14px;
     padding-right: 14px;
   }
 
-  #contenido .panel-cabecera h2 {
+  body.rac-page.planteles-page #contenido .panel-cabecera h2 {
     font-size: 1.05rem;
   }
 
-  #contenido #tablaPlanteles {
+  body.rac-page.planteles-page #contenido #tablaPlanteles {
     padding-left: 7px;
     padding-right: 7px;
   }
 
-  #contenido #tablaPlanteles tr {
+  body.rac-page.planteles-page #contenido #tablaPlanteles tr {
     padding: 11px;
   }
 
-  #contenido #tablaPlanteles td {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td {
     grid-template-columns: 76px minmax(0,1fr);
     gap: 8px;
     font-size: .8rem;
@@ -240,31 +340,26 @@
   }
 }
 
-@media (min-width: 761px) {
-  /* Escritorio: la tabla original conserva su comportamiento. */
-  #contenido #tablaPlanteles {
-    overflow-x: auto;
+/* ============================================================
+   SEGURIDAD DE LAYOUT EN PANTALLAS MUY ESTRECHAS
+   ============================================================ */
+
+@media (max-width: 360px) {
+  body.rac-page.planteles-page #contenido #tablaPlanteles td {
+    grid-template-columns: 68px minmax(0,1fr);
+    font-size: .76rem;
   }
 
-  #modalFichaFondo .ficha-encabezado-visual {
-    display: grid;
-    grid-template-columns: minmax(0,1fr) minmax(0,1fr);
-    gap: 16px;
-    margin-bottom: 22px;
+  #modalFichaFondo .ficha-cabecera {
+    align-items: center;
   }
 
-  #modalFichaFondo .ficha-visual-caja {
-    min-height: 250px;
-    height: 300px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface-2,#f6f8fb);
+  #modalFichaFondo .ficha-cabecera h2 {
+    font-size: .98rem;
   }
-}
 
-@media (min-width: 761px) and (max-width: 900px) {
-  #modalFichaFondo .ficha-encabezado-visual {
-    grid-template-columns: 1fr;
+  #modalFichaFondo #btnCerrarFicha {
+    padding-left: 10px;
+    padding-right: 10px;
   }
 }
