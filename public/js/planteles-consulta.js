@@ -39,17 +39,19 @@ if (usuario) dibujarPanel();
 function dibujarPanel() {
   const contenido = document.getElementById("contenido");
   contenido.innerHTML = `
-    <div class="panel">
-      <div class="panel-cabecera">
-        <div>
-          <h2>Consultar planteles (GESCOLAR)</h2>
-          <p class="panel-subtitulo">Datos importados de la hoja GESCOLAR en Google Sheets · solo lectura</p>
-        </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          ${puedeRefrescar ? `<button class="btn btn-fantasma btn-sm" id="btnRefrescar">Actualizar desde Sheets</button>` : ""}
-          ${usuario && usuario.rol === "admin" ? `<button class="btn btn-fantasma btn-sm" id="btnReconectarDrive">Reconectar Google Drive</button>` : ""}
-        </div>
+    <section class="planteles-hero">
+      <div class="planteles-hero-copy">
+        <span class="planteles-eyebrow">CATÁLOGO GESCOLAR</span>
+        <h1>Consultar planteles</h1>
+        <p>Datos importados de la hoja GESCOLAR en Google Sheets · solo lectura.</p>
       </div>
+      <div style="position:relative; z-index:1; display:flex; gap:10px; flex-wrap:wrap;">
+        ${puedeRefrescar ? `<button class="btn planteles-nuevo-btn" id="btnRefrescar">Actualizar desde Sheets</button>` : ""}
+        ${usuario && usuario.rol === "admin" ? `<button class="btn planteles-hero-btn-secundario" id="btnReconectarDrive">Reconectar Google Drive</button>` : ""}
+      </div>
+    </section>
+
+    <div class="panel">
       <div style="padding: 16px 20px 0;">
         <div class="filtros">
           <input type="text" id="qBuscar" placeholder="Buscar por nombre, código, municipio, parroquia, circuito, consejo comunal o director..." style="flex:1; min-width:280px;">

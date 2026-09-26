@@ -15,13 +15,15 @@ if (usuario) dibujarPanel();
 function dibujarPanel() {
   const contenido = document.getElementById("contenido");
   contenido.innerHTML = `
-    <div class="panel">
-      <div class="panel-cabecera">
-        <div>
-          <h2>Directorio de directores</h2>
-          <p class="panel-subtitulo">Datos de contacto del director de cada plantel · fuente: GESCOLAR</p>
-        </div>
+    <section class="planteles-hero">
+      <div class="planteles-hero-copy">
+        <span class="planteles-eyebrow">CATÁLOGO GESCOLAR</span>
+        <h1>Directorio de directores</h1>
+        <p>Datos de contacto del director de cada plantel · fuente: GESCOLAR.</p>
       </div>
+    </section>
+
+    <div class="panel">
       <div style="padding: 16px 20px 0;">
         <div class="filtros">
           <input type="text" id="qBuscarDirector" placeholder="Buscar por nombre del plantel, código DEA o nombre del director..." style="flex:1; min-width:280px;">
