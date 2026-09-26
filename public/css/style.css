@@ -449,7 +449,24 @@ h1, h2, h3 { font-family: var(--display); color: var(--rac-text); }
   padding: 0 12px 14px;
   box-shadow: 10px 0 30px rgba(8, 30, 57, .10);
   z-index: 50;
+  position: relative;
 }
+
+/* Ondas curvas decorativas del fondo del sidebar — dos círculos suaves
+   superpuestos detrás del contenido, mismo recurso que .planteles-hero::after */
+.sidebar-decor { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.sidebar-decor::before {
+  content: ""; position: absolute; left: -32%; bottom: 60px;
+  width: 320px; height: 320px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.05), rgba(255,255,255,0) 70%);
+}
+.sidebar-decor::after {
+  content: ""; position: absolute; right: -55%; bottom: -40px;
+  width: 420px; height: 420px; border-radius: 50%;
+  background: radial-gradient(circle at 60% 40%, rgba(38,120,220,.30), rgba(38,120,220,0) 70%);
+}
+.sidebar-mobile-head, .sidebar-brand, .sidebar-marca, .sidebar-titulo,
+.sidebar > nav, .sidebar-pie { position: relative; z-index: 1; }
 
 .sidebar-head {
   min-height: 86px;
@@ -478,6 +495,26 @@ h1, h2, h3 { font-family: var(--display); color: var(--rac-text); }
   letter-spacing: -.04em;
 }
 .sidebar-brand-text { min-width: 0; }
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 8px 18px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+}
+.sidebar-brand-mark {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: #fff;
+  color: var(--pizarra);
+  box-shadow: 0 7px 18px rgba(0,0,0,.14);
+}
+.sidebar-brand-mark svg { width: 24px; height: 24px; }
 .sidebar-brand-text strong {
   display: block;
   font-family: var(--display);
@@ -608,13 +645,15 @@ h1, h2, h3 { font-family: var(--display); color: var(--rac-text); }
   font-weight: 800;
 }
 .avatar {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  background: rgba(255,255,255,.13);
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  background: linear-gradient(135deg, #1677e8 0%, #1b82f1 100%);
   color: #fff;
-  border: 1px solid rgba(255,255,255,.16);
+  border: none;
+  box-shadow: 0 5px 14px rgba(22,119,232,.35);
 }
+.avatar svg { width: 18px; height: 18px; }
 .rol-badge {
   display: inline-flex;
   margin-top: 4px;
@@ -1542,7 +1581,9 @@ tr:hover td { background: #f8fbff; }
     background: #0d2b52 !important;
   }
   .usuario-chip {
-    display: block !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
     margin: 0 0 9px !important;
     padding: 0 3px !important;
   }
