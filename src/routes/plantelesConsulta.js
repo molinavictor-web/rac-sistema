@@ -144,6 +144,19 @@ function filasAObjetos(filas) {
     });
 }
 
+// Convierte un valor que puede venir con coma decimal (formato venezolano/
+// español -- típico cuando Sheets devuelve el número YA FORMATEADO según el
+// idioma de la hoja, o cuando alguien lo escribió a mano así) a un número
+// real con punto. Sin esto, encodeURIComponent en el frontend corta la
+// coordenada justo en la coma y el mapa embebido de Google Maps termina
+// mostrando la vista mundial en vez de centrar en el plantel.
+function normalizarNumero(valor) {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const texto = String(valor).trim().replace(",", ".");
+  const numero = Number(texto);
+  return Number.isFinite(numero) ? numero : null;
+}
+
 async function cargarGescolar(forzar = false) {
   const vencido = Date.now() - cache.cargadoEn > DURACION_CACHE_MS;
   if (!forzar && !vencido && cache.datos.length) return cache.datos;
@@ -164,6 +177,10 @@ async function cargarCoordenadas() {
   const respuesta = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEETS_COORDENADAS_ID,
     range: RANGO_HOJA_COORDENADAS,
+    // UNFORMATTED_VALUE: pide el número real (10.123456), no el número ya
+    // formateado según el idioma de la hoja (que en español vendría como
+    // "10,123456" -- la causa del bug del mapa mundi).
+    valueRenderOption: "UNFORMATTED_VALUE",
   });
   const filas = respuesta.data.values || [];
   cacheCoordenadas = { datos: filasAObjetos(filas), cargadoEn: Date.now() };
@@ -206,10 +223,21 @@ router.get("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA_
     if (!fila || !fila.latitud || !fila.longitud) {
       return res.json({ encontrado: false, compartidos });
     }
+
+    // Defensa extra: aunque ya se pide UNFORMATTED_VALUE, si la celda fue
+    // escrita como TEXTO (no como número) en la hoja, Sheets la devuelve tal
+    // cual -- por eso igual se normaliza aquí antes de mandarla al mapa.
+    const latitud = normalizarNumero(fila.latitud);
+    const longitud = normalizarNumero(fila.longitud);
+    if (latitud === null || longitud === null) {
+      console.error(`Coordenada inválida para ${codigoDea}: lat="${fila.latitud}" lng="${fila.longitud}"`);
+      return res.json({ encontrado: false, compartidos });
+    }
+
     res.json({
       encontrado: true,
-      latitud: fila.latitud,
-      longitud: fila.longitud,
+      latitud,
+      longitud,
       fecha_captura: fila.fecha_captura || null,
       ingeniero: fila.ingeniero || null,
       compartidos,
@@ -231,8 +259,8 @@ router.post("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA
   const { latitud, longitud } = req.body || {};
   if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
 
-  const lat = Number(latitud);
-  const lng = Number(longitud);
+  const lat = Number(String(latitud).replace(",", "."));
+  const lng = Number(String(longitud).replace(",", "."));
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return res.status(400).json({ error: "Latitud y longitud deben ser números válidos." });
   }
