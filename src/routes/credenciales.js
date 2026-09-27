@@ -143,13 +143,19 @@ async function generarPdfCredencial(registro, codigoVerificacion) {
   const esDocente = (registro.tipo_personal || "").toUpperCase() === "D";
   const horas = esDocente ? registro.horas_academicas : registro.horas_adm;
   const fechaHoy = new Date().toLocaleDateString("es-VE");
+  // "A partir del día" usa la fecha de INGRESO real (r.fecha_ingreso del RAC),
+  // no la fecha de emisión del documento -- CAMBIO 2026-09-27, revierte la
+  // decisión anterior del 2026-09-15 que usaba fechaHoy aquí.
+  const fechaIngresoTexto = registro.fecha_ingreso
+    ? new Date(registro.fecha_ingreso).toLocaleDateString("es-VE")
+    : "—";
 
   const parrafo =
     `Quien suscribe, ${DIRECTOR_NOMBRE}, Titular de la Cédula de Identidad N° ${DIRECTOR_CEDULA}, ` +
     `${DIRECTOR_CARGO}, ha propuesto a él (la) ciudadano (a): ${nombreCompleto}, Titular de la Cédula ` +
     `de Identidad N° V-${registro.cedula}, cargo nominal: ${registro.cargo || "—"}, Código: ${registro.codigo_cargo || "—"}, ` +
     `para ejercer las funciones de: ${tipoPersonalTexto}. Con una carga horaria de ` +
-    `${horas || "—"} horas a partir del día ${fechaHoy}.`;
+    `${horas || "—"} horas a partir del día ${fechaIngresoTexto}.`;
 
   const anchoMaximo = width - 112;
   const palabras = parrafo.split(" ");
