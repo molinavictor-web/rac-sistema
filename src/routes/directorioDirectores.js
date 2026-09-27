@@ -4,7 +4,7 @@ const { requireAuth, requireRol } = require("../middleware/auth");
 
 const router = express.Router(); // rutas montadas en /api/directorio-directores
 
-const ROLES_DIRECTORIO = ["admin", "operador_plantel"];
+const ROLES_DIRECTORIO = ["admin", "operador_plantel", "operador"];
 
 const SHEETS_GESCOLAR_ID = process.env.SHEETS_GESCOLAR_ID;
 const NOMBRE_HOJA_GESCOLAR = "GESCOLAR";
