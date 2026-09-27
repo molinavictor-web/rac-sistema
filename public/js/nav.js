@@ -12,7 +12,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "alertas-calidad", titulo: "Alertas y calidad de datos", enlaces: [
       { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
       { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
-      { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin", "operador"] },
+      { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin"] },
     ]},
     { id: "cargas-catalogos", titulo: "Cargas y catálogos", enlaces: [
       { id: "cargas", href: "/cargas.html", label: "Cargar por municipio", roles: ["encargado_municipio", "operador", "admin"] },

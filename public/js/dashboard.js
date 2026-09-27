@@ -25,7 +25,6 @@ function accionesRapidasHtml(usuario) {
       accion("/alertas.html", "accion-naranja", '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>', "Ver alertas") +
       accion("/planteles.html", "accion-cian", '<path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/>', "Gestionar planteles") +
       accion("/directorio-directores.html", "accion-azul", '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/>', "Consultar director") +
-      accion("/depurar-archivo.html", "accion-morada", '<path d="m4 20 5-5m-2-6 5-5 8 8-5 5H7V9Z"/><path d="M14 6 18 10"/>', "Depurar archivo") +
       accion("/cargas.html", "accion-verde", '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/>', "Cargar por municipio");
   }
 
