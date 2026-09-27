@@ -123,7 +123,7 @@ async function resolverGeografia(client, estadoTexto, municipioTexto, parroquiaT
  * planteles con el mismo nombre/epónimo en municipios o parroquias
  * distintas, y el dato geográfico es lo único que los diferencia.
  */
-router.post("/", requireAuth, requireRol("admin"), async (req, res) => {
+router.post("/", requireAuth, requireRol("admin", "operador"), async (req, res) => {
   const codigoPlantel = normalizarTexto(req.body.codigo_plantel);
   const nombre = normalizarTexto(req.body.nombre);
   const estadoGeografico = normalizarTexto(req.body.estado_geografico);
@@ -189,7 +189,7 @@ router.post("/", requireAuth, requireRol("admin"), async (req, res) => {
  * Si algún día hace falta corregir un dato geográfico mal cargado,
  * ese es un caso distinto (fusionar/recrear el plantel), no una edición.
  */
-router.patch("/:id", requireAuth, requireRol("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requireRol("admin", "operador"), async (req, res) => {
   const camposPermitidos = ["nombre", "dependencia", "denominacion", "direccion", "estado", "fecha_cierre"];
   const sets = [];
   const valores = [];
