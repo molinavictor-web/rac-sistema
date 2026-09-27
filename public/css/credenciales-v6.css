@@ -1,0 +1,82 @@
+/* RAC Monagas V6 — Credenciales responsive
+   En móvil/tablet las tablas conservan su ancho funcional y se desplazan horizontalmente. */
+
+#tablaPendientes,
+#tablaTodas,
+#tablaCodigos,
+#resultadosCredenciales {
+  width: 100%;
+  min-width: 0;
+}
+
+#tablaPendientes,
+#tablaTodas,
+#tablaCodigos {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: auto;
+  overscroll-behavior-x: contain;
+}
+
+#tablaPendientes table,
+#tablaTodas table,
+#tablaCodigos table {
+  width: 100%;
+  min-width: 720px;
+}
+
+#tablaPendientes th,
+#tablaPendientes td,
+#tablaTodas th,
+#tablaTodas td,
+#tablaCodigos th,
+#tablaCodigos td {
+  white-space: nowrap;
+}
+
+#tablaPendientes th:nth-child(3),
+#tablaPendientes td:nth-child(3),
+#tablaTodas th:nth-child(3),
+#tablaTodas td:nth-child(3),
+#tablaCodigos th:nth-child(3),
+#tablaCodigos td:nth-child(3) {
+  white-space: normal;
+  min-width: 220px;
+}
+
+@media (max-width: 900px) {
+  .contenido { padding-left: 16px; padding-right: 16px; }
+  .buscador-credenciales { flex-wrap: nowrap !important; }
+  #tablaPendientes table { min-width: 700px; }
+  #tablaTodas table { min-width: 820px; }
+  #resultadosCredenciales .registro { overflow-wrap: anywhere; }
+}
+
+@media (max-width: 600px) {
+  .contenido { padding: 12px 10px 40px; }
+  .panel { max-width: 100%; }
+  .panel-cabecera { padding: 13px 14px; }
+  .panel-cabecera h2 { font-size: 1rem; }
+
+  .buscador-credenciales {
+    gap: 7px !important;
+    margin: 0 0 14px !important;
+  }
+  .buscador-credenciales input { min-width: 0; font-size: 16px !important; }
+  .buscador-credenciales button { flex: 0 0 auto; min-height: 42px; }
+
+  #tablaPendientes,
+  #tablaTodas {
+    border-bottom: 1px solid var(--borde);
+    scrollbar-width: auto;
+  }
+
+  #tablaPendientes table { min-width: 680px; }
+  #tablaTodas table { min-width: 800px; }
+
+  #resultadosCredenciales .registro {
+    padding: 13px 14px !important;
+    font-size: 13px;
+  }
+}

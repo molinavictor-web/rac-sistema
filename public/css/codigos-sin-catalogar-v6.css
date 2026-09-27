@@ -1,0 +1,56 @@
+/* RAC Monagas V6 — Códigos sin catalogar responsive
+   No reduce columnas: mantiene todos los datos y agrega desplazamiento horizontal. */
+
+#tablaCodigos {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 2px;
+}
+
+#tablaCodigos table {
+  width: 100%;
+  min-width: 820px;
+}
+
+#tablaCodigos th,
+#tablaCodigos td {
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+#tablaCodigos td:nth-child(3) {
+  min-width: 300px;
+  max-width: 520px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#tablaCodigos td:last-child {
+  min-width: 330px;
+}
+
+#tablaCodigos td:last-child .btn {
+  margin: 0 4px 4px 0;
+}
+
+@media (max-width: 900px) {
+  .contenido { padding-left: 16px; padding-right: 16px; }
+  #tablaCodigos table { min-width: 800px; }
+}
+
+@media (max-width: 600px) {
+  .contenido { padding: 12px 10px 40px; }
+  .panel-cabecera { padding: 13px 14px; }
+  .panel-cabecera h2 { font-size: 1rem; }
+  #tablaCodigos {
+    margin-top: 12px !important;
+    border-bottom: 1px solid var(--borde);
+    padding-bottom: 6px;
+  }
+  #tablaCodigos table { min-width: 800px; }
+}
