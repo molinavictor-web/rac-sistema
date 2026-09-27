@@ -1,0 +1,48 @@
+/* =========================================================
+   RAC MONAGAS · USUARIOS V6
+   Responsive específico para usuarios.html.
+   Preserva usuarios.js, endpoints, permisos y formularios.
+   ========================================================= */
+
+@media(max-width:800px){
+  body:has(#formUsuario) .contenido{padding:16px 12px 38px!important}
+  body:has(#formUsuario) .panel{border-radius:13px}
+  body:has(#formUsuario) .panel-cabecera{padding:14px!important;align-items:flex-start}
+  body:has(#formUsuario) .panel-cabecera h2{font-size:15px;line-height:1.25}
+  body:has(#formUsuario) .panel-cabecera .btn{min-height:40px}
+  body:has(#formUsuario) #tablaUsuarios{padding:8px}
+  body:has(#formUsuario) #tablaUsuarios table{width:100%;border-collapse:separate;border-spacing:0}
+  body:has(#formUsuario) #tablaUsuarios thead{display:none}
+  body:has(#formUsuario) #tablaUsuarios tbody{display:grid;gap:9px}
+  body:has(#formUsuario) #tablaUsuarios tbody tr{display:grid;gap:3px;padding:12px;border:1px solid #d7dcd8;border-radius:12px;background:#fff;box-shadow:0 5px 16px rgba(13,43,82,.055)}
+  body:has(#formUsuario) #tablaUsuarios tbody td{display:grid!important;grid-template-columns:72px minmax(0,1fr);gap:8px;align-items:center;padding:5px 0!important;border:0;font-size:12px;min-width:0}
+  body:has(#formUsuario) #tablaUsuarios tbody td:before{font-size:8px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#8a98a9}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(1):before{content:"Nombre"}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(2):before{content:"Correo"}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(3):before{content:"Rol"}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(4):before{content:"Estado"}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(5):before{content:"Acciones"}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(5){display:flex!important;flex-wrap:wrap;gap:7px;border-top:1px solid #edf1f5;margin-top:5px;padding-top:10px!important}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(5):before{display:none}
+  body:has(#formUsuario) #tablaUsuarios tbody td:nth-child(5) .btn{flex:1 1 110px;min-height:39px}
+  body:has(#formUsuario) #mantenimiento,body:has(#formUsuario) #reinicioDatos{padding:0 14px 14px}
+  body:has(#formUsuario) #mantenimiento>p,body:has(#formUsuario) #reinicioDatos>p{font-size:12px;line-height:1.5}
+  body:has(#formUsuario) #estadoAuditoria table,body:has(#formUsuario) #estadoDatos table{width:100%;border-collapse:collapse}
+  body:has(#formUsuario) #estadoAuditoria tbody tr,body:has(#formUsuario) #estadoDatos tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;border-bottom:1px solid #d7dcd8}
+  body:has(#formUsuario) #estadoAuditoria tbody td,body:has(#formUsuario) #estadoDatos tbody td{padding:9px 8px;font-size:11px;border:0}
+  body:has(#formUsuario) #estadoAuditoria tbody td:last-child,body:has(#formUsuario) #estadoDatos tbody td:last-child{text-align:right;font-weight:600}
+  body:has(#formUsuario) #mantenimiento>div:last-child{margin-top:12px!important}
+  body:has(#formUsuario) #mantenimiento label{align-items:flex-start!important;font-size:11px!important}
+  body:has(#formUsuario) #mantenimiento button{min-height:40px;flex:1 1 150px}
+  body:has(#formUsuario) #reinicioDatos>div:last-child>div{flex-direction:column!important}
+  body:has(#formUsuario) #reinicioDatos input{width:100%!important;min-height:42px}
+  body:has(#formUsuario) #reinicioDatos button{width:100%;min-height:42px}
+  body:has(#formUsuario) .modal-fondo{padding:10px!important;align-items:flex-end!important}
+  body:has(#formUsuario) .modal{max-width:none!important;width:100%!important;max-height:calc(100dvh - 20px)!important;border-radius:16px 16px 10px 10px!important;padding:20px 16px 22px!important}
+  body:has(#formUsuario) .modal h2{font-size:20px}
+  body:has(#formUsuario) .modal .campo{margin-bottom:13px}
+  body:has(#formUsuario) .modal .campo input,body:has(#formUsuario) .modal .campo select{min-height:43px;font-size:16px}
+  body:has(#formUsuario) .modal form>div:last-child{flex-direction:column!important}
+  body:has(#formUsuario) .modal form>div:last-child .btn{width:100%;min-height:43px}
+}
+@media(max-width:430px){body:has(#formUsuario) .contenido{padding-left:10px!important;padding-right:10px!important}body:has(#formUsuario) #tablaUsuarios{padding:6px}body:has(#formUsuario) #tablaUsuarios tbody td{grid-template-columns:64px minmax(0,1fr);font-size:11px}}
