@@ -12,17 +12,17 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "alertas-calidad", titulo: "Alertas y calidad de datos", enlaces: [
       { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
       { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
-      { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin"] },
+      { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin", "operador"] },
     ]},
     { id: "cargas-catalogos", titulo: "Cargas y catálogos", enlaces: [
       { id: "cargas", href: "/cargas.html", label: "Cargar por municipio", roles: ["encargado_municipio", "operador", "admin"] },
       { id: "carga-completa", href: "/carga-completa.html", label: "Carga completa mensual", roles: ["admin"] },
-      { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin"] },
+      { id: "planteles", href: "/planteles.html", label: "Planteles", roles: ["admin", "operador"] },
       { id: "planteles-consulta", href: "/planteles-consulta.html", label: "Consultar planteles", roles: ["admin", "operador_plantel"] },
-      { id: "directorio-directores", href: "/directorio-directores.html", label: "Directorio de directores", roles: ["admin", "operador_plantel"] },
+      { id: "directorio-directores", href: "/directorio-directores.html", label: "Directorio de directores", roles: ["admin", "operador_plantel", "operador"] },
     ]},
     { id: "credenciales-grupo", titulo: "Credenciales", enlaces: [
-      { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador", "operador_credenciales"] },
+      { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador_credenciales"] },
     ]},
     { id: "administracion", titulo: "Administración", enlaces: [
       { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },

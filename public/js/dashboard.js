@@ -1,6 +1,46 @@
 const usuario = renderShell("dashboard", "Resumen");
 if (usuario) cargarResumen();
 
+function accion(href, color, icono, texto) {
+  return `
+    <a class="accion-rapida" href="${href}">
+      <span class="accion-icono ${color}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icono}</svg></span>
+      <span>${texto}</span>
+      <span class="accion-flecha">›</span>
+    </a>`;
+}
+
+function accionesRapidasHtml(usuario) {
+  let filas = "";
+
+  if (usuario.rol === "admin") {
+    filas =
+      accion("/carga-completa.html", "accion-verde", '<path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h5"/>', "Cargar archivo Excel") +
+      accion("/rac.html", "accion-azul", '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', "Consultar un registro") +
+      accion("/exportar-rac.html", "accion-morada", '<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>', "Exportar información") +
+      accion("/planteles.html", "accion-cian", '<path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/>', "Gestionar planteles") +
+      accion("/alertas.html", "accion-naranja", '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>', "Ver alertas");
+  } else if (usuario.rol === "operador") {
+    filas =
+      accion("/alertas.html", "accion-naranja", '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>', "Ver alertas") +
+      accion("/planteles.html", "accion-cian", '<path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/>', "Gestionar planteles") +
+      accion("/directorio-directores.html", "accion-azul", '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/>', "Consultar director") +
+      accion("/depurar-archivo.html", "accion-morada", '<path d="m4 20 5-5m-2-6 5-5 8 8-5 5H7V9Z"/><path d="M14 6 18 10"/>', "Depurar archivo") +
+      accion("/cargas.html", "accion-verde", '<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 20h16"/>', "Cargar por municipio");
+  }
+
+  if (!filas) return "";
+
+  return `
+    <div class="panel acciones-rapidas">
+      <div class="acciones-rapidas-cab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>
+        Acciones rápidas
+      </div>
+      ${filas}
+    </div>`;
+}
+
 async function cargarResumen() {
   const contenido = document.getElementById("contenido");
   contenido.innerHTML = `<div class="cargando">Cargando resumen…</div>`;
@@ -70,15 +110,29 @@ async function cargarResumen() {
         </div>
       </div>
 
-      <div class="panel dashboard-panel">
-        <div class="panel-cabecera">
-          <div>
-            <h2>Últimas alertas pendientes</h2>
-            <p class="panel-subtitulo">Revisa y atiende las alertas para mantener la calidad de la información.</p>
+      <div class="dashboard-cols">
+        <div class="panel dashboard-panel">
+          <div class="panel-cabecera">
+            <div>
+              <h2>Últimas alertas pendientes</h2>
+              <p class="panel-subtitulo">Revisa y atiende las alertas para mantener la calidad de la información.</p>
+            </div>
+            <a class="btn btn-fantasma btn-sm" href="/alertas.html">Ver todas →</a>
           </div>
-          <a class="btn btn-fantasma btn-sm" href="/alertas.html">Ver todas →</a>
+          ${tablaAlertas(pendientes.slice(0, 6))}
         </div>
-        ${tablaAlertas(pendientes.slice(0, 6))}
+
+        <div class="dashboard-lateral">
+          ${accionesRapidasHtml(usuario)}
+
+          <div class="banner-gob">
+            <svg class="banner-gob-icono" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 58V26l18-12 18 12v32"/><path d="M20 58V34h8v24M36 58V34h8v24M32 14V6M27 9h10"/></svg>
+            <div class="banner-gob-texto">
+              <strong>Mejores datos,<br>mejores decisiones</strong>
+              <span>Juntos por una educación de calidad.</span>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   } catch (err) {
