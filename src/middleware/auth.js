@@ -2,7 +2,7 @@ const jwt = require("jsonwebtoken");
 
 /**
  * Verifica el token JWT y adjunta el usuario decodificado a req.usuario.
- * El token debe incluir { id, rol, municipio_id }.
+ * El token debe incluir { id, rol, municipio_id, codigo_plantel }.
  */
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -48,4 +48,23 @@ function requireMismoMunicipio(getMunicipioId) {
   };
 }
 
-module.exports = { requireAuth, requireRol, requireMismoMunicipio };
+/**
+ * Para el rol 'director' del módulo Supervisión: garantiza que solo
+ * pueda actuar sobre su propio plantel (compara con el params/body
+ * según la ruta). 'admin' y 'supervision' pueden operar sobre
+ * cualquier plantel (ven y editan el catálogo completo).
+ */
+function requireMismoPlantel(getCodigoPlantel) {
+  return (req, res, next) => {
+    if (req.usuario.rol === "admin" || req.usuario.rol === "supervision") {
+      return next();
+    }
+    const plantelSolicitado = getCodigoPlantel(req);
+    if (String(req.usuario.codigo_plantel) !== String(plantelSolicitado)) {
+      return res.status(403).json({ error: "No puedes operar sobre otro plantel." });
+    }
+    next();
+  };
+}
+
+module.exports = { requireAuth, requireRol, requireMismoMunicipio, requireMismoPlantel };
