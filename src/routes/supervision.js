@@ -138,6 +138,77 @@ router.put("/planteles/:codigoPlantel", requireAuth, requireRol(...ROLES_SUPERVI
 });
 
 // =========================================================
+// RESUMEN -- conteos reales (COUNT) para el dashboard de
+// Supervisión. Se hace aparte del listado de /planteles porque
+// ese endpoint tiene un LIMIT 300 y no serviría para contar.
+// =========================================================
+
+router.get("/resumen", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM planteles_supervision)   AS planteles,
+        (SELECT COUNT(*) FROM supervisores_municipales) AS supervisores_municipales,
+        (SELECT COUNT(*) FROM supervisores_circuitales) AS supervisores_circuitales,
+        (SELECT COUNT(*) FROM directores_supervision)   AS directores
+    `);
+    const fila = rows[0];
+    res.json({
+      planteles: Number(fila.planteles),
+      supervisores_municipales: Number(fila.supervisores_municipales),
+      supervisores_circuitales: Number(fila.supervisores_circuitales),
+      directores: Number(fila.directores),
+    });
+  } catch (err) {
+    console.error("Error calculando resumen de supervisión:", err);
+    res.status(500).json({ error: "No se pudo calcular el resumen." });
+  }
+});
+
+// =========================================================
+// CONSOLIDADO -- vista combinada equivalente a la hoja
+// CONSOLIDADO del Excel original: un plantel por fila con su
+// director, supervisores asignados y última matrícula cargada.
+// =========================================================
+
+router.get("/consolidado", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        p.codigo_plantel, p.eponimo_actual, p.denominacion, p.niveles_modalidad,
+        p.dependencia, p.turno, p.direccion, p.nombre_comuna,
+        d.nombre AS director_nombre, d.cedula AS director_cedula, d.telefono AS director_telefono,
+        string_agg(DISTINCT sm.nombre, ', ')                       AS supervisores_municipales,
+        string_agg(DISTINCT (sc.nombres || ' ' || sc.apellidos), ', ') AS supervisores_circuitales,
+        m.periodo_escolar AS matricula_periodo, m.hembras AS matricula_hembras,
+        m.varones AS matricula_varones, m.total AS matricula_total
+      FROM planteles_supervision p
+      LEFT JOIN directores_supervision d ON d.codigo_plantel = p.codigo_plantel
+      LEFT JOIN supervisor_municipal_plantel smp ON smp.codigo_plantel = p.codigo_plantel
+      LEFT JOIN supervisores_municipales sm ON sm.id = smp.supervisor_municipal_id
+      LEFT JOIN supervisor_circuital_plantel scp ON scp.codigo_plantel = p.codigo_plantel
+      LEFT JOIN supervisores_circuitales sc ON sc.id = scp.supervisor_circuital_id
+      LEFT JOIN LATERAL (
+        SELECT periodo_escolar, hembras, varones, total
+        FROM matricula_planteles mp
+        WHERE mp.codigo_plantel = p.codigo_plantel
+        ORDER BY periodo_escolar DESC
+        LIMIT 1
+      ) m ON true
+      GROUP BY p.codigo_plantel, p.eponimo_actual, p.denominacion, p.niveles_modalidad,
+               p.dependencia, p.turno, p.direccion, p.nombre_comuna,
+               d.nombre, d.cedula, d.telefono,
+               m.periodo_escolar, m.hembras, m.varones, m.total
+      ORDER BY p.eponimo_actual
+    `);
+    res.json({ consolidado: rows });
+  } catch (err) {
+    console.error("Error generando consolidado de supervisión:", err);
+    res.status(500).json({ error: "No se pudo generar el consolidado." });
+  }
+});
+
+// =========================================================
 // SUPERVISORES MUNICIPALES
 // =========================================================
 
