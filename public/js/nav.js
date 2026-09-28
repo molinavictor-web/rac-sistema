@@ -3,14 +3,16 @@ function renderShell(paginaActiva, tituloTopbar) {
   const usuario = RAC.exigirSesion();
   if (!usuario) return null;
 
+  const ROLES_RAC = ["admin", "operador", "encargado_municipio", "operador_credenciales", "operador_plantel"];
+
   const grupos = [
     { id: null, titulo: null, enlaces: [
-      { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: null },
-      { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: null },
+      { id: "dashboard", href: "/dashboard.html", label: "Resumen", roles: ROLES_RAC },
+      { id: "rac", href: "/rac.html", label: "Consultar RAC", roles: ROLES_RAC },
       { id: "exportar-rac", href: "/exportar-rac.html", label: "Exportar RAC", roles: ["admin", "operador"] },
     ]},
     { id: "alertas-calidad", titulo: "Alertas y calidad de datos", enlaces: [
-      { id: "alertas", href: "/alertas.html", label: "Alertas", roles: null },
+      { id: "alertas", href: "/alertas.html", label: "Alertas", roles: ROLES_RAC },
       { id: "codigos-sin-catalogar", href: "/codigos-sin-catalogar.html", label: "Códigos sin catalogar", roles: ["operador", "admin"] },
       { id: "depurar-archivo", href: "/depurar-archivo.html", label: "Depurar archivo", roles: ["admin"] },
     ]},
@@ -24,6 +26,13 @@ function renderShell(paginaActiva, tituloTopbar) {
     { id: "credenciales-grupo", titulo: "Credenciales", enlaces: [
       { id: "credenciales", href: "/credenciales.html", label: "Credenciales", roles: ["admin", "operador_credenciales"] },
     ]},
+    { id: "supervision-grupo", titulo: "Supervisión", enlaces: [
+      { id: "supervision-planteles", href: "/supervision/planteles.html", label: "Planteles", roles: ["admin", "supervision"] },
+      { id: "supervision-municipales", href: "/supervision/municipales.html", label: "Supervisores municipales", roles: ["admin", "supervision"] },
+      { id: "supervision-circuitales", href: "/supervision/circuitales.html", label: "Supervisores circuitales", roles: ["admin", "supervision"] },
+      { id: "supervision-directores", href: "/supervision/directores.html", label: "Directores", roles: ["admin", "supervision"] },
+      { id: "supervision-mi-plantel", href: "/supervision/mi-plantel.html", label: "Mi plantel", roles: ["director"] },
+    ]},
     { id: "administracion", titulo: "Administración", enlaces: [
       { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
     ]},
@@ -35,6 +44,8 @@ function renderShell(paginaActiva, tituloTopbar) {
     encargado_municipio: "Encargado de municipio",
     operador_credenciales: "Operador de credenciales",
     operador_plantel: "Operador de plantel",
+    supervision: "Supervisión",
+    director: "Director de plantel",
   }[usuario.rol] || usuario.rol;
 
   const iconos = {
@@ -50,6 +61,11 @@ function renderShell(paginaActiva, tituloTopbar) {
     "planteles-consulta": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/><circle cx="17.5" cy="17.5" r="3.2"/><path d="m21 21-1.6-1.6"/></svg>`,
     "directorio-directores": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
     credenciales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M13 10h5M13 14h4"/></svg>`,
+    "supervision-planteles": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/></svg>`,
+    "supervision-municipales": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3"/><path d="M5 20c1.3-4 3.6-6 7-6s5.7 2 7 6"/></svg>`,
+    "supervision-circuitales": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5 3"/></svg>`,
+    "supervision-directores": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
+    "supervision-mi-plantel": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/></svg>`,
     usuarios: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3"/><path d="M5 20c1.3-4 3.6-6 7-6s5.7 2 7 6"/></svg>`,
   };
 

@@ -6,6 +6,14 @@ const RAC = (() => {
   const TOKEN_KEY = "rac_token";
   const USUARIO_KEY = "rac_usuario";
 
+  // El módulo de Supervisión vive en el mismo repo/servidor pero con
+  // acceso aparte (/supervision/login.html) -- si la sesión expira o
+  // no existe, hay que devolver al usuario al login correcto según en
+  // qué sección del sitio esté, no siempre al /login.html principal.
+  function loginUrl() {
+    return window.location.pathname.startsWith("/supervision/") ? "/supervision/login.html" : "/login.html";
+  }
+
   function getToken() {
     return sessionStorage.getItem(TOKEN_KEY);
   }
@@ -23,12 +31,12 @@ const RAC = (() => {
   function cerrarSesion() {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(USUARIO_KEY);
-    window.location.href = "/login.html";
+    window.location.href = loginUrl();
   }
 
   function exigirSesion() {
     if (!getToken()) {
-      window.location.href = "/login.html";
+      window.location.href = loginUrl();
       return null;
     }
     return getUsuario();
