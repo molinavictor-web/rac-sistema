@@ -12,7 +12,7 @@ router.post("/login", async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    "SELECT id, nombre, email, password_hash, rol, municipio_id, activo FROM usuarios WHERE email = $1",
+    "SELECT id, nombre, email, password_hash, rol, municipio_id, codigo_plantel, activo FROM usuarios WHERE email = $1",
     [email]
   );
   const usuario = rows[0];
@@ -30,6 +30,7 @@ router.post("/login", async (req, res) => {
       id: usuario.id,
       rol: usuario.rol,
       municipio_id: usuario.municipio_id,
+      codigo_plantel: usuario.codigo_plantel,
       nombre: usuario.nombre,
     },
     process.env.JWT_SECRET,
@@ -44,6 +45,7 @@ router.post("/login", async (req, res) => {
       email: usuario.email,
       rol: usuario.rol,
       municipio_id: usuario.municipio_id,
+      codigo_plantel: usuario.codigo_plantel,
     },
   });
 });
