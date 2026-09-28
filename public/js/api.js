@@ -86,6 +86,7 @@ const RAC = (() => {
     getToken, getUsuario, guardarSesion, cerrarSesion, exigirSesion, lista,
     get: (ruta) => llamar(ruta, { method: "GET" }),
     post: (ruta, body) => llamar(ruta, { method: "POST", body: JSON.stringify(body) }),
+    put: (ruta, body) => llamar(ruta, { method: "PUT", body: JSON.stringify(body) }),
     patch: (ruta, body) => llamar(ruta, { method: "PATCH", body: JSON.stringify(body) }),
     del: (ruta) => llamar(ruta, { method: "DELETE" }),
   };
