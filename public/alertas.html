@@ -3,84 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RAC Monagas — Alertas</title>
+<title>RAC Monagas — Alertas de Supervisión</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css">
 </head>
-<body>
+<body class="planteles-page">
   <div id="shell"></div>
-  <div class="modal-fondo" id="modalAltaFondo">
-    <div class="modal" style="max-width:480px;">
-      <h2 style="margin-bottom:4px;">Dar de alta este registro</h2>
-      <p style="margin-bottom:16px; color: var(--texto-tenue, #667085); font-size: 0.9em;">
-        Esta fila nunca llegó a guardarse en el RAC porque el código de plantel del archivo no existía en el catálogo. Corrige el código y completa lo que haga falta para insertarla.
-      </p>
-      <div class="error-msg" id="errorModalAlta"></div>
-      <form id="formAlta">
-        <div class="campo">
-          <label>Cédula</label>
-          <input type="text" id="alCedula" disabled>
-        </div>
-        <div class="campo">
-          <label for="alCodigoPlantel">Código del plantel (corregido)</label>
-          <input type="text" id="alCodigoPlantel" placeholder="Ej. OD14231608" required>
-          <small id="alCodigoIntentadoHint" style="display:block; margin-top:4px; color: var(--texto-tenue, #667085);"></small>
-        </div>
-        <div class="campo">
-          <label for="alCodigoDependencia">Código dependencia (nómina)</label>
-          <input type="text" id="alCodigoDependencia">
-        </div>
-        <div class="campo">
-          <label for="alCodigoCargo">Código RAC (cod. nómina del cargo)</label>
-          <input type="text" id="alCodigoCargo">
-        </div>
-        <div class="campo">
-          <label for="alTipoPersonal">Tipo de personal</label>
-          <select id="alTipoPersonal">
-            <option value="">—</option>
-            <option value="O">Obrero</option>
-            <option value="A">Administrativo</option>
-            <option value="D">Docente</option>
-          </select>
-        </div>
-        <div class="campo">
-          <label for="alCargo">Cargo</label>
-          <input type="text" id="alCargo">
-        </div>
-        <div class="campo">
-          <label for="alTurno">Turno</label>
-          <select id="alTurno">
-            <option value="">—</option>
-            <option value="MAÑANA">Mañana</option>
-            <option value="TARDE">Tarde</option>
-            <option value="NOCTURNO">Nocturno</option>
-            <option value="MAÑANA Y TARDE">Mañana y tarde</option>
-            <option value="MAÑANA-NOCTURNO">Mañana-Nocturno</option>
-            <option value="TARDE-NOCTURNO">Tarde-Nocturno</option>
-          </select>
-        </div>
-        <div class="campo">
-          <label for="alHorasAcademicas">Horas académicas (máx. 53.33)</label>
-          <input type="number" id="alHorasAcademicas" min="0" max="53.33" step="0.01">
-        </div>
-        <div class="campo">
-          <label for="alHorasAdm">Horas administrativas (máx. 168)</label>
-          <input type="number" id="alHorasAdm" min="0" max="168" step="0.5">
-        </div>
-        <div class="campo">
-          <label for="alSituacion">Situación del trabajador</label>
-          <input type="text" id="alSituacion" placeholder="Ej. ACTIVO, PERMISO, TRÁMITE DE JUBILACIÓN...">
-        </div>
-        <div style="display:flex; gap:10px; margin-top:8px;">
-          <button type="submit" class="btn btn-primario" id="btnGuardarAlta">Dar de alta</button>
-          <button type="button" class="btn btn-fantasma" id="btnCancelarAlta">Cancelar</button>
-        </div>
-      </form>
-    </div>
-  </div>
   <script src="/js/api.js"></script>
   <script src="/js/nav.js"></script>
-  <script src="/js/alertas.js"></script>
+  <script src="/js/supervision-alertas.js"></script>
 </body>
 </html>
