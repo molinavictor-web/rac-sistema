@@ -1,13 +1,16 @@
 // supervision-resumen.js — dashboard con tarjetas de conteo por categoría.
-// Los "esperados" son la cardinalidad real del archivo Excel original
-// (SUPERVISORES_Y_DIRECTORES_ACTUALIZADO_24-09-2026.xlsm): 989 planteles,
-// 14 supervisores municipales, 119 supervisores circuitales y 976
-// directores. Si el universo de referencia cambia, ajustar estos números.
+// Los "esperados" de planteles/municipales/circuitales son la cardinalidad
+// real del archivo Excel original (SUPERVISORES_Y_DIRECTORES_ACTUALIZADO_
+// 24-09-2026.xlsm): 990 planteles (989 cargados + 1 pendiente por falta de
+// código), 14 supervisores municipales y 119 supervisores circuitales. Si
+// el universo de referencia cambia, ajustar estos números.
+// El esperado de DIRECTORES no es un número fijo: en teoría cada plantel
+// debe tener su director, así que se compara contra la cantidad de
+// planteles ya cargados (ver dibujarPantalla).
 const ESPERADOS = {
-  planteles: 989,
+  planteles: 990,
   supervisores_municipales: 14,
   supervisores_circuitales: 119,
-  directores: 976,
 };
 
 const TARJETAS = [
@@ -46,7 +49,9 @@ function dibujarPantalla(datos) {
     <div class="tarjetas-resumen" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px;">
       ${TARJETAS.map((t) => {
         const cargados = Number(datos[t.clave] || 0);
-        const esperado = ESPERADOS[t.clave];
+        // Directores: el esperado es dinámico (un director por cada plantel
+        // ya cargado). Los demás usan la cardinalidad fija del Excel.
+        const esperado = t.clave === "directores" ? Number(datos.planteles || 0) : ESPERADOS[t.clave];
         const faltan = Math.max(esperado - cargados, 0);
         const porcentaje = esperado ? Math.min(Math.round((cargados / esperado) * 100), 100) : 0;
         return `
