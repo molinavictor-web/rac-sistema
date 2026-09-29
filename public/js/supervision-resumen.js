@@ -1,14 +1,13 @@
 // supervision-resumen.js — dashboard con tarjetas de conteo por categoría.
 // Los "esperados" de planteles/municipales/circuitales son la cardinalidad
-// real del archivo Excel original (SUPERVISORES_Y_DIRECTORES_ACTUALIZADO_
-// 24-09-2026.xlsm): 990 planteles (989 cargados + 1 pendiente por falta de
-// código), 14 supervisores municipales y 119 supervisores circuitales. Si
+// real de Supervisión: 989 planteles (se eliminó 1 código DEA marcado como
+// inactivo), 14 supervisores municipales y 119 supervisores circuitales. Si
 // el universo de referencia cambia, ajustar estos números.
 // El esperado de DIRECTORES no es un número fijo: en teoría cada plantel
 // debe tener su director, así que se compara contra la cantidad de
 // planteles ya cargados (ver dibujarPantalla).
 const ESPERADOS = {
-  planteles: 990,
+  planteles: 989,
   supervisores_municipales: 14,
   supervisores_circuitales: 119,
 };
