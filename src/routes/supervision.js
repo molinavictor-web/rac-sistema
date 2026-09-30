@@ -632,7 +632,7 @@ router.post("/circuitos", requireAuth, requireRol(...ROLES_SUPERVISION), async (
 });
 
 // Cambia el nombre o activa/desactiva un circuito (el código no se cambia).
-router.put("/circuitos/:codigoCircuito", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+const editarCircuito = async (req, res) => {
   const codigo = req.params.codigoCircuito.trim();
   const nombre = String((req.body || {}).nombre || "").trim().toUpperCase();
   const activo = (req.body || {}).activo;
@@ -651,7 +651,9 @@ router.put("/circuitos/:codigoCircuito", requireAuth, requireRol(...ROLES_SUPERV
     console.error("Error editando circuito (supervisión):", err);
     res.status(500).json({ error: "No se pudo editar el circuito." });
   }
-});
+};
+router.put("/circuitos/:codigoCircuito", requireAuth, requireRol(...ROLES_SUPERVISION), editarCircuito);
+router.patch("/circuitos/:codigoCircuito", requireAuth, requireRol(...ROLES_SUPERVISION), editarCircuito);
 
 // Asigna un plantel a un circuito (lo mueve si ya estaba en otro).
 router.post("/circuitos/:codigoCircuito/planteles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
@@ -690,6 +692,257 @@ router.delete("/circuitos/:codigoCircuito/planteles/:codigoPlantel", requireAuth
   } catch (err) {
     console.error("Error quitando plantel de circuito (supervisión):", err);
     res.status(500).json({ error: "No se pudo quitar el plantel del circuito." });
+  }
+});
+
+// =========================================================
+// ALERTAS DE SUPERVISIÓN -- se calculan EN VIVO sobre las tablas del
+// módulo (no se guardan): cuando se corrige el dato, la alerta
+// desaparece sola. Cada alerta devuelve su total real y hasta
+// LIMITE_ALERTAS filas de ejemplo con el mismo formato
+// {codigo, nombre, detalle}. Son distintas de las alertas del RAC
+// (/api/alertas), que siguen en su propia pantalla.
+// =========================================================
+
+const LIMITE_ALERTAS = 300;
+
+// Todas las personas del módulo (supervisores y directores) con su cédula
+// limpia (solo dígitos) y su nombre normalizado, para cruzar duplicados.
+const PERSONAS_CTE = `
+  personas AS (
+    SELECT 'Municipal' AS origen,
+           UPPER(REGEXP_REPLACE(TRIM(COALESCE(sm.nombre, '')), '\\s+', ' ', 'g')) AS persona,
+           REGEXP_REPLACE(COALESCE(sm.cedula::text, ''), '\\D', '', 'g') AS ced
+    FROM supervisores_municipales sm
+    UNION ALL
+    SELECT 'Circuital',
+           UPPER(REGEXP_REPLACE(TRIM(COALESCE(sc.nombres, '') || ' ' || COALESCE(sc.apellidos, '')), '\\s+', ' ', 'g')),
+           REGEXP_REPLACE(COALESCE(sc.cedula::text, ''), '\\D', '', 'g')
+    FROM supervisores_circuitales sc
+    UNION ALL
+    SELECT 'Director',
+           UPPER(REGEXP_REPLACE(TRIM(COALESCE(d.nombre, '')), '\\s+', ' ', 'g')),
+           REGEXP_REPLACE(COALESCE(d.cedula::text, ''), '\\D', '', 'g')
+    FROM directores_supervision d
+  )`;
+
+const PLANTEL_BASE = `
+  FROM planteles_supervision p
+  LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel`;
+
+const ALERTAS_SUPERVISION = [
+  {
+    clave: "circuitos_sin_supervisor",
+    titulo: "Circuitos sin supervisor circuital",
+    severidad: "alta",
+    descripcion: "Circuitos activos cuyos planteles no tienen ningún supervisor circuital asignado.",
+    sql: `
+      SELECT c.codigo_circuito AS codigo, c.nombre AS nombre,
+             COALESCE((SELECT MIN(x.municipio) FROM plantel_circuito x WHERE x.codigo_circuito = c.codigo_circuito), 'sin municipio')
+               || ' · ' || (SELECT COUNT(*) FROM plantel_circuito x WHERE x.codigo_circuito = c.codigo_circuito) || ' planteles' AS detalle
+      FROM circuitos_educativos c
+      WHERE c.activo
+        AND NOT EXISTS (
+          SELECT 1 FROM plantel_circuito x
+          JOIN supervisor_circuital_plantel scp ON scp.codigo_plantel = x.codigo_plantel
+          WHERE x.codigo_circuito = c.codigo_circuito)
+      ORDER BY c.codigo_circuito`,
+  },
+  {
+    clave: "municipios_sin_supervisor",
+    titulo: "Municipios sin supervisor municipal",
+    severidad: "alta",
+    descripcion: "Municipios con planteles cargados que todavía no tienen supervisor municipal.",
+    sql: `
+      SELECT '' AS codigo, m.municipio AS nombre, m.planteles || ' planteles' AS detalle
+      FROM (SELECT municipio, COUNT(*) AS planteles FROM plantel_circuito
+            WHERE municipio IS NOT NULL GROUP BY municipio) m
+      WHERE NOT EXISTS (
+        SELECT 1 FROM supervisores_municipales sm
+        WHERE UPPER(TRIM(sm.municipio)) = UPPER(TRIM(m.municipio)))
+      ORDER BY m.municipio`,
+  },
+  {
+    clave: "planteles_sin_director",
+    titulo: "Planteles sin director",
+    severidad: "alta",
+    descripcion: "Planteles que no tienen director cargado.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM directores_supervision d WHERE d.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "personas_varias_cedulas",
+    titulo: "Misma persona con varias cédulas",
+    severidad: "media",
+    descripcion: "El mismo nombre aparece con cédulas distintas (típico error de arrastre en Excel o de digitación; también puede ser un homónimo).",
+    sql: `
+      WITH ${PERSONAS_CTE}
+      SELECT '' AS codigo, persona AS nombre,
+             COUNT(DISTINCT ced) || ' cédulas: ' || STRING_AGG(DISTINCT ced, ', ') AS detalle
+      FROM personas WHERE persona <> '' AND ced <> ''
+      GROUP BY persona HAVING COUNT(DISTINCT ced) > 1
+      ORDER BY persona`,
+  },
+  {
+    clave: "cedulas_varios_nombres",
+    titulo: "Misma cédula con nombres distintos",
+    severidad: "media",
+    descripcion: "Una misma cédula está cargada a nombres diferentes (error de digitación, o el mismo nombre escrito distinto).",
+    sql: `
+      WITH ${PERSONAS_CTE}
+      SELECT ced AS codigo, STRING_AGG(DISTINCT persona, ' / ') AS nombre,
+             COUNT(DISTINCT persona) || ' nombres distintos' AS detalle
+      FROM personas WHERE persona <> '' AND ced <> ''
+      GROUP BY ced HAVING COUNT(DISTINCT persona) > 1
+      ORDER BY ced`,
+  },
+  {
+    clave: "planteles_sin_supervisor_municipal",
+    titulo: "Planteles sin supervisor municipal asignado",
+    severidad: "media",
+    descripcion: "Planteles que no figuran en la lista de planteles de ningún supervisor municipal.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM supervisor_municipal_plantel x WHERE x.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "planteles_sin_supervisor_circuital",
+    titulo: "Planteles sin supervisor circuital asignado",
+    severidad: "media",
+    descripcion: "Planteles que no figuran en la lista de planteles de ningún supervisor circuital.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre,
+             COALESCE(pc.municipio, 'sin municipio') || COALESCE(' · circuito ' || pc.codigo_circuito, '') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM supervisor_circuital_plantel x WHERE x.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "planteles_sin_circuito",
+    titulo: "Planteles sin circuito",
+    severidad: "media",
+    descripcion: "Planteles que no pertenecen a ningún circuito educativo.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE pc.codigo_circuito IS NULL
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "supervisores_sin_contacto",
+    titulo: "Supervisores sin teléfono o sin correo",
+    severidad: "baja",
+    descripcion: "Supervisores municipales o circuitales a los que les falta el teléfono, el correo o ambos.",
+    sql: `
+      SELECT 'Municipal' AS codigo, sm.nombre AS nombre,
+             CONCAT_WS(', ',
+               CASE WHEN COALESCE(TRIM(sm.telefono), '') = '' THEN 'sin teléfono' END,
+               CASE WHEN COALESCE(TRIM(sm.correo), '') = '' THEN 'sin correo' END) AS detalle
+      FROM supervisores_municipales sm
+      WHERE COALESCE(TRIM(sm.telefono), '') = '' OR COALESCE(TRIM(sm.correo), '') = ''
+      UNION ALL
+      SELECT 'Circuital', sc.nombres || ' ' || sc.apellidos,
+             CONCAT_WS(', ',
+               CASE WHEN COALESCE(TRIM(sc.telefono), '') = '' THEN 'sin teléfono' END,
+               CASE WHEN COALESCE(TRIM(sc.correo), '') = '' THEN 'sin correo' END)
+      FROM supervisores_circuitales sc
+      WHERE COALESCE(TRIM(sc.telefono), '') = '' OR COALESCE(TRIM(sc.correo), '') = ''
+      ORDER BY 1, 2`,
+  },
+  {
+    clave: "planteles_sin_parroquia",
+    titulo: "Planteles sin parroquia",
+    severidad: "baja",
+    descripcion: "Planteles cuya parroquia no viene en el archivo de supervisores municipales.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE pc.codigo_plantel IS NOT NULL AND COALESCE(TRIM(pc.parroquia), '') = ''
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "planteles_sin_matricula",
+    titulo: "Planteles sin matrícula cargada",
+    severidad: "info",
+    descripcion: "Planteles que todavía no tienen ninguna matrícula (hembras y varones) cargada por el director o por Supervisión.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM matricula_planteles m WHERE m.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "directores_sin_usuario",
+    titulo: "Directores sin cuenta de acceso",
+    severidad: "info",
+    descripcion: "Directores que todavía no tienen usuario y contraseña para cargar la matrícula de su plantel.",
+    sql: `
+      SELECT d.codigo_plantel AS codigo, d.nombre AS nombre, COALESCE(p.eponimo_actual, 'plantel no encontrado') AS detalle
+      FROM directores_supervision d
+      LEFT JOIN planteles_supervision p ON p.codigo_plantel = d.codigo_plantel
+      WHERE d.usuario_id IS NULL
+      ORDER BY d.nombre`,
+  },
+];
+
+async function ejecutarAlerta(alerta) {
+  const { rows } = await pool.query(
+    `SELECT x.codigo, x.nombre, x.detalle, COUNT(*) OVER() AS total_real
+     FROM (${alerta.sql}) x
+     LIMIT ${LIMITE_ALERTAS}`
+  );
+  return {
+    clave: alerta.clave,
+    titulo: alerta.titulo,
+    severidad: alerta.severidad,
+    descripcion: alerta.descripcion,
+    total: rows.length ? Number(rows[0].total_real) : 0,
+    items: rows.map((r) => ({ codigo: r.codigo, nombre: r.nombre, detalle: r.detalle })),
+  };
+}
+
+router.get("/alertas", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const alertas = await Promise.all(ALERTAS_SUPERVISION.map(ejecutarAlerta));
+    res.json({ alertas, limite: LIMITE_ALERTAS, generado_en: new Date().toISOString() });
+  } catch (err) {
+    console.error("Error calculando alertas de supervisión:", err);
+    res.status(500).json({ error: "No se pudieron calcular las alertas de Supervisión." });
+  }
+});
+
+// Cédulas de supervisores y directores que NO aparecen en la nómina del
+// Ministerio (tabla personal_ministerio del RAC). Va aparte porque cruza
+// contra ~790 mil filas: la pantalla lo pide solo cuando se pulsa el botón.
+router.get("/alertas/cedulas-nomina", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const alerta = await ejecutarAlerta({
+      clave: "cedulas_no_en_nomina",
+      titulo: "Cédulas que no están en la nómina del Ministerio",
+      severidad: "media",
+      descripcion: "Supervisores y directores cuya cédula no se encuentra en personal_ministerio (puede ser un error de digitación o que la persona no esté en nómina).",
+      sql: `
+        WITH ${PERSONAS_CTE},
+        unicas AS (
+          SELECT ced, MIN(persona) AS persona, STRING_AGG(DISTINCT origen, ' / ') AS origen
+          FROM personas WHERE ced <> '' GROUP BY ced
+        )
+        SELECT u.ced AS codigo, u.persona AS nombre, u.origen AS detalle
+        FROM unicas u
+        WHERE NOT EXISTS (
+          SELECT 1 FROM personal_ministerio pm
+          WHERE REGEXP_REPLACE(COALESCE(pm.cedula::text, ''), '\\D', '', 'g') = u.ced)
+        ORDER BY u.persona`,
+    });
+    res.json({ alerta });
+  } catch (err) {
+    console.error("Error verificando cédulas contra la nómina:", err);
+    res.status(500).json({ error: "No se pudo verificar las cédulas contra la nómina." });
   }
 });
 
