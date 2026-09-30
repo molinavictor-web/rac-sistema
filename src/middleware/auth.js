@@ -1,5 +1,11 @@
 const jwt = require("jsonwebtoken");
 
+// Roles del módulo Supervisión: SOLO pueden usar /api/supervision (su panel)
+// y /api/auth (sesión). Cualquier otra ruta protegida del sistema RAC les
+// responde 403, aunque esa ruta solo use requireAuth sin requireRol.
+const ROLES_SOLO_SUPERVISION = ["supervision", "director"];
+const RUTAS_PERMITIDAS_SUPERVISION = /^\/api\/(supervision|auth)(\/|\?|$)/;
+
 /**
  * Verifica el token JWT y adjunta el usuario decodificado a req.usuario.
  * El token debe incluir { id, rol, municipio_id, codigo_plantel }.
@@ -12,10 +18,15 @@ function requireAuth(req, res, next) {
   }
   try {
     req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
   } catch (err) {
     return res.status(401).json({ error: "Token inválido o expirado." });
   }
+
+  if (ROLES_SOLO_SUPERVISION.includes(req.usuario.rol) && !RUTAS_PERMITIDAS_SUPERVISION.test(req.originalUrl)) {
+    return res.status(403).json({ error: "Tu usuario solo tiene acceso al panel de Supervisión." });
+  }
+
+  next();
 }
 
 /**
