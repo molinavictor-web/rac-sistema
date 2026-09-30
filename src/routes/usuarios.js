@@ -5,7 +5,9 @@ const { requireAuth, requireRol } = require("../middleware/auth");
 
 const router = express.Router();
 
-const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "operador_plantel", "admin"];
+// "supervision" = usuarios del grupo de Supervisión: entran solo al panel
+// /supervision (el resto del sistema RAC les queda cerrado).
+const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "operador_plantel", "supervision", "admin"];
 
 // Crear un usuario nuevo (solo admin)
 router.post("/", requireAuth, requireRol("admin"), async (req, res) => {
