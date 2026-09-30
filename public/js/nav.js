@@ -28,7 +28,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     ]},
     { id: "supervision-grupo", titulo: "Supervisión", enlaces: [
       { id: "supervision-resumen", href: "/supervision/resumen.html", label: "Resumen", roles: ["admin", "supervision"] },
-      { id: "supervision-alertas", href: "/alertas.html", label: "Alertas", roles: ["admin", "supervision"] },
+      { id: "supervision-alertas", href: "/supervision/alertas.html", label: "Alertas", roles: ["admin", "supervision"] },
       { id: "supervision-planteles", href: "/supervision/planteles.html", label: "Planteles", roles: ["admin", "supervision"] },
       { id: "supervision-consolidado", href: "/supervision/consolidado.html", label: "Consolidado", roles: ["admin", "supervision"] },
       { id: "supervision-municipales", href: "/supervision/municipales.html", label: "Supervisores municipales", roles: ["admin", "supervision"] },
