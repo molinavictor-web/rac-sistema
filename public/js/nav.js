@@ -3,6 +3,15 @@ function renderShell(paginaActiva, tituloTopbar) {
   const usuario = RAC.exigirSesion();
   if (!usuario) return null;
 
+  // Usuarios del módulo Supervisión (roles 'supervision' y 'director') solo
+  // pueden estar en las pantallas de /supervision/. Si llegan a cualquier otra
+  // (por ejemplo al entrar por el login general), se les manda a su panel.
+  // El backend también lo bloquea (requireAuth en src/middleware/auth.js).
+  if (["supervision", "director"].includes(usuario.rol) && !window.location.pathname.startsWith("/supervision/")) {
+    window.location.replace(usuario.rol === "director" ? "/supervision/mi-plantel.html" : "/supervision/resumen.html");
+    return null;
+  }
+
   const ROLES_RAC = ["admin", "operador", "encargado_municipio", "operador_credenciales", "operador_plantel"];
 
   const grupos = [
