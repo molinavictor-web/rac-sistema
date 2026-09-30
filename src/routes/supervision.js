@@ -37,6 +37,44 @@ router.get("/planteles", requireAuth, requireRol(...ROLES_SUPERVISION), async (r
   }
 });
 
+// Info breve de uno o varios planteles por código, para los modales
+// "Editar" de supervisores municipales/circuitales: al escribir los
+// códigos a asignar/quitar muestra nombre del plantel, municipio,
+// parroquia y circuito (sale del mapa `plantel_circuito`).
+// GET /plantel-info?codigos=COD1,COD2,...  (acepta comas, espacios o ;)
+router.get("/plantel-info", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigos = [
+    ...new Set(
+      String(req.query.codigos || "")
+        .split(/[\s,;]+/)
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ].slice(0, 50);
+  if (!codigos.length) return res.json({ planteles: [], no_encontrados: [] });
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.codigo_plantel, p.eponimo_actual,
+              pc.estado, pc.municipio, pc.parroquia,
+              c.codigo_circuito AS nro_circuito, c.nombre AS nombre_circuito
+       FROM planteles_supervision p
+       LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel
+       LEFT JOIN circuitos_educativos c ON c.codigo_circuito = pc.codigo_circuito
+       WHERE UPPER(p.codigo_plantel) = ANY($1::text[])
+       ORDER BY p.eponimo_actual`,
+      [codigos]
+    );
+    const encontrados = new Set(rows.map((r) => String(r.codigo_plantel).toUpperCase()));
+    res.json({
+      planteles: rows,
+      no_encontrados: codigos.filter((c) => !encontrados.has(c)),
+    });
+  } catch (err) {
+    console.error("Error consultando info de planteles (supervisión):", err);
+    res.status(500).json({ error: "No se pudo consultar la información de los planteles." });
+  }
+});
+
 // Ficha completa de un plantel: datos propios + director + supervisores
 // asignados + última matrícula cargada. Accesible también para el
 // director de ESE plantel puntual (requireMismoPlantel).
@@ -222,6 +260,50 @@ router.get("/supervisores-municipales", requireAuth, requireRol(...ROLES_SUPERVI
   }
 });
 
+// Los municipios del estado ENUMERADOS (1..13, en el orden oficial del
+// código de circuito), cada uno con su supervisor municipal o, si todavía
+// no tiene, supervisor_id = null para que la pantalla lo muestre en blanco
+// ("sin datos"). La lista de municipios sale del mapa `plantel_circuito`,
+// así que un municipio aparece aunque no tenga supervisor cargado.
+router.get("/municipios", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT ROW_NUMBER() OVER (ORDER BY m.orden, m.municipio)::int AS numero,
+             m.municipio,
+             m.planteles,
+             s.id       AS supervisor_id,
+             s.nombre   AS supervisor_nombre,
+             s.cedula   AS supervisor_cedula,
+             s.telefono AS supervisor_telefono,
+             s.correo   AS supervisor_correo
+      FROM (
+        SELECT pc.municipio,
+               COUNT(*)::int AS planteles,
+               MIN(NULLIF(SUBSTRING(pc.codigo_circuito FROM 3 FOR 2), '')::int) AS orden
+        FROM plantel_circuito pc
+        WHERE pc.municipio IS NOT NULL
+        GROUP BY pc.municipio
+      ) m
+      LEFT JOIN LATERAL (
+        SELECT sm.*
+        FROM supervisores_municipales sm
+        WHERE UPPER(TRIM(sm.municipio)) = UPPER(TRIM(m.municipio))
+        ORDER BY sm.id
+        LIMIT 1
+      ) s ON true
+      ORDER BY m.orden, m.municipio
+    `);
+    res.json({
+      municipios: rows,
+      total: rows.length,
+      sin_supervisor: rows.filter((r) => r.supervisor_id === null).length,
+    });
+  } catch (err) {
+    console.error("Error listando municipios (supervisión):", err);
+    res.status(500).json({ error: "No se pudo consultar los municipios." });
+  }
+});
+
 router.post("/supervisores-municipales", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
   const {
     estado, municipio, nombre, cedula, telefono, correo, parroquia,
@@ -321,9 +403,32 @@ router.delete("/supervisores-municipales/:id/planteles/:codigoPlantel", requireA
 // SUPERVISORES CIRCUITALES (mismo patrón que municipales)
 // =========================================================
 
+// El circuito de cada supervisor se DERIVA de sus planteles asignados
+// (supervisor_circuital_plantel -> plantel_circuito -> circuitos_educativos),
+// porque num_circuito/nombre_circuito de la propia tabla quedaron vacíos.
+// Si un supervisor cubre 2 circuitos salen ambos separados por coma. Si no
+// tiene planteles asignados se usa lo que tenga guardado en su fila.
 router.get("/supervisores-circuitales", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM supervisores_circuitales ORDER BY num_circuito");
+    const { rows } = await pool.query(`
+      SELECT sc.id,
+             COALESCE(circ.codigos, sc.num_circuito)     AS num_circuito,
+             COALESCE(circ.nombres, sc.nombre_circuito)  AS nombre_circuito,
+             sc.nombres, sc.apellidos, sc.cedula, sc.numero_cuenta, sc.codigo_nominal,
+             sc.plantel_dependencia, sc.titulo_pregrado, sc.titulo_pre_pos_grado,
+             sc.cargo_nominal, sc.telefono, sc.correo, sc.fecha_ingreso,
+             sc.creado_en, sc.actualizado_en
+      FROM supervisores_circuitales sc
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT c.codigo_circuito, ', ' ORDER BY c.codigo_circuito) AS codigos,
+               string_agg(DISTINCT c.nombre, ', ' ORDER BY c.nombre)                   AS nombres
+        FROM supervisor_circuital_plantel scp
+        JOIN plantel_circuito pc ON pc.codigo_plantel = scp.codigo_plantel
+        JOIN circuitos_educativos c ON c.codigo_circuito = pc.codigo_circuito
+        WHERE scp.supervisor_circuital_id = sc.id
+      ) circ ON true
+      ORDER BY COALESCE(circ.codigos, sc.num_circuito) NULLS LAST, sc.apellidos, sc.nombres
+    `);
     res.json({ supervisores: rows });
   } catch (err) {
     console.error("Error listando supervisores circuitales:", err);
@@ -422,6 +527,169 @@ router.delete("/supervisores-circuitales/:id/planteles/:codigoPlantel", requireA
   } catch (err) {
     console.error("Error quitando plantel de supervisor circuital:", err);
     res.status(500).json({ error: "No se pudo quitar el plantel." });
+  }
+});
+
+// =========================================================
+// CIRCUITOS EDUCATIVOS (catálogo + mapa por plantel)
+// Tablas: circuitos_educativos (codigo_circuito, nombre, activo)
+//         plantel_circuito (codigo_plantel -> codigo_circuito,
+//                           estado, municipio, parroquia)
+// El NOMBRE del circuito se repite entre municipios; la clave es el
+// CÓDIGO (9 dígitos, los 4 primeros = municipio).
+// =========================================================
+
+// Catálogo completo con cantidad de planteles y su supervisor circuital
+// (derivado de los planteles asignados). supervisor = null => circuito
+// SIN supervisor cargado (para marcarlo en la pantalla).
+router.get("/circuitos", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT c.codigo_circuito, c.nombre, c.activo,
+             (SELECT COUNT(*) FROM plantel_circuito pc
+               WHERE pc.codigo_circuito = c.codigo_circuito)::int AS planteles,
+             (SELECT MIN(pc.municipio) FROM plantel_circuito pc
+               WHERE pc.codigo_circuito = c.codigo_circuito)      AS municipio,
+             s.supervisor, s.supervisor_id
+      FROM circuitos_educativos c
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT (sc.nombres || ' ' || sc.apellidos),
+                          ', ' ORDER BY (sc.nombres || ' ' || sc.apellidos)) AS supervisor,
+               MIN(sc.id) AS supervisor_id
+        FROM plantel_circuito pc2
+        JOIN supervisor_circuital_plantel scp ON scp.codigo_plantel = pc2.codigo_plantel
+        JOIN supervisores_circuitales sc ON sc.id = scp.supervisor_circuital_id
+        WHERE pc2.codigo_circuito = c.codigo_circuito
+      ) s ON true
+      ORDER BY c.codigo_circuito
+    `);
+    res.json({
+      circuitos: rows,
+      total: rows.length,
+      sin_supervisor: rows.filter((r) => !r.supervisor).length,
+    });
+  } catch (err) {
+    console.error("Error listando circuitos (supervisión):", err);
+    res.status(500).json({ error: "No se pudo consultar los circuitos." });
+  }
+});
+
+// Detalle de un circuito: sus planteles (con municipio y parroquia) y
+// su(s) supervisor(es) circuital(es).
+router.get("/circuitos/:codigoCircuito", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigo = req.params.codigoCircuito.trim();
+  try {
+    const circuito = await pool.query("SELECT * FROM circuitos_educativos WHERE codigo_circuito = $1", [codigo]);
+    if (!circuito.rows[0]) return res.status(404).json({ error: "No existe ese circuito." });
+
+    const planteles = await pool.query(
+      `SELECT p.codigo_plantel, p.eponimo_actual, pc.municipio, pc.parroquia
+       FROM plantel_circuito pc
+       JOIN planteles_supervision p ON p.codigo_plantel = pc.codigo_plantel
+       WHERE pc.codigo_circuito = $1
+       ORDER BY p.eponimo_actual`,
+      [codigo]
+    );
+    const supervisores = await pool.query(
+      `SELECT DISTINCT sc.id, sc.nombres, sc.apellidos, sc.cedula, sc.telefono, sc.correo
+       FROM plantel_circuito pc
+       JOIN supervisor_circuital_plantel scp ON scp.codigo_plantel = pc.codigo_plantel
+       JOIN supervisores_circuitales sc ON sc.id = scp.supervisor_circuital_id
+       WHERE pc.codigo_circuito = $1
+       ORDER BY sc.apellidos, sc.nombres`,
+      [codigo]
+    );
+    res.json({
+      circuito: circuito.rows[0],
+      planteles: planteles.rows,
+      supervisores: supervisores.rows,
+    });
+  } catch (err) {
+    console.error("Error consultando circuito (supervisión):", err);
+    res.status(500).json({ error: "No se pudo consultar el circuito." });
+  }
+});
+
+// Crea un circuito nuevo (por si nace uno).
+router.post("/circuitos", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigo = String((req.body || {}).codigo_circuito || "").trim();
+  const nombre = String((req.body || {}).nombre || "").trim().toUpperCase();
+  if (!/^\d{9}$/.test(codigo)) {
+    return res.status(400).json({ error: "El código de circuito debe tener 9 dígitos (ej. 160101001)." });
+  }
+  if (!nombre) return res.status(400).json({ error: "Falta el nombre del circuito." });
+  try {
+    const { rows } = await pool.query(
+      "INSERT INTO circuitos_educativos (codigo_circuito, nombre) VALUES ($1, $2) RETURNING *",
+      [codigo, nombre]
+    );
+    res.status(201).json({ circuito: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Ya existe un circuito con ese código." });
+    console.error("Error creando circuito (supervisión):", err);
+    res.status(500).json({ error: "No se pudo crear el circuito." });
+  }
+});
+
+// Cambia el nombre o activa/desactiva un circuito (el código no se cambia).
+router.put("/circuitos/:codigoCircuito", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigo = req.params.codigoCircuito.trim();
+  const nombre = String((req.body || {}).nombre || "").trim().toUpperCase();
+  const activo = (req.body || {}).activo;
+  if (!nombre) return res.status(400).json({ error: "Falta el nombre del circuito." });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE circuitos_educativos
+          SET nombre = $1, activo = COALESCE($2, activo), actualizado_en = now()
+        WHERE codigo_circuito = $3
+        RETURNING *`,
+      [nombre, typeof activo === "boolean" ? activo : null, codigo]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "No existe ese circuito." });
+    res.json({ circuito: rows[0] });
+  } catch (err) {
+    console.error("Error editando circuito (supervisión):", err);
+    res.status(500).json({ error: "No se pudo editar el circuito." });
+  }
+});
+
+// Asigna un plantel a un circuito (lo mueve si ya estaba en otro).
+router.post("/circuitos/:codigoCircuito/planteles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigo = req.params.codigoCircuito.trim();
+  const codigoPlantel = String((req.body || {}).codigo_plantel || "").trim();
+  if (!codigoPlantel) return res.status(400).json({ error: "Falta codigo_plantel." });
+  try {
+    const circuito = await pool.query("SELECT 1 FROM circuitos_educativos WHERE codigo_circuito = $1", [codigo]);
+    if (!circuito.rows[0]) return res.status(404).json({ error: "No existe ese circuito." });
+    const plantel = await pool.query("SELECT 1 FROM planteles_supervision WHERE codigo_plantel = $1", [codigoPlantel]);
+    if (!plantel.rows[0]) return res.status(404).json({ error: "No existe ese plantel en Supervisión." });
+
+    await pool.query(
+      `INSERT INTO plantel_circuito (codigo_plantel, codigo_circuito)
+       VALUES ($1, $2)
+       ON CONFLICT (codigo_plantel)
+       DO UPDATE SET codigo_circuito = EXCLUDED.codigo_circuito, actualizado_en = now()`,
+      [codigoPlantel, codigo]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error asignando plantel a circuito (supervisión):", err);
+    res.status(500).json({ error: "No se pudo asignar el plantel al circuito." });
+  }
+});
+
+// Quita un plantel de un circuito (queda sin circuito).
+router.delete("/circuitos/:codigoCircuito/planteles/:codigoPlantel", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE plantel_circuito SET codigo_circuito = NULL, actualizado_en = now()
+        WHERE codigo_plantel = $1 AND codigo_circuito = $2`,
+      [req.params.codigoPlantel.trim(), req.params.codigoCircuito.trim()]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error quitando plantel de circuito (supervisión):", err);
+    res.status(500).json({ error: "No se pudo quitar el plantel del circuito." });
   }
 });
 
