@@ -1,16 +1,17 @@
 // supervision-resumen.js — dashboard con tarjetas de conteo por categoría.
 // Los "esperados" de planteles/municipales/circuitales son la cardinalidad
-// real de Supervisión: 989 planteles (se eliminó 1 código DEA marcado como
-// inactivo), 13 supervisores municipales (uno por cada municipio de Monagas)
-// y 119 supervisores circuitales. Si el universo de referencia cambia,
-// ajustar estos números.
+// real de Supervisión: 990 planteles (989 con código DEA + 1 plantel, EPE
+// Celestina Reyes, que aún no tiene código), 13 supervisores municipales
+// (uno por cada municipio de Monagas) y 97 supervisores circuitales (98
+// circuitos; una supervisora cubre 2 de ellos). Si el universo de referencia
+// cambia, ajustar estos números.
 // El esperado de DIRECTORES no es un número fijo: en teoría cada plantel
 // debe tener su director, así que se compara contra la cantidad de
 // planteles ya cargados (ver dibujarPantalla).
 const ESPERADOS = {
-  planteles: 989,
+  planteles: 990,
   supervisores_municipales: 13,
-  supervisores_circuitales: 119,
+  supervisores_circuitales: 97,
 };
 
 const TARJETAS = [
