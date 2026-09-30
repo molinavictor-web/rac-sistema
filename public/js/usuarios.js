@@ -93,6 +93,8 @@ const usuario = renderShell("usuarios", "Usuarios");
           cont.innerHTML = `<div class="vacio"><strong>Aún no hay usuarios registrados</strong>Crea el primero con el botón de arriba.</div>`;
           return;
         }
+        // Los directores tienen su cuenta administrada desde el panel de
+        // Supervisión (Directores), por eso aquí no se ofrece "Editar" para ellos.
         const filas = items.map((u) => `
           <tr>
             <td>${u.nombre}</td>
@@ -100,7 +102,7 @@ const usuario = renderShell("usuarios", "Usuarios");
             <td>${etiquetaRol(u.rol)}</td>
             <td>${u.activo ? '<span class="badge badge-resuelto">Activo</span>' : '<span class="badge badge-descartado">Inactivo</span>'}</td>
             <td style="display:flex; gap:8px;">
-              <button class="btn btn-fantasma btn-sm" data-editar-id="${u.id}">Editar</button>
+              ${u.rol === "director" ? "" : `<button class="btn btn-fantasma btn-sm" data-editar-id="${u.id}">Editar</button>`}
               <button class="btn btn-fantasma btn-sm" data-id="${u.id}" data-activo="${u.activo}">
                 ${u.activo ? "Desactivar" : "Reactivar"}
               </button>
@@ -144,6 +146,8 @@ const usuario = renderShell("usuarios", "Usuarios");
         encargado_municipio: "Encargado de municipio",
         operador_credenciales: "Operador de credenciales",
         operador_plantel: "Operador de plantel",
+        supervision: "Supervisión",
+        director: "Director de plantel",
       };
       return mapa[rol] || rol;
     }
