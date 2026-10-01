@@ -1,10 +1,12 @@
 // supervision-directores.js — panel de administración (rol admin/supervision)
-// de directores: crear, editar y crear/resetear su cuenta de acceso web
+// de directores: buscar, crear, editar y crear/resetear su cuenta de acceso web
 // (la que usan luego en /supervision/mi-plantel.html).
 
 const usuario = renderShell("supervision-directores", "Supervisión · Directores");
 let directores = [];
 let editando = null; // codigo_plantel en edición, o null si el formulario es "nuevo"
+let textoBusqueda = ""; // se conserva al recargar la pantalla
+let soloSinAcceso = false;
 
 if (usuario) cargarPantalla();
 
@@ -20,6 +22,25 @@ async function cargarPantalla() {
   }
 }
 
+// Minúsculas y sin tildes, para que "perez" encuentre "PÉREZ".
+function normalizar(valor) {
+  return String(valor === undefined || valor === null ? "" : valor)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function directoresFiltrados() {
+  const q = normalizar(textoBusqueda);
+  return directores.filter((d) => {
+    if (soloSinAcceso && d.usuario_email) return false;
+    if (!q) return true;
+    const texto = normalizar([
+      d.codigo_plantel, d.nombre, d.cedula, d.telefono, d.correo,
+      d.usuario_email, d.dependencia, d.cargo_nominal,
+    ].join(" "));
+    return q.split(/\s+/).every((palabra) => texto.includes(palabra));
+  });
+}
+
 function dibujarPantalla() {
   const contenido = document.getElementById("contenido");
   contenido.innerHTML = `
@@ -31,7 +52,14 @@ function dibujarPantalla() {
       </div>
     </section>
 
-    <div class="panel" style="padding:20px; margin-bottom:20px; display:flex; justify-content:flex-end;">
+    <div class="panel" style="padding:20px; margin-bottom:20px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+      <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; flex:1; min-width:260px;">
+        <input type="search" id="inputBuscar" placeholder="Buscar por nombre, cédula, código de plantel, teléfono o correo…" value="${escapar(textoBusqueda)}" style="flex:1; min-width:240px;">
+        <label style="display:flex; gap:6px; align-items:center; font-size:.82rem; white-space:nowrap;">
+          <input type="checkbox" id="chkSinAcceso" ${soloSinAcceso ? "checked" : ""}> Solo sin acceso web
+        </label>
+        <button type="button" class="btn btn-fantasma btn-sm" id="btnLimpiarBusqueda">Limpiar</button>
+      </div>
       <button type="button" class="btn" id="btnNuevo">+ Nuevo director</button>
     </div>
 
@@ -39,35 +67,72 @@ function dibujarPantalla() {
     <div class="panel" id="panelAcceso" style="padding:20px; margin-bottom:20px; display:none;"></div>
 
     <div class="panel" style="padding:20px;">
-      ${directores.length ? `
-        <div class="tabla-responsive">
-          <table>
-            <thead><tr><th>Código plantel</th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Correo</th><th>Acceso web</th><th></th></tr></thead>
-            <tbody>${directores.map((d) => `
-              <tr>
-                <td>${escapar(d.codigo_plantel)}</td>
-                <td>${escapar(d.nombre)}</td>
-                <td>${escapar(d.cedula)}</td>
-                <td>${escapar(d.telefono || "—")}</td>
-                <td>${escapar(d.correo || "—")}</td>
-                <td>${d.usuario_email ? escapar(d.usuario_email) : `<span class="vacio-inline">Sin acceso</span>`}</td>
-                <td style="white-space:nowrap; display:flex; gap:6px;">
-                  <button type="button" class="btn btn-sm" data-editar="${escapar(d.codigo_plantel)}">Editar</button>
-                  <button type="button" class="btn btn-sm" data-acceso="${escapar(d.codigo_plantel)}">${d.usuario_email ? "Resetear acceso" : "Crear acceso"}</button>
-                </td>
-              </tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      ` : `<div class="vacio"><strong>Sin directores cargados</strong>Usa "+ Nuevo director" para agregar el primero.</div>`}
+      <div id="resumenBusqueda" style="font-size:.8rem; color:var(--muted); margin-bottom:10px;"></div>
+      <div id="tablaDirectores"></div>
     </div>
   `;
 
   document.getElementById("btnNuevo").addEventListener("click", () => abrirFormulario(null));
-  document.querySelectorAll("[data-editar]").forEach((btn) => {
+
+  const inputBuscar = document.getElementById("inputBuscar");
+  inputBuscar.addEventListener("input", () => { textoBusqueda = inputBuscar.value; dibujarTabla(); });
+  document.getElementById("chkSinAcceso").addEventListener("change", (e) => { soloSinAcceso = e.target.checked; dibujarTabla(); });
+  document.getElementById("btnLimpiarBusqueda").addEventListener("click", () => {
+    textoBusqueda = "";
+    soloSinAcceso = false;
+    inputBuscar.value = "";
+    document.getElementById("chkSinAcceso").checked = false;
+    dibujarTabla();
+    inputBuscar.focus();
+  });
+
+  dibujarTabla();
+}
+
+// Solo redibuja la tabla (no el campo de búsqueda), para no perder el foco al escribir.
+function dibujarTabla() {
+  const lista = directoresFiltrados();
+  const hayFiltro = normalizar(textoBusqueda) !== "" || soloSinAcceso;
+  document.getElementById("resumenBusqueda").textContent = hayFiltro
+    ? `Mostrando ${lista.length} de ${directores.length} directores`
+    : "";
+
+  const cont = document.getElementById("tablaDirectores");
+  if (!directores.length) {
+    cont.innerHTML = `<div class="vacio"><strong>Sin directores cargados</strong>Usa "+ Nuevo director" para agregar el primero.</div>`;
+    return;
+  }
+  if (!lista.length) {
+    cont.innerHTML = `<div class="vacio"><strong>Sin resultados</strong>Ningún director coincide con la búsqueda.</div>`;
+    return;
+  }
+
+  cont.innerHTML = `
+    <div class="tabla-responsive">
+      <table>
+        <thead><tr><th>Código plantel</th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Correo</th><th>Acceso web</th><th></th></tr></thead>
+        <tbody>${lista.map((d) => `
+          <tr>
+            <td>${escapar(d.codigo_plantel)}</td>
+            <td>${escapar(d.nombre)}</td>
+            <td>${escapar(d.cedula)}</td>
+            <td>${escapar(d.telefono || "—")}</td>
+            <td>${escapar(d.correo || "—")}</td>
+            <td>${d.usuario_email ? escapar(d.usuario_email) : `<span class="vacio-inline">Sin acceso</span>`}</td>
+            <td style="white-space:nowrap; display:flex; gap:6px;">
+              <button type="button" class="btn btn-sm" data-editar="${escapar(d.codigo_plantel)}">Editar</button>
+              <button type="button" class="btn btn-sm" data-acceso="${escapar(d.codigo_plantel)}">${d.usuario_email ? "Resetear acceso" : "Crear acceso"}</button>
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  cont.querySelectorAll("[data-editar]").forEach((btn) => {
     btn.addEventListener("click", () => abrirFormulario(directores.find((d) => d.codigo_plantel === btn.dataset.editar)));
   });
-  document.querySelectorAll("[data-acceso]").forEach((btn) => {
+  cont.querySelectorAll("[data-acceso]").forEach((btn) => {
     btn.addEventListener("click", () => abrirAcceso(directores.find((d) => d.codigo_plantel === btn.dataset.acceso)));
   });
 }
@@ -104,6 +169,7 @@ function abrirFormulario(director) {
   panel.querySelectorAll("label").forEach((l) => { l.style.display = "block"; l.style.fontSize = ".78rem"; l.style.marginBottom = "4px"; });
   document.getElementById("btnCancelarDirector").addEventListener("click", () => { panel.style.display = "none"; panel.innerHTML = ""; });
   document.getElementById("formDirector").addEventListener("submit", guardarDirector);
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function guardarDirector(e) {
@@ -170,6 +236,7 @@ function abrirAcceso(director) {
       boton.disabled = false;
     }
   });
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function formatoFecha(valor) {
