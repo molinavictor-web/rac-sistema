@@ -947,6 +947,187 @@ router.get("/alertas/cedulas-nomina", requireAuth, requireRol(...ROLES_SUPERVISI
 });
 
 // =========================================================
+// ESTADÍSTICAS DE MATRÍCULA -- hembras/varones por estado, municipio,
+// parroquia y circuito, para UN período escolar a la vez. Solo suma los
+// planteles que ya tienen matrícula cargada en ese período; el resto se
+// cuenta aparte como "sin matrícula" (y se lista en /sin-matricula) para
+// que nadie tome un total parcial como el real. Se calcula en vivo.
+// =========================================================
+
+// Mismo criterio que la pantalla de Planteles: el año escolar arranca en
+// septiembre (octubre 2026 -> "2026-2027").
+function periodoPorDefecto() {
+  const hoy = new Date();
+  const inicio = hoy.getMonth() >= 8 ? hoy.getFullYear() : hoy.getFullYear() - 1;
+  return `${inicio}-${inicio + 1}`;
+}
+
+function leerPeriodo(req) {
+  const p = String(req.query.periodo || "").trim();
+  return p && p.length <= 20 ? p : periodoPorDefecto();
+}
+
+// Un plantel por fila, con su ubicación (mapa plantel_circuito) y la matrícula
+// del período pedido ($1). plantel_circuito y matricula_planteles son únicos por
+// plantel (y por plantel+período), así que no se duplican filas.
+const BASE_ESTADISTICAS = `
+  SELECT p.codigo_plantel,
+         COALESCE(NULLIF(TRIM(pc.municipio), ''), 'SIN MUNICIPIO') AS municipio,
+         COALESCE(NULLIF(TRIM(pc.parroquia), ''), 'SIN PARROQUIA') AS parroquia,
+         pc.codigo_circuito,
+         NULLIF(SUBSTRING(pc.codigo_circuito FROM 3 FOR 2), '') AS orden_municipio,
+         (m.codigo_plantel IS NOT NULL) AS tiene_matricula,
+         COALESCE(m.hembras, 0) AS hembras,
+         COALESCE(m.varones, 0) AS varones
+  FROM planteles_supervision p
+  LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel
+  LEFT JOIN matricula_planteles m
+         ON m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1`;
+
+// Períodos con matrícula cargada (más el período actual por defecto, aunque
+// todavía no tenga datos, para que siempre se pueda elegir).
+router.get("/estadisticas/periodos", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT DISTINCT periodo_escolar FROM matricula_planteles WHERE periodo_escolar IS NOT NULL"
+    );
+    const porDefecto = periodoPorDefecto();
+    const lista = new Set(rows.map((r) => r.periodo_escolar));
+    lista.add(porDefecto);
+    res.json({ periodos: [...lista].sort().reverse(), periodo_defecto: porDefecto });
+  } catch (err) {
+    console.error("Error listando períodos de matrícula:", err);
+    res.status(500).json({ error: "No se pudieron consultar los períodos escolares." });
+  }
+});
+
+router.get("/estadisticas", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const periodo = leerPeriodo(req);
+  try {
+    const [general, parroquias, circuitos] = await Promise.all([
+      pool.query(
+        `WITH base AS (${BASE_ESTADISTICAS})
+         SELECT COUNT(*)::int AS planteles,
+                COUNT(*) FILTER (WHERE tiene_matricula)::int AS con_matricula,
+                COUNT(*) FILTER (WHERE codigo_circuito IS NULL)::int AS sin_circuito,
+                COALESCE(SUM(hembras), 0)::int AS hembras,
+                COALESCE(SUM(varones), 0)::int AS varones
+         FROM base`,
+        [periodo]
+      ),
+      pool.query(
+        `WITH base AS (${BASE_ESTADISTICAS})
+         SELECT municipio, parroquia,
+                MIN(orden_municipio) AS orden,
+                COUNT(*)::int AS planteles,
+                COUNT(*) FILTER (WHERE tiene_matricula)::int AS con_matricula,
+                COALESCE(SUM(hembras), 0)::int AS hembras,
+                COALESCE(SUM(varones), 0)::int AS varones
+         FROM base
+         GROUP BY municipio, parroquia
+         ORDER BY municipio, parroquia`,
+        [periodo]
+      ),
+      pool.query(
+        `WITH base AS (${BASE_ESTADISTICAS})
+         SELECT c.codigo_circuito, c.nombre, c.activo,
+                MIN(b.municipio) AS municipio,
+                COUNT(b.codigo_plantel)::int AS planteles,
+                COUNT(b.codigo_plantel) FILTER (WHERE b.tiene_matricula)::int AS con_matricula,
+                COALESCE(SUM(b.hembras), 0)::int AS hembras,
+                COALESCE(SUM(b.varones), 0)::int AS varones
+         FROM circuitos_educativos c
+         LEFT JOIN base b ON b.codigo_circuito = c.codigo_circuito
+         GROUP BY c.codigo_circuito, c.nombre, c.activo
+         ORDER BY c.codigo_circuito`,
+        [periodo]
+      ),
+    ]);
+
+    const g = general.rows[0];
+    const resumen = (f) => ({
+      planteles: f.planteles,
+      con_matricula: f.con_matricula,
+      sin_matricula: f.planteles - f.con_matricula,
+      hembras: f.hembras,
+      varones: f.varones,
+      total: f.hembras + f.varones,
+    });
+
+    // Municipios con sus parroquias adentro, en el orden oficial del
+    // código de circuito (1601 Acosta ... 1613 Uracoa); "SIN MUNICIPIO" al final.
+    const porMunicipio = new Map();
+    for (const f of parroquias.rows) {
+      if (!porMunicipio.has(f.municipio)) {
+        porMunicipio.set(f.municipio, {
+          municipio: f.municipio,
+          orden: f.orden === null ? 999 : Number(f.orden),
+          planteles: 0, con_matricula: 0, hembras: 0, varones: 0,
+          parroquias: [],
+        });
+      }
+      const m = porMunicipio.get(f.municipio);
+      if (f.orden !== null) m.orden = Math.min(m.orden, Number(f.orden));
+      m.planteles += f.planteles;
+      m.con_matricula += f.con_matricula;
+      m.hembras += f.hembras;
+      m.varones += f.varones;
+      m.parroquias.push({ parroquia: f.parroquia, ...resumen(f) });
+    }
+    const municipios = [...porMunicipio.values()]
+      .sort((a, b) => a.orden - b.orden || a.municipio.localeCompare(b.municipio, "es"))
+      .map((m) => ({ municipio: m.municipio, ...resumen(m), parroquias: m.parroquias }));
+
+    res.json({
+      periodo,
+      general: { ...resumen(g), sin_circuito: g.sin_circuito },
+      municipios,
+      circuitos: circuitos.rows.map((c) => ({
+        codigo_circuito: c.codigo_circuito,
+        nombre: c.nombre,
+        activo: c.activo,
+        municipio: c.municipio,
+        ...resumen(c),
+      })),
+    });
+  } catch (err) {
+    console.error("Error calculando estadísticas de matrícula:", err);
+    res.status(500).json({ error: "No se pudieron calcular las estadísticas de matrícula." });
+  }
+});
+
+// Planteles que NO tienen matrícula cargada en el período pedido, con su
+// ubicación, circuito y los datos del director para poder contactarlo.
+router.get("/estadisticas/sin-matricula", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const periodo = leerPeriodo(req);
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.codigo_plantel,
+              p.eponimo_actual AS nombre,
+              COALESCE(NULLIF(TRIM(pc.municipio), ''), 'SIN MUNICIPIO') AS municipio,
+              COALESCE(NULLIF(TRIM(pc.parroquia), ''), 'SIN PARROQUIA') AS parroquia,
+              pc.codigo_circuito,
+              c.nombre AS nombre_circuito,
+              d.nombre AS director_nombre,
+              d.telefono AS director_telefono
+       FROM planteles_supervision p
+       LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel
+       LEFT JOIN circuitos_educativos c ON c.codigo_circuito = pc.codigo_circuito
+       LEFT JOIN directores_supervision d ON d.codigo_plantel = p.codigo_plantel
+       WHERE NOT EXISTS (
+         SELECT 1 FROM matricula_planteles m
+         WHERE m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1)
+       ORDER BY municipio, parroquia, p.eponimo_actual`,
+      [periodo]
+    );
+    res.json({ periodo, total: rows.length, planteles: rows });
+  } catch (err) {
+    console.error("Error listando planteles sin matrícula:", err);
+    res.status(500).json({ error: "No se pudo consultar los planteles sin matrícula." });
+  }
+});
+
+// =========================================================
 // DIRECTORES
 // =========================================================
 
