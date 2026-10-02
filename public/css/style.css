@@ -1805,3 +1805,45 @@ tr:hover td { background: #f8fbff; }
    sin tocar ninguna otra regla.
    ========================================================= */
 .modal-fondo { z-index: 2100; }
+
+/* =========================================================
+   CORRECCIÓN (2026-10-01): panel de Supervisión
+   1) El encabezado azul ("hero") de Resumen, Directores, Planteles, etc.
+      solo tenía fondo cuando la página llevaba la clase .planteles-page
+      (la usa Planteles del RAC). Las pantallas de Supervisión no la
+      llevan, y por eso el título quedaba blanco sobre fondo claro. Se
+      define aquí el mismo encabezado sin depender de esa clase.
+   2) Nombre y rol del usuario (arriba a la derecha) salían pegados
+      ("Operador SupSupervisión"). Se apilan en dos líneas.
+   3) Migas y título de la barra superior (MONAGAS · EDUCACIÓN / pantalla)
+      no tenían estilo en escritorio.
+   ========================================================= */
+.planteles-hero {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
+  margin-bottom: 18px; padding: 26px 28px; border-radius: 16px;
+  color: #fff; background: linear-gradient(135deg,#0b2d55 0%,#145e92 70%,#1677e8 100%);
+  box-shadow: 0 14px 34px rgba(13,65,110,.16); position: relative; overflow: hidden;
+}
+.planteles-hero::after {
+  content: ""; position: absolute; width: 260px; height: 260px;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 50%; right: -90px; top: -125px;
+}
+@media (max-width: 800px) {
+  .planteles-hero { align-items: stretch; flex-direction: column; gap: 14px; padding: 20px 18px; }
+}
+
+.topbar-title .crumb {
+  color: #8290a3; font-size: 9px; font-weight: 800; letter-spacing: .14em;
+}
+.topbar-title .title {
+  margin-top: 2px; font-family: var(--display); font-size: 18px; font-weight: 700;
+  line-height: 1.15; color: var(--rac-text);
+}
+.topbar-user-avatar {
+  display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px;
+  border-radius: 50%; background: #eaf4ff; color: var(--rac-blue);
+  font-family: var(--display); font-weight: 800;
+}
+.topbar-user-info { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.topbar-user-info strong { font-size: 12px; font-weight: 700; color: #243b55; white-space: nowrap; }
+.topbar-user-info span { margin-top: 2px; font-size: 10px; font-weight: 600; color: #718198; white-space: nowrap; }
