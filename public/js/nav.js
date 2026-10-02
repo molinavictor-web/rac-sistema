@@ -37,6 +37,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     ]},
     { id: "supervision-grupo", titulo: "Supervisión", enlaces: [
       { id: "supervision-resumen", href: "/supervision/resumen.html", label: "Resumen", roles: ["admin", "supervision"] },
+      { id: "supervision-estadisticas", href: "/supervision/estadisticas.html", label: "Estadísticas", roles: ["admin", "supervision"] },
       { id: "supervision-alertas", href: "/supervision/alertas.html", label: "Alertas", roles: ["admin", "supervision"] },
       { id: "supervision-planteles", href: "/supervision/planteles.html", label: "Planteles", roles: ["admin", "supervision"] },
       { id: "supervision-consolidado", href: "/supervision/consolidado.html", label: "Consolidado", roles: ["admin", "supervision"] },
@@ -75,6 +76,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     "directorio-directores": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
     credenciales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M13 10h5M13 14h4"/></svg>`,
     "supervision-resumen": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h7V3H3v10Zm11 8h7V3h-7v18ZM3 21h7v-4H3v4Zm11 0h7v-4h-7v4Z"/></svg>`,
+    "supervision-estadisticas": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>`,
     "supervision-alertas": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>`,
     "supervision-planteles": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/></svg>`,
     "supervision-consolidado": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>`,
