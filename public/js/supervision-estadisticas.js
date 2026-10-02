@@ -51,8 +51,9 @@
   // Barrita: el fondo es la parte de hembras y la franja interior la de varones.
   function barra(h, v) {
     const t = h + v;
+    if (!t) return `<span class="est-prop vacia" title="Sin matrícula cargada"></span>`;
     const wv = t ? Math.round((v * 100) / t) : 0;
-    const tip = t ? `Hembras ${pct(h, t)}% · Varones ${pct(v, t)}%` : "Sin matrícula";
+    const tip = `Hembras ${pct(h, t)}% · Varones ${pct(v, t)}%`;
     return `<span class="est-prop" title="${tip}"><span style="width:${wv}%"></span></span>`;
   }
 
@@ -65,12 +66,17 @@
   // ---------- esqueleto ----------
   function renderEsqueleto() {
     contenido.innerHTML = `
-      <div class="est-barra">
-        <label class="est-campo">Período escolar
+      <section class="est-hero">
+        <div class="est-hero-texto">
+          <div class="est-hero-eyebrow">Supervisión · Matrícula escolar</div>
+          <div class="est-hero-titulo">Estadísticas de matrícula</div>
+          <div class="est-hero-sub">Hembras y varones del estado Monagas, por circuito, municipio y parroquia.</div>
+        </div>
+        <label class="est-hero-periodo">Período escolar
           <select id="estPeriodo"></select>
         </label>
-        <div class="est-nota" id="estNota"></div>
-      </div>
+      </section>
+      <div class="est-nota" id="estNota"></div>
       <div class="est-kpis" id="estKpis"></div>
       <div class="est-tabs" id="estTabs" role="tablist"></div>
       <div id="estPanel"></div>`;
