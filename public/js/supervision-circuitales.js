@@ -10,6 +10,11 @@
 // las mismas rutas de siempre. El traspaso de un circuito a otro supervisor
 // se hace con la casilla "quitar a los anteriores".
 //
+// Arriba de la tabla hay un RESUMEN de circuitos (total, con supervisor, sin
+// supervisor) con la lista de los que faltan: desde ahí se abre el formulario
+// de nuevo supervisor con el circuito ya elegido, y al guardar se le asignan
+// de una vez todos los planteles de ese circuito.
+//
 // El N° y el nombre del circuito de cada supervisor los calcula el backend a
 // partir de los planteles que tiene asignados (si cubre 2 circuitos salen
 // separados por coma).
@@ -18,10 +23,11 @@ const usuario = renderShell("supervision-circuitales", "Supervisión · Supervis
 let supervisores = [];
 let editando = null; // id en edición, o null si el formulario es "nuevo"
 let busqueda = "";
-let circuitos = []; // catálogo de circuitos (para "circuito completo" y para el aviso al eliminar)
+let circuitos = []; // catálogo de circuitos (resumen, "circuito completo" y aviso al eliminar)
 let detalleCircuito = null; // circuito elegido en el panel: { codigo, nombre, planteles, supervisores }
 let turnoDetalle = 0; // descarta respuestas viejas al cambiar de circuito
 let ocupado = false; // hay una asignación/quita masiva en curso
+let verSinSupervisor = true; // lista de circuitos sin supervisor desplegada
 
 if (usuario) cargarPantalla();
 
@@ -31,6 +37,7 @@ async function cargarPantalla() {
   try {
     const resp = await RAC.get("/api/supervision/supervisores-circuitales");
     supervisores = RAC.lista(resp, "supervisores") || [];
+    try { await cargarCircuitos(); } catch (_) { /* el resumen simplemente no se muestra */ }
     dibujarPantalla();
   } catch (err) {
     contenido.innerHTML = `<div class="panel" style="padding:20px;"><div class="vacio"><strong>No se pudo cargar</strong>${escapar(err.message)}</div></div>`;
@@ -51,6 +58,7 @@ async function refrescarSupervisores() {
 async function cargarCircuitos() {
   const resp = await RAC.get("/api/supervision/circuitos");
   circuitos = RAC.lista(resp, "circuitos") || [];
+  pintarResumen();
 }
 
 function dibujarPantalla() {
@@ -63,6 +71,8 @@ function dibujarPantalla() {
         <p id="heroConteo">${supervisores.length} supervisores cargados</p>
       </div>
     </section>
+
+    <div id="panelResumen" style="margin-bottom:20px;"></div>
 
     <div class="panel" style="padding:20px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
       <input type="search" id="inputBuscar" placeholder="Buscar por circuito, nombre, apellido, cédula, teléfono o correo…"
@@ -81,7 +91,81 @@ function dibujarPantalla() {
     busqueda = e.target.value;
     pintarTabla();
   });
+  pintarResumen();
   pintarTabla();
+}
+
+// ---------- Resumen de circuitos ----------
+
+function pintarResumen() {
+  const cont = document.getElementById("panelResumen");
+  if (!cont) return;
+  const activos = circuitos.filter((c) => c.activo !== false);
+  if (!activos.length) { cont.innerHTML = ""; return; }
+
+  const sin = activos.filter((c) => !c.supervisor);
+  const varios = activos.filter((c) => c.supervisor && String(c.supervisor).includes(", "));
+  const con = activos.length - sin.length;
+  const plantelesSin = sin.reduce((suma, c) => suma + (Number(c.planteles) || 0), 0);
+
+  const tarjeta = (color, etiqueta, valor, sub) => `
+    <div style="flex:1; min-width:170px; background:#fff; border:1px solid #d9e1ec; border-left:5px solid ${color}; border-radius:10px; padding:12px 14px;">
+      <div style="font-size:.8rem; color:var(--muted);">${etiqueta}</div>
+      <div style="font-size:1.7rem; font-weight:700; line-height:1.2;">${valor}</div>
+      <div style="font-size:.78rem; color:var(--muted); margin-top:2px;">${sub}</div>
+    </div>`;
+
+  const subSin = sin.length
+    ? `${plantelesSin} planteles sin supervisor · <button type="button" id="btnToggleSin" style="background:none; border:0; padding:0; color:#2b6cb0; text-decoration:underline; cursor:pointer; font:inherit;">${verSinSupervisor ? "ocultar lista" : "ver cuáles"}</button>`
+    : "Todos los circuitos tienen supervisor";
+
+  const tablaSin = sin.length && verSinSupervisor ? `
+    <div class="panel" style="padding:16px; margin-top:12px;">
+      <h3 style="margin-bottom:4px;">Circuitos sin supervisor circuital (${sin.length})</h3>
+      <p style="font-size:.82rem; color:var(--muted); margin-bottom:10px;">Con "+ Cargar supervisor" se abre el formulario con el circuito ya elegido; al guardar se le asignan de una vez todos sus planteles.</p>
+      <div class="tabla-responsive">
+        <table>
+          <thead><tr><th>Código</th><th>Circuito</th><th>Municipio</th><th>Planteles</th><th></th></tr></thead>
+          <tbody>${sin.map((c) => `
+            <tr>
+              <td>${escapar(c.codigo_circuito)}</td>
+              <td>${escapar(c.nombre)}</td>
+              <td>${escapar(c.municipio || "—")}</td>
+              <td>${Number(c.planteles) || 0}</td>
+              <td style="white-space:nowrap;"><button type="button" class="btn btn-sm" data-cargar-circuito="${escapar(c.codigo_circuito)}">+ Cargar supervisor</button></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>` : "";
+
+  const tablaVarios = varios.length ? `
+    <div class="panel" style="padding:16px; margin-top:12px;">
+      <h3 style="margin-bottom:4px;">Circuitos con más de un supervisor (${varios.length})</h3>
+      <p style="font-size:.82rem; color:var(--muted); margin-bottom:10px;">Revísalos: puede ser un traspaso que quedó a medias.</p>
+      <div class="tabla-responsive">
+        <table>
+          <thead><tr><th>Código</th><th>Circuito</th><th>Supervisores</th></tr></thead>
+          <tbody>${varios.map((c) => `<tr><td>${escapar(c.codigo_circuito)}</td><td>${escapar(c.nombre)}</td><td>${escapar(c.supervisor)}</td></tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </div>` : "";
+
+  cont.innerHTML = `
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      ${tarjeta("#16253b", "Circuitos", activos.length, "Total de circuitos activos")}
+      ${tarjeta("#2f855a", "Con supervisor", con, `${activos.length ? Math.round((con * 100) / activos.length) : 0}% de los circuitos`)}
+      ${tarjeta(sin.length ? "#c05621" : "#2f855a", "Sin supervisor", sin.length, subSin)}
+      ${varios.length ? tarjeta("#b7791f", "Con más de uno", varios.length, "Circuitos con varios supervisores") : ""}
+    </div>
+    ${tablaSin}${tablaVarios}
+  `;
+
+  const toggle = document.getElementById("btnToggleSin");
+  if (toggle) toggle.addEventListener("click", () => { verSinSupervisor = !verSinSupervisor; pintarResumen(); });
+  cont.querySelectorAll("[data-cargar-circuito]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirFormulario(null, btn.dataset.cargarCircuito));
+  });
 }
 
 function pintarTabla() {
@@ -138,15 +222,36 @@ function pintarTabla() {
   });
 }
 
-function abrirFormulario(supervisor) {
+// Opciones del selector "Circuito que cubrirá" del formulario de nuevo
+// supervisor: primero los circuitos sin supervisor, luego los que ya tienen.
+function opcionesCircuitoNuevo(seleccionado) {
+  const activos = circuitos.filter((c) => c.activo !== false);
+  const sin = activos.filter((c) => !c.supervisor);
+  const con = activos.filter((c) => c.supervisor);
+  const opcion = (c) => `<option value="${escapar(c.codigo_circuito)}" ${c.codigo_circuito === seleccionado ? "selected" : ""}>${escapar(c.codigo_circuito)} · ${escapar(c.nombre)} · ${escapar(c.municipio || "sin municipio")} · ${Number(c.planteles) || 0} planteles</option>`;
+  return `<option value="">— Ninguno (solo crear el supervisor) —</option>`
+    + (sin.length ? `<optgroup label="Sin supervisor (${sin.length})">${sin.map(opcion).join("")}</optgroup>` : "")
+    + (con.length ? `<optgroup label="Ya tienen supervisor (${con.length})">${con.map(opcion).join("")}</optgroup>` : "");
+}
+
+function abrirFormulario(supervisor, circuitoCodigo) {
   editando = supervisor ? supervisor.id : null;
   document.getElementById("panelAsignar").style.display = "none";
   const s = supervisor || {};
+  const circuitoPre = !supervisor && circuitoCodigo ? circuitos.find((c) => c.codigo_circuito === circuitoCodigo) : null;
+  if (circuitoPre) { s.num_circuito = circuitoPre.codigo_circuito; s.nombre_circuito = circuitoPre.nombre; }
   const panel = document.getElementById("panelFormulario");
   panel.style.display = "block";
+  const bloqueCircuito = !supervisor && circuitos.length ? `
+      <div style="grid-column:1/-1; padding:12px; border:1px solid var(--rac-border, #dfe7f0); border-radius:10px; background:#f8fafc;">
+        <label>Circuito que cubrirá (opcional)</label>
+        <select name="circuito_asignar" id="selectCircuitoNuevo" style="width:100%;">${opcionesCircuitoNuevo(circuitoPre ? circuitoPre.codigo_circuito : "")}</select>
+        <div id="notaCircuitoNuevo" style="font-size:.82rem; color:var(--muted); margin-top:6px;"></div>
+      </div>` : "";
   panel.innerHTML = `
     <h3 style="margin-bottom:14px;">${supervisor ? `Editar supervisor — ${escapar(s.nombres)} ${escapar(s.apellidos)}` : "Nuevo supervisor circuital"}</h3>
     <form id="formSupervisor" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px;">
+      ${bloqueCircuito}
       <div><label>N° de circuito</label><input type="text" name="num_circuito" value="${escapar(s.num_circuito)}"></div>
       <div><label>Nombre del circuito educativo</label><input type="text" name="nombre_circuito" value="${escapar(s.nombre_circuito)}"></div>
       <div><label>Nombres</label><input type="text" name="nombres" value="${escapar(s.nombres)}" required></div>
@@ -170,6 +275,19 @@ function abrirFormulario(supervisor) {
   panel.querySelectorAll("label").forEach((l) => { l.style.display = "block"; l.style.fontSize = ".78rem"; l.style.marginBottom = "4px"; });
   document.getElementById("btnCancelarSupervisor").addEventListener("click", () => { panel.style.display = "none"; panel.innerHTML = ""; });
   document.getElementById("formSupervisor").addEventListener("submit", guardarSupervisor);
+
+  const selectNuevo = document.getElementById("selectCircuitoNuevo");
+  if (selectNuevo) {
+    const actualizarNota = () => {
+      const c = circuitos.find((x) => x.codigo_circuito === selectNuevo.value);
+      const nota = document.getElementById("notaCircuitoNuevo");
+      if (!c) { nota.textContent = "Si eliges un circuito, al guardar se le asignan de una vez todos sus planteles."; return; }
+      nota.innerHTML = `Al guardar se asignarán a este supervisor los <strong>${Number(c.planteles) || 0}</strong> planteles del circuito ${escapar(c.codigo_circuito)}.`
+        + (c.supervisor ? ` <span style="color:#b7791f;">Ojo: ya lo cubre ${escapar(c.supervisor)} y seguirá asignado también. Para traspasarlo usa "Planteles" → "Circuito completo".</span>` : "");
+    };
+    selectNuevo.addEventListener("change", actualizarNota);
+    actualizarNota();
+  }
   if (panel.scrollIntoView) panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -177,14 +295,35 @@ async function guardarSupervisor(e) {
   e.preventDefault();
   const boton = document.getElementById("btnGuardarSupervisor");
   const datos = Object.fromEntries(new FormData(e.target).entries());
+  const codigoCircuito = !editando ? (datos.circuito_asignar || "") : "";
+  delete datos.circuito_asignar;
+  if (codigoCircuito) {
+    const c = circuitos.find((x) => x.codigo_circuito === codigoCircuito);
+    if (c) {
+      if (!datos.num_circuito) datos.num_circuito = c.codigo_circuito;
+      if (!datos.nombre_circuito) datos.nombre_circuito = c.nombre;
+    }
+  }
   boton.disabled = true;
   try {
     if (editando) {
       await RAC.put(`/api/supervision/supervisores-circuitales/${editando}`, datos);
       mostrarToast("Supervisor actualizado.");
     } else {
-      await RAC.post("/api/supervision/supervisores-circuitales", datos);
-      mostrarToast("Supervisor creado.");
+      const resp = await RAC.post("/api/supervision/supervisores-circuitales", datos);
+      const nuevoId = resp && resp.supervisor && resp.supervisor.id;
+      if (codigoCircuito && nuevoId) {
+        boton.textContent = "Asignando planteles…";
+        try {
+          const r = await asignarCircuitoAlCrear(nuevoId, codigoCircuito);
+          if (r.fallos) mostrarToast(`Supervisor creado, pero ${r.fallos} de ${r.total} planteles no se pudieron asignar. Revisa en "Planteles" → "Circuito completo".`, true);
+          else mostrarToast(`Supervisor creado y ${r.total} planteles del circuito asignados.`);
+        } catch (err) {
+          mostrarToast(`Supervisor creado, pero no se pudieron asignar los planteles: ${err.message}. Usa "Planteles" → "Circuito completo".`, true);
+        }
+      } else {
+        mostrarToast("Supervisor creado.");
+      }
     }
     cargarPantalla();
   } catch (err) {
@@ -192,6 +331,15 @@ async function guardarSupervisor(e) {
   } finally {
     boton.disabled = false;
   }
+}
+
+// Asigna al supervisor recién creado todos los planteles del circuito.
+async function asignarCircuitoAlCrear(idSupervisor, codigo) {
+  const resp = await RAC.get(`/api/supervision/circuitos/${encodeURIComponent(codigo)}`);
+  const lista = (resp.planteles || []).map((p) => p.codigo_plantel);
+  const fallos = await ejecutarEnLotes(lista, (cp) =>
+    RAC.post(`/api/supervision/supervisores-circuitales/${idSupervisor}/planteles`, { codigo_plantel: cp }));
+  return { total: lista.length, fallos: fallos.length };
 }
 
 // ---------- Utilidades de trabajo masivo ----------
@@ -578,8 +726,8 @@ async function quitarCircuitoCompleto(idSupervisor) {
 }
 
 // Después de asignar/quitar: actualiza la tabla, la lista de circuitos (para
-// que "SIN SUPERVISOR" esté al día) y la vista previa, sin borrar el mensaje
-// de resultado.
+// que "SIN SUPERVISOR" y el resumen de arriba estén al día) y la vista
+// previa, sin borrar el mensaje de resultado.
 async function refrescarTrasCambio(idSupervisor) {
   const codigo = detalleCircuito ? detalleCircuito.codigo : "";
   await refrescarSupervisores();
