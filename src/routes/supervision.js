@@ -869,11 +869,12 @@ const ALERTAS_SUPERVISION = [
     clave: "planteles_sin_matricula",
     titulo: "Planteles sin matrícula cargada",
     severidad: "info",
-    descripcion: "Planteles que todavía no tienen ninguna matrícula (hembras y varones) cargada por el director o por Supervisión.",
+    descripcion: "Planteles que todavía no tienen matrícula (hembras y varones) cargada por el director o por Supervisión; una matrícula en 0 cuenta como no cargada.",
     sql: `
       SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
       ${PLANTEL_BASE}
-      WHERE NOT EXISTS (SELECT 1 FROM matricula_planteles m WHERE m.codigo_plantel = p.codigo_plantel)
+      WHERE NOT EXISTS (SELECT 1 FROM matricula_planteles m WHERE m.codigo_plantel = p.codigo_plantel
+                        AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0)
       ORDER BY p.eponimo_actual`,
   },
   {
@@ -949,7 +950,8 @@ router.get("/alertas/cedulas-nomina", requireAuth, requireRol(...ROLES_SUPERVISI
 // =========================================================
 // ESTADÍSTICAS DE MATRÍCULA -- hembras/varones por estado, municipio,
 // parroquia y circuito, para UN período escolar a la vez. Solo suma los
-// planteles que ya tienen matrícula cargada en ese período; el resto se
+// planteles que ya tienen matrícula cargada en ese período (una matrícula en
+// 0 hembras y 0 varones cuenta como NO cargada); el resto se
 // cuenta aparte como "sin matrícula" (y se lista en /sin-matricula) para
 // que nadie tome un total parcial como el real. Se calcula en vivo.
 // =========================================================
@@ -976,7 +978,7 @@ const BASE_ESTADISTICAS = `
          COALESCE(NULLIF(TRIM(pc.parroquia), ''), 'SIN PARROQUIA') AS parroquia,
          pc.codigo_circuito,
          NULLIF(SUBSTRING(pc.codigo_circuito FROM 3 FOR 2), '') AS orden_municipio,
-         (m.codigo_plantel IS NOT NULL) AS tiene_matricula,
+         (m.codigo_plantel IS NOT NULL AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0) AS tiene_matricula,
          COALESCE(m.hembras, 0) AS hembras,
          COALESCE(m.varones, 0) AS varones
   FROM planteles_supervision p
@@ -1116,7 +1118,8 @@ router.get("/estadisticas/sin-matricula", requireAuth, requireRol(...ROLES_SUPER
        LEFT JOIN directores_supervision d ON d.codigo_plantel = p.codigo_plantel
        WHERE NOT EXISTS (
          SELECT 1 FROM matricula_planteles m
-         WHERE m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1)
+         WHERE m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1
+           AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0)
        ORDER BY municipio, parroquia, p.eponimo_actual`,
       [periodo]
     );
@@ -1134,7 +1137,7 @@ router.get("/estadisticas/sin-matricula", requireAuth, requireRol(...ROLES_SUPER
 router.get("/directores", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT d.*, u.email AS usuario_email
+      `SELECT d.*, u.email AS usuario_email, u.activo AS usuario_activo
        FROM directores_supervision d
        LEFT JOIN usuarios u ON u.id = d.usuario_id
        ORDER BY d.nombre`
@@ -1258,6 +1261,57 @@ router.post("/directores/:codigoPlantel/usuario", requireAuth, requireRol(...ROL
     if (err.code === "23505") return res.status(409).json({ error: "Ese correo ya está en uso por otro usuario." });
     console.error("Error creando/reseteando cuenta de director:", err);
     res.status(500).json({ error: "No se pudo crear la cuenta del director." });
+  } finally {
+    cliente.release();
+  }
+});
+
+// Elimina el acceso web de un director: lo desvincula del plantel y borra su
+// cuenta. Si la cuenta ya tiene datos amarrados (por ejemplo, matrícula que
+// cargó ese usuario) y la base no deja borrarla, la deja DESACTIVADA y le
+// cambia el correo para que pueda volver a usarse. El director y su matrícula
+// no se tocan; para darle acceso otra vez se usa "Crear acceso web".
+router.delete("/directores/:codigoPlantel/usuario", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigoPlantel = req.params.codigoPlantel.trim();
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    const director = await cliente.query(
+      "SELECT usuario_id FROM directores_supervision WHERE codigo_plantel = $1 FOR UPDATE",
+      [codigoPlantel]
+    );
+    if (!director.rows[0]) {
+      await cliente.query("ROLLBACK");
+      return res.status(404).json({ error: "No existe un director cargado para ese plantel." });
+    }
+    const usuarioId = director.rows[0].usuario_id;
+    if (!usuarioId) {
+      await cliente.query("ROLLBACK");
+      return res.status(404).json({ error: "Ese director no tiene acceso web." });
+    }
+
+    await cliente.query("UPDATE directores_supervision SET usuario_id = NULL WHERE codigo_plantel = $1", [codigoPlantel]);
+
+    let modo = "eliminado";
+    await cliente.query("SAVEPOINT borrar_usuario");
+    try {
+      await cliente.query("DELETE FROM usuarios WHERE id = $1 AND rol = 'director'", [usuarioId]);
+    } catch (err) {
+      if (err.code !== "23503") throw err; // solo se tolera "tiene datos amarrados"
+      await cliente.query("ROLLBACK TO SAVEPOINT borrar_usuario");
+      await cliente.query(
+        "UPDATE usuarios SET activo = false, email = 'eliminado-' || id || '-' || email WHERE id = $1 AND rol = 'director'",
+        [usuarioId]
+      );
+      modo = "desactivado";
+    }
+
+    await cliente.query("COMMIT");
+    res.json({ ok: true, modo });
+  } catch (err) {
+    await cliente.query("ROLLBACK");
+    console.error("Error eliminando acceso web del director:", err);
+    res.status(500).json({ error: "No se pudo eliminar el acceso web del director." });
   } finally {
     cliente.release();
   }
