@@ -141,7 +141,7 @@ function dibujarTabla() {
             <td>${escapar(d.telefono || "—")}</td>
             <td>${escapar(d.correo || "—")}</td>
             <td>${d.usuario_email ? escapar(d.usuario_email) : `<span class="vacio-inline">Sin acceso</span>`}</td>
-            <td><div style="display:flex; gap:6px; white-space:nowrap;">
+            <td><div style="display:flex; gap:6px; flex-wrap:wrap; min-width:130px;">
               <button type="button" class="btn btn-sm" data-editar="${escapar(d.codigo_plantel)}">Editar</button>
               <button type="button" class="btn btn-sm" data-acceso="${escapar(d.codigo_plantel)}">${d.usuario_email ? "Resetear acceso" : "Crear acceso"}</button>
               ${d.usuario_email ? `<button type="button" class="btn btn-sm btn-peligro" data-quitar-acceso="${escapar(d.codigo_plantel)}">Eliminar acceso</button>` : ""}

@@ -243,7 +243,7 @@ function dibujarTabla() {
             <td>${escapar(p.nombre_comuna || "—")}</td>
             <td>${textoDirector(p.codigo_plantel)}</td>
             <td>${textoMatricula(p.codigo_plantel)}</td>
-            <td><div style="display:flex; gap:6px; white-space:nowrap;">
+            <td><div style="display:flex; gap:6px; flex-wrap:wrap; min-width:90px;">
               <button type="button" class="btn btn-sm" data-editar="${escapar(p.codigo_plantel)}">Editar</button>
               ${sinDir ? `<a class="btn btn-sm btn-fantasma" href="/supervision/directores.html?nuevo=${encodeURIComponent(p.codigo_plantel)}">+ Director</a>` : ""}
             </div></td>
