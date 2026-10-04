@@ -3,18 +3,38 @@
 // Permite buscar, crear y editar planteles, y cargar su matrícula (hembras y
 // varones por período escolar, con histórico). El backend no expone borrado
 // para este catálogo, así que aquí tampoco se ofrece esa acción.
+//
+// Filtros "Solo sin director" y "Solo sin código DEA": trabajan sobre TODOS los
+// planteles (vienen de /consolidado, sin el límite de 300 del listado). Un
+// plantel sin código DEA se registra con un código provisional "SIN-DEA-001"
+// (botón en el formulario de nuevo plantel) y así queda contado y visible.
 
 const usuario = renderShell("supervision-planteles", "Supervisión · Planteles");
 const LIMITE_LISTADO = 300; // el backend corta el listado en 300 filas
+const ESPERADO_PLANTELES = 990; // universo real; 1 plantel aún no tiene código DEA
 
 let planteles = [];
 let totalCatalogo = null; // total real de planteles (viene de /resumen)
 let matriculaPorPlantel = {}; // codigo_plantel -> última matrícula (viene de /consolidado)
+let todosPlanteles = []; // todos los planteles con su director (viene de /consolidado)
+let directorPorPlantel = {}; // codigo_plantel -> nombre del director
+let soloSinDirector = false;
+let soloSinCodigo = false;
 let editando = null; // codigo_plantel en edición, o null si el formulario es "nuevo"
 let textoBusqueda = "";
 let temporizadorBusqueda;
 let contadorBusqueda = 0; // descarta respuestas viejas si el usuario sigue escribiendo
 let historialActual = []; // histórico de matrícula del plantel que se edita
+
+// Lista larga con scroll interno y encabezado fijo.
+(function () {
+  if (document.getElementById("estiloListaScroll")) return;
+  const st = document.createElement("style");
+  st.id = "estiloListaScroll";
+  st.textContent = ".lista-scroll{max-height:65vh;overflow:auto;}"
+    + ".lista-scroll thead th{position:sticky;top:0;z-index:2;background:#eef3f9;box-shadow:0 1px 0 #d9e1ec;}";
+  document.head.appendChild(st);
+})();
 
 if (usuario) iniciar();
 
@@ -30,8 +50,16 @@ function periodoActual() {
   return hoy.getMonth() >= 8 ? `${anio}-${anio + 1}` : `${anio - 1}-${anio}`;
 }
 
-// Total real del catálogo y última matrícula por plantel. Si alguno falla, la
-// pantalla sigue funcionando (solo se ve "—" en la columna de matrícula).
+function normalizar(valor) {
+  return String(valor === undefined || valor === null ? "" : valor)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+const esProvisional = (codigo) => /^SIN-DEA-/i.test(String(codigo || ""));
+const filtrosActivos = () => soloSinDirector || soloSinCodigo;
+
+// Total real del catálogo, todos los planteles con su director y la última
+// matrícula por plantel. Si alguno falla, la pantalla sigue funcionando.
 async function cargarExtras() {
   try {
     const resumen = await RAC.get("/api/supervision/resumen");
@@ -39,8 +67,10 @@ async function cargarExtras() {
   } catch (_) { /* se usa el conteo del listado */ }
   try {
     const resp = await RAC.get("/api/supervision/consolidado");
+    const filas = RAC.lista(resp, "consolidado") || [];
     const mapa = {};
-    RAC.lista(resp, "consolidado").forEach((f) => {
+    const directores = {};
+    filas.forEach((f) => {
       if (f.matricula_periodo) {
         mapa[f.codigo_plantel] = {
           periodo: f.matricula_periodo,
@@ -49,9 +79,12 @@ async function cargarExtras() {
           total: f.matricula_total,
         };
       }
+      if (f.director_nombre) directores[f.codigo_plantel] = f.director_nombre;
     });
     matriculaPorPlantel = mapa;
-  } catch (_) { /* sin matrícula en la tabla */ }
+    directorPorPlantel = directores;
+    todosPlanteles = filas;
+  } catch (_) { /* sin matrícula ni directores en la tabla */ }
 }
 
 async function refrescar(recargarExtras = true) {
@@ -85,7 +118,15 @@ function dibujarPantalla() {
     </section>
 
     <div class="panel" style="padding:20px; margin-bottom:20px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
-      <input type="text" id="inputBuscar" placeholder="Buscar por código, epónimo o comuna…" style="flex:1; min-width:220px;" value="${escapar(textoBusqueda)}">
+      <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; flex:1; min-width:260px;">
+        <input type="text" id="inputBuscar" placeholder="Buscar por código, epónimo o comuna…" style="flex:1; min-width:220px;" value="${escapar(textoBusqueda)}">
+        <label style="display:flex; gap:6px; align-items:center; font-size:.82rem; white-space:nowrap;">
+          <input type="checkbox" id="chkSinDirector" ${soloSinDirector ? "checked" : ""}> Solo sin director <span id="cntSinDirector" style="color:var(--muted);"></span>
+        </label>
+        <label style="display:flex; gap:6px; align-items:center; font-size:.82rem; white-space:nowrap;">
+          <input type="checkbox" id="chkSinCodigo" ${soloSinCodigo ? "checked" : ""}> Solo sin código DEA <span id="cntSinCodigo" style="color:var(--muted);"></span>
+        </label>
+      </div>
       <button type="button" class="btn" id="btnNuevo">+ Nuevo plantel</button>
     </div>
 
@@ -100,8 +141,11 @@ function dibujarPantalla() {
   document.getElementById("inputBuscar").addEventListener("input", (e) => {
     textoBusqueda = e.target.value;
     clearTimeout(temporizadorBusqueda);
+    if (filtrosActivos()) { dibujarTabla(); return; } // con filtros se busca en memoria
     temporizadorBusqueda = setTimeout(() => refrescar(false), 350);
   });
+  document.getElementById("chkSinDirector").addEventListener("change", (e) => { soloSinDirector = e.target.checked; dibujarTabla(); });
+  document.getElementById("chkSinCodigo").addEventListener("change", (e) => { soloSinCodigo = e.target.checked; dibujarTabla(); });
   document.getElementById("btnNuevo").addEventListener("click", () => abrirFormulario(null));
 }
 
@@ -115,50 +159,127 @@ function textoMatricula(codigo) {
           <div style="color:var(--muted); font-size:.72rem;">${escapar(m.periodo)}</div>`;
 }
 
+// Con filtros activos se muestran TODOS los planteles que cumplan (sin el límite
+// de 300 del listado); sin filtros, el listado normal del servidor.
+function filasVisibles() {
+  if (!filtrosActivos()) return planteles;
+  const q = normalizar(textoBusqueda);
+  return todosPlanteles.filter((f) =>
+    (!soloSinDirector || !f.director_nombre) &&
+    (!soloSinCodigo || esProvisional(f.codigo_plantel)) &&
+    (!q || normalizar([f.codigo_plantel, f.eponimo_actual, f.nombre_comuna].join(" ")).includes(q))
+  );
+}
+
+function textoDirector(codigo) {
+  if (!todosPlanteles.length) return "—";
+  return directorPorPlantel[codigo]
+    ? escapar(directorPorPlantel[codigo])
+    : `<span style="color:#b7791f; font-weight:600;">Sin director</span>`;
+}
+
 function dibujarTabla() {
   const q = textoBusqueda.trim();
+  const sinDirectorN = todosPlanteles.filter((f) => !f.director_nombre).length;
+  const sinCodigoN = todosPlanteles.filter((f) => esProvisional(f.codigo_plantel)).length;
+  const faltaRegistrar = totalCatalogo !== null && totalCatalogo < ESPERADO_PLANTELES ? ESPERADO_PLANTELES - totalCatalogo : 0;
+
   document.getElementById("heroConteo").textContent =
     `Catálogo propio de Supervisión · ${totalCatalogo !== null ? totalCatalogo : planteles.length} planteles cargados`;
-
-  let resumen = "";
-  if (q) {
-    resumen = `${planteles.length} resultado${planteles.length === 1 ? "" : "s"} para "${q}"`;
-  } else if (planteles.length >= LIMITE_LISTADO) {
-    resumen = `Mostrando los primeros ${LIMITE_LISTADO}${totalCatalogo ? ` de ${totalCatalogo}` : ""}. Usa el buscador para encontrar un plantel.`;
+  if (todosPlanteles.length) {
+    document.getElementById("cntSinDirector").textContent = `(${sinDirectorN})`;
+    document.getElementById("cntSinCodigo").textContent = `(${sinCodigoN})`;
   }
-  document.getElementById("resumenListado").textContent = resumen;
 
   const cont = document.getElementById("tablaPlanteles");
-  if (!planteles.length) {
-    cont.innerHTML = q
-      ? `<div class="vacio"><strong>Sin resultados</strong>Ningún plantel coincide con la búsqueda.</div>`
-      : `<div class="vacio"><strong>Sin planteles cargados</strong>Usa "+ Nuevo plantel" para agregar el primero.</div>`;
+  if (filtrosActivos() && !todosPlanteles.length) {
+    document.getElementById("resumenListado").textContent = "";
+    cont.innerHTML = `<div class="vacio"><strong>No se pudieron cargar los datos para filtrar</strong>Recarga la pantalla e intenta de nuevo.</div>`;
+    return;
+  }
+
+  const lista = filasVisibles();
+  const notaFalta = faltaRegistrar && sinCodigoN === 0
+    ? ` Falta registrar ${faltaRegistrar} plantel${faltaRegistrar === 1 ? "" : "es"} sin código DEA (EPE Celestina Reyes): usa "+ Nuevo plantel" y el botón "Usar código provisional".`
+    : "";
+
+  let resumen = "";
+  if (filtrosActivos()) {
+    const quienes = [soloSinDirector ? "sin director" : "", soloSinCodigo ? "sin código DEA" : ""].filter(Boolean).join(" y ");
+    resumen = `Mostrando ${lista.length} plantel${lista.length === 1 ? "" : "es"} ${quienes}${q ? ` para "${q}"` : ""}.${notaFalta}`;
+  } else if (q) {
+    resumen = `${lista.length} resultado${lista.length === 1 ? "" : "s"} para "${q}"`;
+  } else if (planteles.length >= LIMITE_LISTADO) {
+    resumen = `Mostrando los primeros ${LIMITE_LISTADO}${totalCatalogo ? ` de ${totalCatalogo}` : ""}. Usa el buscador o los filtros para encontrar un plantel.`;
+  }
+  if (!filtrosActivos() && notaFalta && !q) resumen = (resumen + notaFalta).trim();
+  document.getElementById("resumenListado").textContent = resumen;
+
+  if (!lista.length) {
+    cont.innerHTML = filtrosActivos()
+      ? `<div class="vacio"><strong>Sin planteles</strong>${soloSinCodigo && !sinCodigoN ? "Todavía no hay planteles registrados con código provisional." : "Ningún plantel cumple los filtros."}</div>`
+      : q
+        ? `<div class="vacio"><strong>Sin resultados</strong>Ningún plantel coincide con la búsqueda.</div>`
+        : `<div class="vacio"><strong>Sin planteles cargados</strong>Usa "+ Nuevo plantel" para agregar el primero.</div>`;
     return;
   }
 
   cont.innerHTML = `
-    <div class="tabla-responsive">
+    <div class="tabla-responsive lista-scroll">
       <table>
-        <thead><tr><th>Código</th><th>Epónimo actual</th><th>Denominación</th><th>Dependencia</th><th>Turno</th><th>Comuna</th><th>Matrícula</th><th></th></tr></thead>
-        <tbody>${planteles.map((p) => `
+        <thead><tr><th>Código</th><th>Epónimo actual</th><th>Denominación</th><th>Dependencia</th><th>Turno</th><th>Comuna</th><th>Director</th><th>Matrícula</th><th></th></tr></thead>
+        <tbody>${lista.map((p) => {
+          const sinDir = todosPlanteles.length && !directorPorPlantel[p.codigo_plantel];
+          return `
           <tr>
-            <td>${escapar(p.codigo_plantel)}</td>
+            <td>${escapar(p.codigo_plantel)}${esProvisional(p.codigo_plantel) ? ` <span style="color:#9c4221; font-size:.72rem; font-weight:600;">· sin código DEA</span>` : ""}</td>
             <td>${escapar(p.eponimo_actual)}</td>
             <td>${escapar(p.denominacion || "—")}</td>
             <td>${escapar(p.dependencia || "—")}</td>
             <td>${escapar(p.turno || "—")}</td>
             <td>${escapar(p.nombre_comuna || "—")}</td>
+            <td>${textoDirector(p.codigo_plantel)}</td>
             <td>${textoMatricula(p.codigo_plantel)}</td>
-            <td><button type="button" class="btn btn-sm" data-editar="${escapar(p.codigo_plantel)}">Editar</button></td>
-          </tr>`).join("")}
+            <td><div style="display:flex; gap:6px; white-space:nowrap;">
+              <button type="button" class="btn btn-sm" data-editar="${escapar(p.codigo_plantel)}">Editar</button>
+              ${sinDir ? `<a class="btn btn-sm btn-fantasma" href="/supervision/directores.html?nuevo=${encodeURIComponent(p.codigo_plantel)}">+ Director</a>` : ""}
+            </div></td>
+          </tr>`; }).join("")}
         </tbody>
       </table>
     </div>
   `;
 
   cont.querySelectorAll("[data-editar]").forEach((btn) => {
-    btn.addEventListener("click", () => abrirFormulario(planteles.find((p) => p.codigo_plantel === btn.dataset.editar)));
+    btn.addEventListener("click", () => abrirEditar(btn.dataset.editar));
   });
+}
+
+// Con filtros, la fila viene del consolidado (datos parciales): se trae el
+// plantel completo antes de abrir el formulario.
+async function abrirEditar(codigo) {
+  let p = planteles.find((x) => x.codigo_plantel === codigo);
+  if (!p) {
+    try {
+      const resp = await RAC.get(`/api/supervision/planteles/${encodeURIComponent(codigo)}`);
+      p = resp.plantel;
+    } catch (err) {
+      mostrarToast(err.message, true);
+      return;
+    }
+  }
+  abrirFormulario(p);
+}
+
+// Siguiente código provisional libre: SIN-DEA-001, SIN-DEA-002…
+function siguienteCodigoProvisional() {
+  const usados = todosPlanteles.map((f) => f.codigo_plantel).concat(planteles.map((p) => p.codigo_plantel));
+  let max = 0;
+  usados.forEach((c) => {
+    const m = /^SIN-DEA-(\d+)$/i.exec(String(c || ""));
+    if (m) max = Math.max(max, Number(m[1]));
+  });
+  return `SIN-DEA-${String(max + 1).padStart(3, "0")}`;
 }
 
 async function abrirFormulario(plantel) {
@@ -190,7 +311,11 @@ async function abrirFormulario(plantel) {
   panel.innerHTML = `
     <h3 style="margin-bottom:14px;">${plantel ? `Editar plantel — ${escapar(p.codigo_plantel)}` : "Nuevo plantel"}</h3>
     <form id="formPlantel" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px;">
-      <div><label>Código de plantel</label><input type="text" name="codigo_plantel" value="${escapar(p.codigo_plantel)}" ${plantel ? "readonly" : "required"}></div>
+      <div>
+        <label>Código de plantel</label>
+        <input type="text" name="codigo_plantel" id="inputCodigoPlantel" value="${escapar(p.codigo_plantel)}" ${plantel ? "readonly" : "required"}>
+        ${plantel ? "" : `<button type="button" class="btn btn-sm btn-fantasma" id="btnCodigoProvisional" style="margin-top:6px;">Usar código provisional (sin código DEA)</button>`}
+      </div>
       <div><label>Epónimo actual</label><input type="text" name="eponimo_actual" value="${escapar(p.eponimo_actual)}" required></div>
       <div><label>Epónimo anterior</label><input type="text" name="eponimo_anterior" value="${escapar(p.eponimo_anterior)}"></div>
       <div><label>Denominación</label><input type="text" name="denominacion" value="${escapar(p.denominacion)}"></div>
@@ -254,6 +379,13 @@ async function abrirFormulario(plantel) {
   const inputHembras = document.getElementById("inputHembras");
   const inputVarones = document.getElementById("inputVarones");
   const textoTotal = document.getElementById("textoTotal");
+
+  const btnProvisional = document.getElementById("btnCodigoProvisional");
+  if (btnProvisional) {
+    btnProvisional.addEventListener("click", () => {
+      document.getElementById("inputCodigoPlantel").value = siguienteCodigoProvisional();
+    });
+  }
 
   const actualizarTotal = () => {
     const h = inputHembras.value.trim();
@@ -344,5 +476,5 @@ async function guardarPlantel(e) {
 
 function escapar(valor) {
   if (valor === undefined || valor === null) return "";
-  return String(valor).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(valor).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

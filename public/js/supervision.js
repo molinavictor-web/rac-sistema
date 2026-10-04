@@ -696,13 +696,448 @@ router.delete("/circuitos/:codigoCircuito/planteles/:codigoPlantel", requireAuth
 });
 
 // =========================================================
+// ALERTAS DE SUPERVISIÓN -- se calculan EN VIVO sobre las tablas del
+// módulo (no se guardan): cuando se corrige el dato, la alerta
+// desaparece sola. Cada alerta devuelve su total real y hasta
+// LIMITE_ALERTAS filas de ejemplo con el mismo formato
+// {codigo, nombre, detalle}. Son distintas de las alertas del RAC
+// (/api/alertas), que siguen en su propia pantalla.
+// =========================================================
+
+const LIMITE_ALERTAS = 300;
+
+// Todas las personas del módulo (supervisores y directores) con su cédula
+// limpia (solo dígitos) y su nombre normalizado, para cruzar duplicados.
+const PERSONAS_CTE = `
+  personas AS (
+    SELECT 'Municipal' AS origen,
+           UPPER(REGEXP_REPLACE(TRIM(COALESCE(sm.nombre, '')), '\\s+', ' ', 'g')) AS persona,
+           REGEXP_REPLACE(COALESCE(sm.cedula::text, ''), '\\D', '', 'g') AS ced
+    FROM supervisores_municipales sm
+    UNION ALL
+    SELECT 'Circuital',
+           UPPER(REGEXP_REPLACE(TRIM(COALESCE(sc.nombres, '') || ' ' || COALESCE(sc.apellidos, '')), '\\s+', ' ', 'g')),
+           REGEXP_REPLACE(COALESCE(sc.cedula::text, ''), '\\D', '', 'g')
+    FROM supervisores_circuitales sc
+    UNION ALL
+    SELECT 'Director',
+           UPPER(REGEXP_REPLACE(TRIM(COALESCE(d.nombre, '')), '\\s+', ' ', 'g')),
+           REGEXP_REPLACE(COALESCE(d.cedula::text, ''), '\\D', '', 'g')
+    FROM directores_supervision d
+  )`;
+
+const PLANTEL_BASE = `
+  FROM planteles_supervision p
+  LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel`;
+
+const ALERTAS_SUPERVISION = [
+  {
+    clave: "circuitos_sin_supervisor",
+    titulo: "Circuitos sin supervisor circuital",
+    severidad: "alta",
+    descripcion: "Circuitos activos cuyos planteles no tienen ningún supervisor circuital asignado.",
+    sql: `
+      SELECT c.codigo_circuito AS codigo, c.nombre AS nombre,
+             COALESCE((SELECT MIN(x.municipio) FROM plantel_circuito x WHERE x.codigo_circuito = c.codigo_circuito), 'sin municipio')
+               || ' · ' || (SELECT COUNT(*) FROM plantel_circuito x WHERE x.codigo_circuito = c.codigo_circuito) || ' planteles' AS detalle
+      FROM circuitos_educativos c
+      WHERE c.activo
+        AND NOT EXISTS (
+          SELECT 1 FROM plantel_circuito x
+          JOIN supervisor_circuital_plantel scp ON scp.codigo_plantel = x.codigo_plantel
+          WHERE x.codigo_circuito = c.codigo_circuito)
+      ORDER BY c.codigo_circuito`,
+  },
+  {
+    clave: "municipios_sin_supervisor",
+    titulo: "Municipios sin supervisor municipal",
+    severidad: "alta",
+    descripcion: "Municipios con planteles cargados que todavía no tienen supervisor municipal.",
+    sql: `
+      SELECT '' AS codigo, m.municipio AS nombre, m.planteles || ' planteles' AS detalle
+      FROM (SELECT municipio, COUNT(*) AS planteles FROM plantel_circuito
+            WHERE municipio IS NOT NULL GROUP BY municipio) m
+      WHERE NOT EXISTS (
+        SELECT 1 FROM supervisores_municipales sm
+        WHERE UPPER(TRIM(sm.municipio)) = UPPER(TRIM(m.municipio)))
+      ORDER BY m.municipio`,
+  },
+  {
+    clave: "planteles_sin_director",
+    titulo: "Planteles sin director",
+    severidad: "alta",
+    descripcion: "Planteles que no tienen director cargado.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM directores_supervision d WHERE d.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "personas_varias_cedulas",
+    titulo: "Misma persona con varias cédulas",
+    severidad: "media",
+    descripcion: "El mismo nombre aparece con cédulas distintas (típico error de arrastre en Excel o de digitación; también puede ser un homónimo).",
+    sql: `
+      WITH ${PERSONAS_CTE}
+      SELECT '' AS codigo, persona AS nombre,
+             COUNT(DISTINCT ced) || ' cédulas: ' || STRING_AGG(DISTINCT ced, ', ') AS detalle
+      FROM personas WHERE persona <> '' AND ced <> ''
+      GROUP BY persona HAVING COUNT(DISTINCT ced) > 1
+      ORDER BY persona`,
+  },
+  {
+    clave: "cedulas_varios_nombres",
+    titulo: "Misma cédula con nombres distintos",
+    severidad: "media",
+    descripcion: "Una misma cédula está cargada a nombres diferentes (error de digitación, o el mismo nombre escrito distinto).",
+    sql: `
+      WITH ${PERSONAS_CTE}
+      SELECT ced AS codigo, STRING_AGG(DISTINCT persona, ' / ') AS nombre,
+             COUNT(DISTINCT persona) || ' nombres distintos' AS detalle
+      FROM personas WHERE persona <> '' AND ced <> ''
+      GROUP BY ced HAVING COUNT(DISTINCT persona) > 1
+      ORDER BY ced`,
+  },
+  {
+    clave: "planteles_sin_supervisor_municipal",
+    titulo: "Planteles sin supervisor municipal asignado",
+    severidad: "media",
+    descripcion: "Planteles que no figuran en la lista de planteles de ningún supervisor municipal.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM supervisor_municipal_plantel x WHERE x.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "planteles_sin_supervisor_circuital",
+    titulo: "Planteles sin supervisor circuital asignado",
+    severidad: "media",
+    descripcion: "Planteles que no figuran en la lista de planteles de ningún supervisor circuital.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre,
+             COALESCE(pc.municipio, 'sin municipio') || COALESCE(' · circuito ' || pc.codigo_circuito, '') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM supervisor_circuital_plantel x WHERE x.codigo_plantel = p.codigo_plantel)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "planteles_sin_circuito",
+    titulo: "Planteles sin circuito",
+    severidad: "media",
+    descripcion: "Planteles que no pertenecen a ningún circuito educativo.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE pc.codigo_circuito IS NULL
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "supervisores_sin_contacto",
+    titulo: "Supervisores sin teléfono o sin correo",
+    severidad: "baja",
+    descripcion: "Supervisores municipales o circuitales a los que les falta el teléfono, el correo o ambos.",
+    sql: `
+      SELECT 'Municipal' AS codigo, sm.nombre AS nombre,
+             CONCAT_WS(', ',
+               CASE WHEN COALESCE(TRIM(sm.telefono), '') = '' THEN 'sin teléfono' END,
+               CASE WHEN COALESCE(TRIM(sm.correo), '') = '' THEN 'sin correo' END) AS detalle
+      FROM supervisores_municipales sm
+      WHERE COALESCE(TRIM(sm.telefono), '') = '' OR COALESCE(TRIM(sm.correo), '') = ''
+      UNION ALL
+      SELECT 'Circuital', sc.nombres || ' ' || sc.apellidos,
+             CONCAT_WS(', ',
+               CASE WHEN COALESCE(TRIM(sc.telefono), '') = '' THEN 'sin teléfono' END,
+               CASE WHEN COALESCE(TRIM(sc.correo), '') = '' THEN 'sin correo' END)
+      FROM supervisores_circuitales sc
+      WHERE COALESCE(TRIM(sc.telefono), '') = '' OR COALESCE(TRIM(sc.correo), '') = ''
+      ORDER BY 1, 2`,
+  },
+  {
+    clave: "planteles_sin_parroquia",
+    titulo: "Planteles sin parroquia",
+    severidad: "baja",
+    descripcion: "Planteles cuya parroquia no viene en el archivo de supervisores municipales.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE pc.codigo_plantel IS NOT NULL AND COALESCE(TRIM(pc.parroquia), '') = ''
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "planteles_sin_matricula",
+    titulo: "Planteles sin matrícula cargada",
+    severidad: "info",
+    descripcion: "Planteles que todavía no tienen matrícula (hembras y varones) cargada por el director o por Supervisión; una matrícula en 0 cuenta como no cargada.",
+    sql: `
+      SELECT p.codigo_plantel AS codigo, p.eponimo_actual AS nombre, COALESCE(pc.municipio, 'sin municipio') AS detalle
+      ${PLANTEL_BASE}
+      WHERE NOT EXISTS (SELECT 1 FROM matricula_planteles m WHERE m.codigo_plantel = p.codigo_plantel
+                        AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0)
+      ORDER BY p.eponimo_actual`,
+  },
+  {
+    clave: "directores_sin_usuario",
+    titulo: "Directores sin cuenta de acceso",
+    severidad: "info",
+    descripcion: "Directores que todavía no tienen usuario y contraseña para cargar la matrícula de su plantel.",
+    sql: `
+      SELECT d.codigo_plantel AS codigo, d.nombre AS nombre, COALESCE(p.eponimo_actual, 'plantel no encontrado') AS detalle
+      FROM directores_supervision d
+      LEFT JOIN planteles_supervision p ON p.codigo_plantel = d.codigo_plantel
+      WHERE d.usuario_id IS NULL
+      ORDER BY d.nombre`,
+  },
+];
+
+async function ejecutarAlerta(alerta) {
+  const { rows } = await pool.query(
+    `SELECT x.codigo, x.nombre, x.detalle, COUNT(*) OVER() AS total_real
+     FROM (${alerta.sql}) x
+     LIMIT ${LIMITE_ALERTAS}`
+  );
+  return {
+    clave: alerta.clave,
+    titulo: alerta.titulo,
+    severidad: alerta.severidad,
+    descripcion: alerta.descripcion,
+    total: rows.length ? Number(rows[0].total_real) : 0,
+    items: rows.map((r) => ({ codigo: r.codigo, nombre: r.nombre, detalle: r.detalle })),
+  };
+}
+
+router.get("/alertas", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const alertas = await Promise.all(ALERTAS_SUPERVISION.map(ejecutarAlerta));
+    res.json({ alertas, limite: LIMITE_ALERTAS, generado_en: new Date().toISOString() });
+  } catch (err) {
+    console.error("Error calculando alertas de supervisión:", err);
+    res.status(500).json({ error: "No se pudieron calcular las alertas de Supervisión." });
+  }
+});
+
+// Cédulas de supervisores y directores que NO aparecen en la nómina del
+// Ministerio (tabla personal_ministerio del RAC). Va aparte porque cruza
+// contra ~790 mil filas: la pantalla lo pide solo cuando se pulsa el botón.
+router.get("/alertas/cedulas-nomina", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const alerta = await ejecutarAlerta({
+      clave: "cedulas_no_en_nomina",
+      titulo: "Cédulas que no están en la nómina del Ministerio",
+      severidad: "media",
+      descripcion: "Supervisores y directores cuya cédula no se encuentra en personal_ministerio (puede ser un error de digitación o que la persona no esté en nómina).",
+      sql: `
+        WITH ${PERSONAS_CTE},
+        unicas AS (
+          SELECT ced, MIN(persona) AS persona, STRING_AGG(DISTINCT origen, ' / ') AS origen
+          FROM personas WHERE ced <> '' GROUP BY ced
+        )
+        SELECT u.ced AS codigo, u.persona AS nombre, u.origen AS detalle
+        FROM unicas u
+        WHERE NOT EXISTS (
+          SELECT 1 FROM personal_ministerio pm
+          WHERE REGEXP_REPLACE(COALESCE(pm.cedula::text, ''), '\\D', '', 'g') = u.ced)
+        ORDER BY u.persona`,
+    });
+    res.json({ alerta });
+  } catch (err) {
+    console.error("Error verificando cédulas contra la nómina:", err);
+    res.status(500).json({ error: "No se pudo verificar las cédulas contra la nómina." });
+  }
+});
+
+// =========================================================
+// ESTADÍSTICAS DE MATRÍCULA -- hembras/varones por estado, municipio,
+// parroquia y circuito, para UN período escolar a la vez. Solo suma los
+// planteles que ya tienen matrícula cargada en ese período (una matrícula en
+// 0 hembras y 0 varones cuenta como NO cargada); el resto se
+// cuenta aparte como "sin matrícula" (y se lista en /sin-matricula) para
+// que nadie tome un total parcial como el real. Se calcula en vivo.
+// =========================================================
+
+// Mismo criterio que la pantalla de Planteles: el año escolar arranca en
+// septiembre (octubre 2026 -> "2026-2027").
+function periodoPorDefecto() {
+  const hoy = new Date();
+  const inicio = hoy.getMonth() >= 8 ? hoy.getFullYear() : hoy.getFullYear() - 1;
+  return `${inicio}-${inicio + 1}`;
+}
+
+function leerPeriodo(req) {
+  const p = String(req.query.periodo || "").trim();
+  return p && p.length <= 20 ? p : periodoPorDefecto();
+}
+
+// Un plantel por fila, con su ubicación (mapa plantel_circuito) y la matrícula
+// del período pedido ($1). plantel_circuito y matricula_planteles son únicos por
+// plantel (y por plantel+período), así que no se duplican filas.
+const BASE_ESTADISTICAS = `
+  SELECT p.codigo_plantel,
+         COALESCE(NULLIF(TRIM(pc.municipio), ''), 'SIN MUNICIPIO') AS municipio,
+         COALESCE(NULLIF(TRIM(pc.parroquia), ''), 'SIN PARROQUIA') AS parroquia,
+         pc.codigo_circuito,
+         NULLIF(SUBSTRING(pc.codigo_circuito FROM 3 FOR 2), '') AS orden_municipio,
+         (m.codigo_plantel IS NOT NULL AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0) AS tiene_matricula,
+         COALESCE(m.hembras, 0) AS hembras,
+         COALESCE(m.varones, 0) AS varones
+  FROM planteles_supervision p
+  LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel
+  LEFT JOIN matricula_planteles m
+         ON m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1`;
+
+// Períodos con matrícula cargada (más el período actual por defecto, aunque
+// todavía no tenga datos, para que siempre se pueda elegir).
+router.get("/estadisticas/periodos", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT DISTINCT periodo_escolar FROM matricula_planteles WHERE periodo_escolar IS NOT NULL"
+    );
+    const porDefecto = periodoPorDefecto();
+    const lista = new Set(rows.map((r) => r.periodo_escolar));
+    lista.add(porDefecto);
+    res.json({ periodos: [...lista].sort().reverse(), periodo_defecto: porDefecto });
+  } catch (err) {
+    console.error("Error listando períodos de matrícula:", err);
+    res.status(500).json({ error: "No se pudieron consultar los períodos escolares." });
+  }
+});
+
+router.get("/estadisticas", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const periodo = leerPeriodo(req);
+  try {
+    const [general, parroquias, circuitos] = await Promise.all([
+      pool.query(
+        `WITH base AS (${BASE_ESTADISTICAS})
+         SELECT COUNT(*)::int AS planteles,
+                COUNT(*) FILTER (WHERE tiene_matricula)::int AS con_matricula,
+                COUNT(*) FILTER (WHERE codigo_circuito IS NULL)::int AS sin_circuito,
+                COALESCE(SUM(hembras), 0)::int AS hembras,
+                COALESCE(SUM(varones), 0)::int AS varones
+         FROM base`,
+        [periodo]
+      ),
+      pool.query(
+        `WITH base AS (${BASE_ESTADISTICAS})
+         SELECT municipio, parroquia,
+                MIN(orden_municipio) AS orden,
+                COUNT(*)::int AS planteles,
+                COUNT(*) FILTER (WHERE tiene_matricula)::int AS con_matricula,
+                COALESCE(SUM(hembras), 0)::int AS hembras,
+                COALESCE(SUM(varones), 0)::int AS varones
+         FROM base
+         GROUP BY municipio, parroquia
+         ORDER BY municipio, parroquia`,
+        [periodo]
+      ),
+      pool.query(
+        `WITH base AS (${BASE_ESTADISTICAS})
+         SELECT c.codigo_circuito, c.nombre, c.activo,
+                MIN(b.municipio) AS municipio,
+                COUNT(b.codigo_plantel)::int AS planteles,
+                COUNT(b.codigo_plantel) FILTER (WHERE b.tiene_matricula)::int AS con_matricula,
+                COALESCE(SUM(b.hembras), 0)::int AS hembras,
+                COALESCE(SUM(b.varones), 0)::int AS varones
+         FROM circuitos_educativos c
+         LEFT JOIN base b ON b.codigo_circuito = c.codigo_circuito
+         GROUP BY c.codigo_circuito, c.nombre, c.activo
+         ORDER BY c.codigo_circuito`,
+        [periodo]
+      ),
+    ]);
+
+    const g = general.rows[0];
+    const resumen = (f) => ({
+      planteles: f.planteles,
+      con_matricula: f.con_matricula,
+      sin_matricula: f.planteles - f.con_matricula,
+      hembras: f.hembras,
+      varones: f.varones,
+      total: f.hembras + f.varones,
+    });
+
+    // Municipios con sus parroquias adentro, en el orden oficial del
+    // código de circuito (1601 Acosta ... 1613 Uracoa); "SIN MUNICIPIO" al final.
+    const porMunicipio = new Map();
+    for (const f of parroquias.rows) {
+      if (!porMunicipio.has(f.municipio)) {
+        porMunicipio.set(f.municipio, {
+          municipio: f.municipio,
+          orden: f.orden === null ? 999 : Number(f.orden),
+          planteles: 0, con_matricula: 0, hembras: 0, varones: 0,
+          parroquias: [],
+        });
+      }
+      const m = porMunicipio.get(f.municipio);
+      if (f.orden !== null) m.orden = Math.min(m.orden, Number(f.orden));
+      m.planteles += f.planteles;
+      m.con_matricula += f.con_matricula;
+      m.hembras += f.hembras;
+      m.varones += f.varones;
+      m.parroquias.push({ parroquia: f.parroquia, ...resumen(f) });
+    }
+    const municipios = [...porMunicipio.values()]
+      .sort((a, b) => a.orden - b.orden || a.municipio.localeCompare(b.municipio, "es"))
+      .map((m) => ({ municipio: m.municipio, ...resumen(m), parroquias: m.parroquias }));
+
+    res.json({
+      periodo,
+      general: { ...resumen(g), sin_circuito: g.sin_circuito },
+      municipios,
+      circuitos: circuitos.rows.map((c) => ({
+        codigo_circuito: c.codigo_circuito,
+        nombre: c.nombre,
+        activo: c.activo,
+        municipio: c.municipio,
+        ...resumen(c),
+      })),
+    });
+  } catch (err) {
+    console.error("Error calculando estadísticas de matrícula:", err);
+    res.status(500).json({ error: "No se pudieron calcular las estadísticas de matrícula." });
+  }
+});
+
+// Planteles que NO tienen matrícula cargada en el período pedido, con su
+// ubicación, circuito y los datos del director para poder contactarlo.
+router.get("/estadisticas/sin-matricula", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const periodo = leerPeriodo(req);
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.codigo_plantel,
+              p.eponimo_actual AS nombre,
+              COALESCE(NULLIF(TRIM(pc.municipio), ''), 'SIN MUNICIPIO') AS municipio,
+              COALESCE(NULLIF(TRIM(pc.parroquia), ''), 'SIN PARROQUIA') AS parroquia,
+              pc.codigo_circuito,
+              c.nombre AS nombre_circuito,
+              d.nombre AS director_nombre,
+              d.telefono AS director_telefono
+       FROM planteles_supervision p
+       LEFT JOIN plantel_circuito pc ON pc.codigo_plantel = p.codigo_plantel
+       LEFT JOIN circuitos_educativos c ON c.codigo_circuito = pc.codigo_circuito
+       LEFT JOIN directores_supervision d ON d.codigo_plantel = p.codigo_plantel
+       WHERE NOT EXISTS (
+         SELECT 1 FROM matricula_planteles m
+         WHERE m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1
+           AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0)
+       ORDER BY municipio, parroquia, p.eponimo_actual`,
+      [periodo]
+    );
+    res.json({ periodo, total: rows.length, planteles: rows });
+  } catch (err) {
+    console.error("Error listando planteles sin matrícula:", err);
+    res.status(500).json({ error: "No se pudo consultar los planteles sin matrícula." });
+  }
+});
+
+// =========================================================
 // DIRECTORES
 // =========================================================
 
 router.get("/directores", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT d.*, u.email AS usuario_email
+      `SELECT d.*, u.email AS usuario_email, u.activo AS usuario_activo
        FROM directores_supervision d
        LEFT JOIN usuarios u ON u.id = d.usuario_id
        ORDER BY d.nombre`
@@ -826,6 +1261,57 @@ router.post("/directores/:codigoPlantel/usuario", requireAuth, requireRol(...ROL
     if (err.code === "23505") return res.status(409).json({ error: "Ese correo ya está en uso por otro usuario." });
     console.error("Error creando/reseteando cuenta de director:", err);
     res.status(500).json({ error: "No se pudo crear la cuenta del director." });
+  } finally {
+    cliente.release();
+  }
+});
+
+// Elimina el acceso web de un director: lo desvincula del plantel y borra su
+// cuenta. Si la cuenta ya tiene datos amarrados (por ejemplo, matrícula que
+// cargó ese usuario) y la base no deja borrarla, la deja DESACTIVADA y le
+// cambia el correo para que pueda volver a usarse. El director y su matrícula
+// no se tocan; para darle acceso otra vez se usa "Crear acceso web".
+router.delete("/directores/:codigoPlantel/usuario", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigoPlantel = req.params.codigoPlantel.trim();
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    const director = await cliente.query(
+      "SELECT usuario_id FROM directores_supervision WHERE codigo_plantel = $1 FOR UPDATE",
+      [codigoPlantel]
+    );
+    if (!director.rows[0]) {
+      await cliente.query("ROLLBACK");
+      return res.status(404).json({ error: "No existe un director cargado para ese plantel." });
+    }
+    const usuarioId = director.rows[0].usuario_id;
+    if (!usuarioId) {
+      await cliente.query("ROLLBACK");
+      return res.status(404).json({ error: "Ese director no tiene acceso web." });
+    }
+
+    await cliente.query("UPDATE directores_supervision SET usuario_id = NULL WHERE codigo_plantel = $1", [codigoPlantel]);
+
+    let modo = "eliminado";
+    await cliente.query("SAVEPOINT borrar_usuario");
+    try {
+      await cliente.query("DELETE FROM usuarios WHERE id = $1 AND rol = 'director'", [usuarioId]);
+    } catch (err) {
+      if (err.code !== "23503") throw err; // solo se tolera "tiene datos amarrados"
+      await cliente.query("ROLLBACK TO SAVEPOINT borrar_usuario");
+      await cliente.query(
+        "UPDATE usuarios SET activo = false, email = 'eliminado-' || id || '-' || email WHERE id = $1 AND rol = 'director'",
+        [usuarioId]
+      );
+      modo = "desactivado";
+    }
+
+    await cliente.query("COMMIT");
+    res.json({ ok: true, modo });
+  } catch (err) {
+    await cliente.query("ROLLBACK");
+    console.error("Error eliminando acceso web del director:", err);
+    res.status(500).json({ error: "No se pudo eliminar el acceso web del director." });
   } finally {
     cliente.release();
   }

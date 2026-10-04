@@ -1,12 +1,26 @@
 // supervision-directores.js — panel de administración (rol admin/supervision)
-// de directores: buscar, crear, editar y crear/resetear su cuenta de acceso web
-// (la que usan luego en /supervision/mi-plantel.html).
+// de directores: buscar, crear, editar y crear/resetear/eliminar su cuenta de
+// acceso web (la que usan luego en /supervision/mi-plantel.html).
+//
+// Si se abre con ?nuevo=CODIGO (enlace "+ Director" de la pantalla Planteles),
+// el formulario de nuevo director sale ya abierto con ese código de plantel.
 
 const usuario = renderShell("supervision-directores", "Supervisión · Directores");
 let directores = [];
 let editando = null; // codigo_plantel en edición, o null si el formulario es "nuevo"
 let textoBusqueda = ""; // se conserva al recargar la pantalla
 let soloSinAcceso = false;
+let formularioPreabierto = false; // ?nuevo=CODIGO se atiende una sola vez
+
+// Lista larga con scroll interno y encabezado fijo.
+(function () {
+  if (document.getElementById("estiloListaScroll")) return;
+  const st = document.createElement("style");
+  st.id = "estiloListaScroll";
+  st.textContent = ".lista-scroll{max-height:65vh;overflow:auto;}"
+    + ".lista-scroll thead th{position:sticky;top:0;z-index:2;background:#eef3f9;box-shadow:0 1px 0 #d9e1ec;}";
+  document.head.appendChild(st);
+})();
 
 if (usuario) cargarPantalla();
 
@@ -17,6 +31,11 @@ async function cargarPantalla() {
     const resp = await RAC.get("/api/supervision/directores");
     directores = RAC.lista(resp, "directores");
     dibujarPantalla();
+    const codigoNuevo = new URLSearchParams(window.location.search).get("nuevo");
+    if (codigoNuevo && !formularioPreabierto) {
+      formularioPreabierto = true;
+      abrirFormulario(null, codigoNuevo.trim());
+    }
   } catch (err) {
     contenido.innerHTML = `<div class="panel" style="padding:20px;"><div class="vacio"><strong>No se pudo cargar</strong>${escapar(err.message)}</div></div>`;
   }
@@ -108,7 +127,7 @@ function dibujarTabla() {
   }
 
   cont.innerHTML = `
-    <div class="tabla-responsive">
+    <div class="tabla-responsive lista-scroll">
       <table>
         <thead><tr><th>Código plantel</th><th>Nombre</th><th>Cédula</th><th>Teléfono</th><th>Correo</th><th>Acceso web</th><th></th></tr></thead>
         <tbody>${lista.map((d) => `
@@ -119,10 +138,11 @@ function dibujarTabla() {
             <td>${escapar(d.telefono || "—")}</td>
             <td>${escapar(d.correo || "—")}</td>
             <td>${d.usuario_email ? escapar(d.usuario_email) : `<span class="vacio-inline">Sin acceso</span>`}</td>
-            <td style="white-space:nowrap; display:flex; gap:6px;">
+            <td><div style="display:flex; gap:6px; white-space:nowrap;">
               <button type="button" class="btn btn-sm" data-editar="${escapar(d.codigo_plantel)}">Editar</button>
               <button type="button" class="btn btn-sm" data-acceso="${escapar(d.codigo_plantel)}">${d.usuario_email ? "Resetear acceso" : "Crear acceso"}</button>
-            </td>
+              ${d.usuario_email ? `<button type="button" class="btn btn-sm btn-peligro" data-quitar-acceso="${escapar(d.codigo_plantel)}">Eliminar acceso</button>` : ""}
+            </div></td>
           </tr>`).join("")}
         </tbody>
       </table>
@@ -135,12 +155,16 @@ function dibujarTabla() {
   cont.querySelectorAll("[data-acceso]").forEach((btn) => {
     btn.addEventListener("click", () => abrirAcceso(directores.find((d) => d.codigo_plantel === btn.dataset.acceso)));
   });
+  cont.querySelectorAll("[data-quitar-acceso]").forEach((btn) => {
+    btn.addEventListener("click", () => quitarAcceso(directores.find((d) => d.codigo_plantel === btn.dataset.quitarAcceso)));
+  });
 }
 
-function abrirFormulario(director) {
+function abrirFormulario(director, codigoPrecargado) {
   editando = director ? director.codigo_plantel : null;
   document.getElementById("panelAcceso").style.display = "none";
   const d = director || {};
+  if (!director && codigoPrecargado) d.codigo_plantel = codigoPrecargado;
   const panel = document.getElementById("panelFormulario");
   panel.style.display = "block";
   panel.innerHTML = `
@@ -239,6 +263,30 @@ function abrirAcceso(director) {
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// Elimina la cuenta de acceso web del director. El director y la matrícula que
+// ya cargó se conservan; se le puede dar acceso otra vez con "Crear acceso".
+async function quitarAcceso(director) {
+  if (!director || !director.usuario_email) return;
+  const confirmado = confirm(
+    `¿Eliminar el acceso web de ${director.nombre}?\n\n` +
+    `Cuenta: ${director.usuario_email}\n\n` +
+    `Ya no podrá entrar al sistema ni cargar la matrícula. El director y la matrícula que ya cargó se conservan, ` +
+    `y podrás darle acceso otra vez con "Crear acceso".`
+  );
+  if (!confirmado) return;
+  try {
+    const resp = await RAC.del(`/api/supervision/directores/${encodeURIComponent(director.codigo_plantel)}/usuario`);
+    mostrarToast(resp && resp.modo === "desactivado"
+      ? "Acceso eliminado: la cuenta quedó desactivada porque ya tiene datos asociados."
+      : "Acceso web eliminado.");
+    const panelAcceso = document.getElementById("panelAcceso");
+    if (panelAcceso) { panelAcceso.style.display = "none"; panelAcceso.innerHTML = ""; }
+    cargarPantalla();
+  } catch (err) {
+    mostrarToast(err.message, true);
+  }
+}
+
 function formatoFecha(valor) {
   if (!valor) return "";
   return String(valor).slice(0, 10);
@@ -246,5 +294,5 @@ function formatoFecha(valor) {
 
 function escapar(valor) {
   if (valor === undefined || valor === null) return "";
-  return String(valor).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(valor).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
