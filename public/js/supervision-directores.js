@@ -17,8 +17,11 @@ let formularioPreabierto = false; // ?nuevo=CODIGO se atiende una sola vez
   if (document.getElementById("estiloListaScroll")) return;
   const st = document.createElement("style");
   st.id = "estiloListaScroll";
-  st.textContent = ".lista-scroll{max-height:65vh;overflow:auto;}"
-    + ".lista-scroll thead th{position:sticky;top:0;z-index:2;background:#eef3f9;box-shadow:0 1px 0 #d9e1ec;}";
+  st.textContent = ".lista-scroll{max-height:calc(100vh - 230px);min-height:320px;overflow:auto;}"
+    + ".lista-scroll table{width:100%;font-size:.84rem;}"
+    + ".lista-scroll th,.lista-scroll td{padding:8px;}"
+    + ".lista-scroll td:first-child{white-space:nowrap;}"
+    + ".lista-scroll thead th{position:sticky;top:0;z-index:2;background:#eef3f9;box-shadow:0 1px 0 #d9e1ec;white-space:nowrap;}";
   document.head.appendChild(st);
 })();
 
