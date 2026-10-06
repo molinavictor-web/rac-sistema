@@ -1131,6 +1131,125 @@ router.get("/estadisticas/sin-matricula", requireAuth, requireRol(...ROLES_SUPER
 });
 
 // =========================================================
+// ESTADÍSTICAS POR TIPO DE PLANTEL (dependencia) -- instituciones y matrícula
+// (hembras/varones) por NACIONAL, ESTADAL, MUNICIPAL, AUTÓNOMA, SUBVENCIONADAS
+// (MPPE + oficiales sumadas en una sola fila) y PRIVADA, para un período.
+// `alcance` decide qué planteles se cuentan:
+//   gescolar (por defecto) = solo los marcados en_gescolar = true (reporte oficial)
+//   todos                  = todos los planteles del sistema de Supervisión
+// Igual que el resto de las estadísticas, la matrícula suma solo los planteles
+// que ya la cargaron en el período (0 hembras y 0 varones cuenta como no cargada).
+// =========================================================
+
+const TIPOS_DEPENDENCIA = [
+  { clave: "nacional", nombre: "NACIONAL" },
+  { clave: "estadal", nombre: "ESTADAL" },
+  { clave: "municipal", nombre: "MUNICIPAL" },
+  { clave: "autonoma", nombre: "AUTÓNOMA" },
+  { clave: "subvencionadas", nombre: "SUBVENCIONADAS" },
+  { clave: "privada", nombre: "PRIVADA" },
+  { clave: "otra", nombre: "OTRA DEPENDENCIA" },
+  { clave: "sin_dependencia", nombre: "SIN DEPENDENCIA" },
+];
+const TIPOS_SIEMPRE_VISIBLES = 6; // los dos últimos solo salen si tienen planteles
+
+// Convierte el texto guardado en planteles_supervision.dependencia en la clave
+// del tipo (ignora tildes y mayúsculas; las dos subvencionadas van juntas).
+function claveDependencia(valor) {
+  const t = String(valor == null ? "" : valor)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+  if (!t) return "sin_dependencia";
+  if (t.includes("SUBVENCION")) return "subvencionadas";
+  if (t.startsWith("NACIONAL")) return "nacional";
+  if (t.startsWith("ESTADAL")) return "estadal";
+  if (t.startsWith("MUNICIPAL")) return "municipal";
+  if (t.startsWith("AUTONOM")) return "autonoma";
+  if (t.startsWith("PRIVAD")) return "privada";
+  return "otra";
+}
+
+router.get("/estadisticas/dependencias", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const periodo = leerPeriodo(req);
+  const alcance = String(req.query.alcance || "gescolar").toLowerCase() === "todos" ? "todos" : "gescolar";
+  const soloGescolar = alcance === "gescolar";
+  try {
+    const [filas, alcances] = await Promise.all([
+      pool.query(
+        `SELECT UPPER(TRIM(COALESCE(p.dependencia, ''))) AS dependencia,
+                COUNT(*)::int AS planteles,
+                COUNT(*) FILTER (WHERE m.codigo_plantel IS NOT NULL
+                                   AND COALESCE(m.hembras, 0) + COALESCE(m.varones, 0) > 0)::int AS con_matricula,
+                COALESCE(SUM(COALESCE(m.hembras, 0)), 0)::int AS hembras,
+                COALESCE(SUM(COALESCE(m.varones, 0)), 0)::int AS varones
+         FROM planteles_supervision p
+         LEFT JOIN matricula_planteles m
+                ON m.codigo_plantel = p.codigo_plantel AND m.periodo_escolar = $1
+         WHERE ($2::boolean = false OR p.en_gescolar)
+         GROUP BY 1`,
+        [periodo, soloGescolar]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS todos,
+                COUNT(*) FILTER (WHERE en_gescolar)::int AS gescolar
+         FROM planteles_supervision`
+      ),
+    ]);
+
+    // Se juntan por tipo (las dos subvencionadas caen en la misma clave).
+    const acumulado = new Map(
+      TIPOS_DEPENDENCIA.map((t) => [t.clave, { planteles: 0, con_matricula: 0, hembras: 0, varones: 0 }])
+    );
+    for (const f of filas.rows) {
+      const a = acumulado.get(claveDependencia(f.dependencia));
+      a.planteles += f.planteles;
+      a.con_matricula += f.con_matricula;
+      a.hembras += f.hembras;
+      a.varones += f.varones;
+    }
+
+    const tipos = TIPOS_DEPENDENCIA
+      .map((t, i) => {
+        const a = acumulado.get(t.clave);
+        return {
+          clave: t.clave,
+          nombre: t.nombre,
+          planteles: a.planteles,
+          con_matricula: a.con_matricula,
+          sin_matricula: a.planteles - a.con_matricula,
+          hembras: a.hembras,
+          varones: a.varones,
+          total: a.hembras + a.varones,
+          visible: i < TIPOS_SIEMPRE_VISIBLES || a.planteles > 0,
+        };
+      })
+      .filter((t) => t.visible)
+      .map(({ visible, ...resto }) => resto);
+
+    const suma = (campo) => tipos.reduce((acc, t) => acc + t[campo], 0);
+    res.json({
+      periodo,
+      alcance,
+      alcances: alcances.rows[0],
+      tipos,
+      general: {
+        planteles: suma("planteles"),
+        con_matricula: suma("con_matricula"),
+        sin_matricula: suma("sin_matricula"),
+        hembras: suma("hembras"),
+        varones: suma("varones"),
+        total: suma("total"),
+      },
+    });
+  } catch (err) {
+    console.error("Error calculando estadísticas por tipo de plantel:", err);
+    res.status(500).json({ error: "No se pudieron calcular las estadísticas por tipo de plantel." });
+  }
+});
+
+// =========================================================
 // DIRECTORES
 // =========================================================
 
