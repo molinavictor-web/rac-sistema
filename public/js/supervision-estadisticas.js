@@ -1,6 +1,9 @@
 // supervision-estadisticas.js — pantalla "Estadísticas" del módulo Supervisión.
 // Matrícula (hembras / varones) por estado, circuito, municipio y parroquia,
 // con búsqueda por circuito y lista de planteles que faltan por cargar matrícula.
+// La pestaña "Por tipo de plantel" muestra instituciones y matrícula por
+// dependencia (nacional, estadal, municipal, autónoma, subvencionadas, privada)
+// y arma el reporte de texto que la profesora de Supervisión envía.
 (function () {
   "use strict";
 
@@ -16,7 +19,10 @@
     periodos: [],
     datos: null,           // respuesta de /estadisticas
     sinMatricula: [],      // respuesta de /estadisticas/sin-matricula
-    pestana: "circuitos",
+    dependencias: null,    // respuesta de /estadisticas/dependencias
+    depError: null,        // mensaje si falló /estadisticas/dependencias
+    alcance: "gescolar",   // "gescolar" = reporte oficial, "todos" = todos los planteles
+    pestana: "dependencias",
     soloIncompletos: false,
     abiertos: new Set(),   // municipios desplegados
     circuitoSel: null,
@@ -25,6 +31,8 @@
 
   // ---------- utilidades ----------
   const fmt = (n) => Number(n || 0).toLocaleString("es-VE");
+  // Miles con punto SIEMPRE (también en 4 cifras: 5.283), como en el reporte de la profesora.
+  const miles = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   const esc = (s) =>
     String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const norm = (s) =>
@@ -70,7 +78,7 @@
         <div class="est-hero-texto">
           <div class="est-hero-eyebrow">Supervisión · Matrícula escolar</div>
           <div class="est-hero-titulo">Estadísticas de matrícula</div>
-          <div class="est-hero-sub">Hembras y varones del estado Monagas, por circuito, municipio y parroquia.</div>
+          <div class="est-hero-sub">Hembras y varones del estado Monagas, por tipo de plantel, circuito, municipio y parroquia.</div>
         </div>
         <label class="est-hero-periodo">Período escolar
           <select id="estPeriodo"></select>
@@ -127,6 +135,7 @@
 
   // ---------- pestañas ----------
   const PESTANAS = [
+    { id: "dependencias", etiqueta: "Por tipo de plantel" },
     { id: "circuitos", etiqueta: "Por circuito" },
     { id: "municipios", etiqueta: "Municipios y parroquias" },
     { id: "buscar", etiqueta: "Buscar circuito" },
@@ -144,7 +153,11 @@
   function renderPanel() {
     renderTabs();
     const panel = document.getElementById("estPanel");
-    if (estado.pestana === "circuitos") panel.innerHTML = htmlCircuitos();
+    if (estado.pestana === "dependencias") {
+      panel.innerHTML = htmlDependencias();
+      const ta = document.getElementById("estReporte");
+      if (ta && estado.dependencias) ta.value = textoReporte(estado.dependencias);
+    } else if (estado.pestana === "circuitos") panel.innerHTML = htmlCircuitos();
     else if (estado.pestana === "municipios") panel.innerHTML = htmlMunicipios();
     else if (estado.pestana === "buscar") {
       panel.innerHTML = htmlBuscar();
@@ -153,6 +166,133 @@
       panel.innerHTML = htmlFaltan();
       actualizarTablaFaltan();
     }
+  }
+
+  // ---------- pestaña: por tipo de plantel ----------
+  // Cómo se escribe cada tipo en el reporte de la profesora (matrícula / instituciones).
+  const ETIQUETAS_REPORTE = {
+    nacional: { mat: "Nacional", inst: "Nacionales" },
+    estadal: { mat: "Estadal", inst: "Estadales" },
+    municipal: { mat: "Municipal", inst: "Municipales" },
+    autonoma: { mat: "Autónomo", inst: "Autónomos" },
+    subvencionadas: { mat: "Subvencionado", inst: "Subvencionados" },
+    privada: { mat: "Privado", inst: "Privados" },
+    otra: { mat: "Otra dependencia", inst: "Otra dependencia" },
+    sin_dependencia: { mat: "Sin dependencia", inst: "Sin dependencia" },
+  };
+
+  function textoReporte(d) {
+    const etq = (t, campo) => (ETIQUETAS_REPORTE[t.clave] || {})[campo] || t.nombre;
+    const lineasMatricula = d.tipos.map((t) => `🔹${etq(t, "mat")}: ${miles(t.total)}`);
+    const lineasInstituciones = d.tipos.map((t) => `🔹${etq(t, "inst")}: ${miles(t.planteles)}`);
+    return [
+      "📝Estado: Monagas",
+      `📅Período escolar: ${d.periodo}`,
+      "🚻Matrícula disgregada por dependencia:",
+      ...lineasMatricula,
+      `📈Total Matrícula Del Estado: ${miles(d.general.total)}`,
+      "✨✨✨✨✨✨✨",
+      "🏤Cantidad de instituciones por dependencia:",
+      ...lineasInstituciones,
+      `📈Total de instituciones en el estado: ${miles(d.general.planteles)}`,
+      "✨✨✨✨✨✨",
+    ].join("\n");
+  }
+
+  function htmlDependencias() {
+    if (estado.depError) {
+      return `<div class="est-vacio est-error">${esc(estado.depError)}</div>`;
+    }
+    const d = estado.dependencias;
+    if (!d) return `<div class="est-vacio">Cargando…</div>`;
+    const g = d.general;
+    const al = d.alcances || { todos: 0, gescolar: 0 };
+
+    const filas = d.tipos.map((t) => `
+      <tr>
+        <td>${esc(t.nombre)}</td>
+        <td class="num">${fmt(t.planteles)}</td>
+        <td class="num">${cobertura(t.con_matricula, t.planteles)}</td>
+        <td class="num">${fmt(t.hembras)}</td>
+        <td class="num">${fmt(t.varones)}</td>
+        <td class="num"><strong>${fmt(t.total)}</strong></td>
+        <td>${barra(t.hembras, t.varones)}</td>
+      </tr>`).join("");
+
+    const avisos = [];
+    if (d.alcance === "gescolar" && al.todos > al.gescolar) {
+      avisos.push(`Reporte oficial: se cuentan los ${fmt(al.gescolar)} planteles registrados en GESCOLAR. El sistema tiene ${fmt(al.todos)} en total (${fmt(al.todos - al.gescolar)} todavía no están en GESCOLAR).`);
+    }
+    if (g.sin_matricula > 0) {
+      avisos.push(`Faltan ${fmt(g.sin_matricula)} de ${fmt(g.planteles)} planteles por cargar la matrícula del período ${d.periodo}: las cifras de matrícula son parciales.`);
+    }
+
+    return `
+      <div class="est-herramientas">
+        <label class="est-campo">Qué planteles contar
+          <select id="estAlcance">
+            <option value="gescolar" ${d.alcance === "gescolar" ? "selected" : ""}>Reporte oficial (solo planteles en GESCOLAR)</option>
+            <option value="todos" ${d.alcance === "todos" ? "selected" : ""}>Todos los planteles del sistema</option>
+          </select>
+        </label>
+        <span class="espacio"></span>
+        <button type="button" class="btn btn-sm btn-fantasma" data-accion="csv-dependencias">Exportar CSV</button>
+      </div>
+      ${avisos.map((a) => `<div class="est-aviso">${esc(a)}</div>`).join("")}
+      <div class="tabla-responsive">
+        <table class="est-tabla">
+          <thead><tr><th>Tipo de plantel</th><th class="num">Instituciones</th><th class="num">Con matrícula</th><th class="num">Hembras</th><th class="num">Varones</th><th class="num">Matrícula total</th><th></th></tr></thead>
+          <tbody>${filas}</tbody>
+          <tfoot><tr><td>Total estado Monagas</td><td class="num">${fmt(g.planteles)}</td><td class="num">${fmt(g.con_matricula)} / ${fmt(g.planteles)}</td><td class="num">${fmt(g.hembras)}</td><td class="num">${fmt(g.varones)}</td><td class="num">${fmt(g.total)}</td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <p class="est-nota" style="margin-top:8px">Subvencionadas suma las subvencionadas por el MPPE y las oficiales. La matrícula cuenta solo los planteles que ya la cargaron en este período.</p>
+
+      <div class="est-detalle" style="margin-top:16px">
+        <h3>Reporte para enviar</h3>
+        <div class="meta">Mismo formato del reporte de Supervisión. Puedes editar el texto antes de copiarlo.</div>
+        <textarea id="estReporte" rows="21" spellcheck="false" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #c9d3e0;border-radius:8px;font:inherit;line-height:1.5;resize:vertical"></textarea>
+        <div class="est-herramientas" style="margin-top:10px">
+          <button type="button" class="btn" data-accion="copiar-reporte">Copiar reporte</button>
+          <button type="button" class="btn btn-sm btn-fantasma" data-accion="regenerar-reporte">Restablecer texto</button>
+        </div>
+      </div>`;
+  }
+
+  async function copiarReporte() {
+    const ta = document.getElementById("estReporte");
+    if (!ta || !ta.value.trim()) return;
+    let copiado = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(ta.value);
+        copiado = true;
+      }
+    } catch (err) {
+      copiado = false;
+    }
+    if (!copiado) {
+      try {
+        ta.focus();
+        ta.select();
+        copiado = document.execCommand("copy");
+      } catch (err) {
+        copiado = false;
+      }
+    }
+    aviso(copiado ? "Reporte copiado. Ya puedes pegarlo en WhatsApp." : "No se pudo copiar automáticamente: selecciona el texto y cópialo a mano.", !copiado);
+  }
+
+  function exportarDependencias() {
+    const d = estado.dependencias;
+    if (!d) return;
+    const filas = d.tipos.map((t) => [t.nombre, t.planteles, t.con_matricula, t.sin_matricula, t.hembras, t.varones, t.total]);
+    filas.push(["TOTAL ESTADO MONAGAS", d.general.planteles, d.general.con_matricula, d.general.sin_matricula, d.general.hembras, d.general.varones, d.general.total]);
+    descargarCsv(
+      `matricula-por-tipo-de-plantel-${d.alcance}-${d.periodo}.csv`,
+      ["Tipo de plantel", "Instituciones", "Con matrícula", "Sin matrícula", "Hembras", "Varones", "Matrícula total"],
+      filas
+    );
   }
 
   // ---------- pestaña: por circuito ----------
@@ -413,6 +553,13 @@
     } else if (accion === "pestana") {
       estado.pestana = el.dataset.id;
       renderPanel();
+    } else if (accion === "copiar-reporte") {
+      copiarReporte();
+    } else if (accion === "regenerar-reporte") {
+      const ta = document.getElementById("estReporte");
+      if (ta && estado.dependencias) ta.value = textoReporte(estado.dependencias);
+    } else if (accion === "csv-dependencias") {
+      exportarDependencias();
     } else if (accion === "ver-circuito") {
       estado.circuitoSel = el.dataset.codigo;
       estado.pestana = "buscar";
@@ -461,9 +608,13 @@
     }
   }
 
-  function onChange(e) {
+  async function onChange(e) {
     const id = e.target.id;
-    if (id === "estSoloIncompletos") {
+    if (id === "estAlcance") {
+      estado.alcance = e.target.value === "todos" ? "todos" : "gescolar";
+      await cargarDependencias();
+      renderPanel();
+    } else if (id === "estSoloIncompletos") {
       estado.soloIncompletos = e.target.checked;
       renderPanel();
     } else if (id === "estFMuni") {
@@ -480,6 +631,19 @@
   }
 
   // ---------- carga de datos ----------
+  // Si esta consulta falla no se cae el resto de la pantalla: solo la pestaña
+  // "Por tipo de plantel" muestra el error.
+  async function cargarDependencias() {
+    estado.depError = null;
+    try {
+      const q = `?periodo=${encodeURIComponent(estado.periodo)}&alcance=${encodeURIComponent(estado.alcance)}`;
+      estado.dependencias = await RAC.get(`${API}/estadisticas/dependencias${q}`);
+    } catch (err) {
+      estado.dependencias = null;
+      estado.depError = (err && err.message) || "No se pudieron cargar las estadísticas por tipo de plantel.";
+    }
+  }
+
   async function cargarDatos() {
     const panel = document.getElementById("estPanel");
     panel.innerHTML = `<div class="est-vacio">Cargando estadísticas…</div>`;
@@ -488,6 +652,7 @@
       const [datos, faltan] = await Promise.all([
         RAC.get(`${API}/estadisticas${q}`),
         RAC.get(`${API}/estadisticas/sin-matricula${q}`),
+        cargarDependencias(),
       ]);
       estado.datos = datos;
       estado.sinMatricula = faltan.planteles || [];
