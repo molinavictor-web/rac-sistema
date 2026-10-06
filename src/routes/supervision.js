@@ -1495,4 +1495,213 @@ router.post(
   }
 );
 
+// =========================================================
+// MATRÍCULA POR NIVEL (hembras/varones por plantel + período + nivel)
+// Tablas: niveles_matricula (catálogo de los 8 niveles), plantel_niveles
+// (qué niveles tiene cada plantel) y matricula_nivel (los datos).
+// Al guardar por nivel, la SUMA se escribe también en matricula_planteles
+// (el total por plantel y período), así Consolidado, Resumen y Estadísticas
+// siguen funcionando igual que antes.
+// =========================================================
+
+const textoVacio = (v) => v === undefined || v === null || String(v).trim() === "";
+
+// Catálogo de los niveles (para mostrar los que se pueden asignar a un plantel nuevo).
+router.get("/niveles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT clave, nombre, orden FROM niveles_matricula ORDER BY orden");
+    res.json({ niveles: rows });
+  } catch (err) {
+    console.error("Error listando niveles de matrícula:", err);
+    res.status(500).json({ error: "No se pudo consultar el catálogo de niveles." });
+  }
+});
+
+// Catálogo de niveles, niveles asignados al plantel (en orden) y toda la
+// matrícula por nivel cargada (período DESC). Accesible para el director de
+// ESE plantel y para supervision/admin.
+router.get(
+  "/matricula-nivel/:codigoPlantel",
+  requireAuth,
+  requireRol(...ROLES_SUPERVISION_Y_DIRECTOR),
+  requireMismoPlantel((req) => req.params.codigoPlantel),
+  async (req, res) => {
+    const codigoPlantel = req.params.codigoPlantel.trim();
+    try {
+      const [catalogo, asignados, filas] = await Promise.all([
+        pool.query("SELECT clave, nombre, orden FROM niveles_matricula ORDER BY orden"),
+        pool.query("SELECT nivel FROM plantel_niveles WHERE codigo_plantel = $1", [codigoPlantel]),
+        pool.query(
+          `SELECT mn.periodo_escolar, mn.nivel, mn.hembras, mn.varones
+           FROM matricula_nivel mn
+           JOIN niveles_matricula n ON n.clave = mn.nivel
+           WHERE mn.codigo_plantel = $1
+           ORDER BY mn.periodo_escolar DESC, n.orden`,
+          [codigoPlantel]
+        ),
+      ]);
+      const propios = new Set(asignados.rows.map((r) => r.nivel));
+      res.json({
+        catalogo: catalogo.rows,
+        asignados: catalogo.rows.filter((n) => propios.has(n.clave)).map((n) => n.clave),
+        filas: filas.rows,
+      });
+    } catch (err) {
+      console.error("Error consultando matrícula por nivel:", err);
+      res.status(500).json({ error: "No se pudo consultar la matrícula por nivel." });
+    }
+  }
+);
+
+// Guarda la matrícula de un período por nivel: { periodo_escolar, niveles: [{ nivel, hembras, varones }] }.
+// Cada nivel debe pertenecer al plantel. Si el período ya tenía ese nivel lo
+// actualiza; no toca otros períodos. Todo en una transacción.
+router.post(
+  "/matricula-nivel/:codigoPlantel",
+  requireAuth,
+  requireRol(...ROLES_SUPERVISION_Y_DIRECTOR),
+  requireMismoPlantel((req) => req.params.codigoPlantel),
+  async (req, res) => {
+    const codigoPlantel = req.params.codigoPlantel.trim();
+    const periodo = String((req.body || {}).periodo_escolar || "").trim();
+    const lista = (req.body || {}).niveles;
+    if (!periodo || periodo.length > 20) {
+      return res.status(400).json({ error: "Falta el período escolar." });
+    }
+    if (!Array.isArray(lista) || !lista.length) {
+      return res.status(400).json({ error: "Faltan los niveles con su matrícula." });
+    }
+
+    const items = [];
+    const vistos = new Set();
+    for (const it of lista) {
+      const nivel = String((it || {}).nivel || "").trim();
+      const h = Number((it || {}).hembras);
+      const v = Number((it || {}).varones);
+      if (!nivel || textoVacio((it || {}).hembras) || textoVacio((it || {}).varones)
+          || !Number.isInteger(h) || !Number.isInteger(v) || h < 0 || v < 0) {
+        return res.status(400).json({ error: "Cada nivel necesita hembras y varones como números enteros (0 o más)." });
+      }
+      if (vistos.has(nivel)) return res.status(400).json({ error: "Hay un nivel repetido en la matrícula." });
+      vistos.add(nivel);
+      items.push({ nivel, h, v });
+    }
+
+    const cliente = await pool.connect();
+    try {
+      await cliente.query("BEGIN");
+
+      const asignados = await cliente.query("SELECT nivel FROM plantel_niveles WHERE codigo_plantel = $1", [codigoPlantel]);
+      const permitidos = new Set(asignados.rows.map((r) => r.nivel));
+      if (!permitidos.size) {
+        await cliente.query("ROLLBACK");
+        return res.status(400).json({ error: "Este plantel no tiene niveles asignados todavía. Pídele a Supervisión que se los asigne." });
+      }
+      const ajenos = items.filter((i) => !permitidos.has(i.nivel)).map((i) => i.nivel);
+      if (ajenos.length) {
+        await cliente.query("ROLLBACK");
+        return res.status(400).json({ error: `Estos niveles no pertenecen al plantel: ${ajenos.join(", ")}.` });
+      }
+
+      for (const i of items) {
+        await cliente.query(
+          `INSERT INTO matricula_nivel (codigo_plantel, periodo_escolar, nivel, hembras, varones, actualizado_por)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (codigo_plantel, periodo_escolar, nivel)
+           DO UPDATE SET hembras = EXCLUDED.hembras, varones = EXCLUDED.varones,
+                         actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()`,
+          [codigoPlantel, periodo, i.nivel, i.h, i.v, req.usuario.id]
+        );
+      }
+
+      // El total por plantel y período = suma de TODOS sus niveles cargados.
+      const total = await cliente.query(
+        `INSERT INTO matricula_planteles (codigo_plantel, periodo_escolar, hembras, varones, actualizado_por)
+         SELECT $1::varchar, $2::varchar, COALESCE(SUM(hembras), 0)::int, COALESCE(SUM(varones), 0)::int, $3::int
+         FROM matricula_nivel
+         WHERE codigo_plantel = $1::varchar AND periodo_escolar = $2::varchar
+         ON CONFLICT (codigo_plantel, periodo_escolar)
+         DO UPDATE SET hembras = EXCLUDED.hembras, varones = EXCLUDED.varones,
+                       actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()
+         RETURNING *`,
+        [codigoPlantel, periodo, req.usuario.id]
+      );
+
+      await cliente.query("COMMIT");
+      res.json({ matricula: total.rows[0] });
+    } catch (err) {
+      await cliente.query("ROLLBACK");
+      console.error("Error guardando matrícula por nivel:", err);
+      res.status(500).json({ error: "No se pudo guardar la matrícula por nivel." });
+    } finally {
+      cliente.release();
+    }
+  }
+);
+
+// Cambia los niveles de un plantel (solo supervision/admin): { niveles: ["maternal", "preescolar", ...] }.
+// No deja quitar un nivel que ya tiene matrícula cargada (mayor que 0); los
+// que quedaron en 0 sí se pueden quitar.
+router.put("/planteles/:codigoPlantel/niveles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const codigoPlantel = req.params.codigoPlantel.trim();
+  const pedidos = (req.body || {}).niveles;
+  if (!Array.isArray(pedidos)) return res.status(400).json({ error: "Falta la lista de niveles." });
+  const claves = [...new Set(pedidos.map((n) => String(n).trim()).filter(Boolean))];
+
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+
+    const existe = await cliente.query("SELECT 1 FROM planteles_supervision WHERE codigo_plantel = $1", [codigoPlantel]);
+    if (!existe.rows[0]) {
+      await cliente.query("ROLLBACK");
+      return res.status(404).json({ error: "No existe ese plantel en Supervisión." });
+    }
+
+    if (claves.length) {
+      const validos = await cliente.query("SELECT clave FROM niveles_matricula WHERE clave = ANY($1::text[])", [claves]);
+      if (validos.rows.length !== claves.length) {
+        await cliente.query("ROLLBACK");
+        return res.status(400).json({ error: "Hay niveles que no existen en el catálogo." });
+      }
+    }
+
+    const actuales = await cliente.query("SELECT nivel FROM plantel_niveles WHERE codigo_plantel = $1", [codigoPlantel]);
+    const quitar = actuales.rows.map((r) => r.nivel).filter((n) => !claves.includes(n));
+    if (quitar.length) {
+      const conDatos = await cliente.query(
+        `SELECT DISTINCT n.nombre
+         FROM matricula_nivel mn
+         JOIN niveles_matricula n ON n.clave = mn.nivel
+         WHERE mn.codigo_plantel = $1 AND mn.nivel = ANY($2::text[]) AND mn.hembras + mn.varones > 0`,
+        [codigoPlantel, quitar]
+      );
+      if (conDatos.rows.length) {
+        await cliente.query("ROLLBACK");
+        return res.status(409).json({
+          error: `No se puede quitar ${conDatos.rows.map((r) => r.nombre).join(", ")}: ya tiene matrícula cargada.`,
+        });
+      }
+      await cliente.query("DELETE FROM matricula_nivel WHERE codigo_plantel = $1 AND nivel = ANY($2::text[])", [codigoPlantel, quitar]);
+      await cliente.query("DELETE FROM plantel_niveles WHERE codigo_plantel = $1 AND nivel = ANY($2::text[])", [codigoPlantel, quitar]);
+    }
+
+    for (const nivel of claves) {
+      await cliente.query(
+        "INSERT INTO plantel_niveles (codigo_plantel, nivel) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [codigoPlantel, nivel]
+      );
+    }
+
+    await cliente.query("COMMIT");
+    res.json({ ok: true, asignados: claves });
+  } catch (err) {
+    await cliente.query("ROLLBACK");
+    console.error("Error guardando niveles del plantel:", err);
+    res.status(500).json({ error: "No se pudieron guardar los niveles del plantel." });
+  } finally {
+    cliente.release();
+  }
+});
+
 module.exports = router;
