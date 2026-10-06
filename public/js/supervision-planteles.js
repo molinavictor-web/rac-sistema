@@ -1,8 +1,12 @@
 // supervision-planteles.js — panel de administración (rol admin/supervision):
 // catálogo propio de planteles de Supervisión (independiente de GESCOLAR/RAC).
-// Permite buscar, crear y editar planteles, y cargar su matrícula (hembras y
-// varones por período escolar, con histórico). El backend no expone borrado
-// para este catálogo, así que aquí tampoco se ofrece esa acción.
+// Permite buscar, crear y editar planteles, asignarles sus niveles (Maternal,
+// Preescolar, Primaria, ...) y cargar su matrícula (hembras y varones por nivel
+// y período escolar, con histórico). El backend no expone borrado para este
+// catálogo, así que aquí tampoco se ofrece esa acción.
+//
+// Si un plantel no tiene niveles asignados (o no se pudieron consultar), la
+// matrícula se carga como un solo total de hembras y varones, igual que antes.
 //
 // Filtros "Solo sin director" y "Solo sin código DEA": trabajan sobre TODOS los
 // planteles (vienen de /consolidado, sin el límite de 300 del listado). Un
@@ -24,7 +28,14 @@ let editando = null; // codigo_plantel en edición, o null si el formulario es "
 let textoBusqueda = "";
 let temporizadorBusqueda;
 let contadorBusqueda = 0; // descarta respuestas viejas si el usuario sigue escribiendo
-let historialActual = []; // histórico de matrícula del plantel que se edita
+let historialActual = []; // histórico de matrícula (totales) del plantel que se edita
+
+// Niveles del plantel que se edita
+let nivelesDisponibles = false; // false si no se pudo consultar el catálogo de niveles
+let catalogoNiveles = []; // [{ clave, nombre, orden }]
+let nivelesSel = new Set(); // claves marcadas en el formulario
+let nivelesOriginales = []; // claves que tenía asignadas al abrir el formulario
+let filasNivelActual = []; // matrícula por nivel ya cargada: [{ periodo_escolar, nivel, hembras, varones }]
 
 // Lista larga con scroll interno y encabezado fijo.
 (function () {
@@ -285,6 +296,194 @@ function siguienteCodigoProvisional() {
   return `SIN-DEA-${String(max + 1).padStart(3, "0")}`;
 }
 
+// ---------- matrícula por nivel / por total (bloque del formulario) ----------
+
+const usaNivelesEnForm = () => nivelesDisponibles && nivelesSel.size > 0;
+const nivelesMarcados = () => catalogoNiveles.filter((n) => nivelesSel.has(n.clave));
+
+// Matrícula por nivel ya cargada en un período: { clave: { hembras, varones } }.
+function filasNivelDelPeriodo(periodo) {
+  const mapa = {};
+  filasNivelActual.forEach((f) => {
+    if (f.periodo_escolar === periodo) mapa[f.nivel] = { hembras: f.hembras, varones: f.varones };
+  });
+  return mapa;
+}
+
+// Períodos que se ofrecen en la lista: los del histórico de totales y los de niveles.
+function periodosConocidos() {
+  const set = new Set(historialActual.map((f) => f.periodo_escolar));
+  filasNivelActual.forEach((f) => set.add(f.periodo_escolar));
+  return [...set].sort().reverse();
+}
+
+// Lee lo que hay escrito en los campos de matrícula (para no perderlo al
+// volver a dibujar el bloque cuando se marca o desmarca un nivel).
+function leerValoresMatricula() {
+  const valores = { periodo: "", porNivel: {}, hembras: "", varones: "" };
+  const per = document.getElementById("inputPeriodo");
+  if (per) valores.periodo = per.value;
+  document.querySelectorAll("#bloqueMatricula tr[data-nivel]").forEach((tr) => {
+    valores.porNivel[tr.dataset.nivel] = {
+      hembras: tr.querySelector(".inp-h").value,
+      varones: tr.querySelector(".inp-v").value,
+    };
+  });
+  const h = document.getElementById("inputHembras");
+  const v = document.getElementById("inputVarones");
+  if (h) valores.hembras = h.value;
+  if (v) valores.varones = v.value;
+  return valores;
+}
+
+function dibujarBloqueMatricula(valores) {
+  const cont = document.getElementById("bloqueMatricula");
+  const periodo = (valores && valores.periodo !== "" ? valores.periodo : null) || periodoActual();
+  const porNivel = usaNivelesEnForm();
+
+  const filaPeriodoTotal = historialActual.find((f) => f.periodo_escolar === periodo);
+  const previosNivel = filasNivelDelPeriodo(periodo);
+
+  const tablaHistorial = periodosConocidos().length ? `
+    <div class="tabla-responsive" style="margin-top:14px;">
+      <table>
+        <thead><tr><th>Período</th><th>Hembras</th><th>Varones</th><th>Total</th><th></th></tr></thead>
+        <tbody>${periodosConocidos().map((per) => {
+          const f = historialActual.find((x) => x.periodo_escolar === per);
+          const suma = filasNivelActual.filter((x) => x.periodo_escolar === per)
+            .reduce((a, x) => ({ h: a.h + Number(x.hembras), v: a.v + Number(x.varones) }), { h: 0, v: 0 });
+          const h = f ? Number(f.hembras) : suma.h;
+          const v = f ? Number(f.varones) : suma.v;
+          const t = f && f.total !== null && f.total !== undefined ? f.total : h + v;
+          return `
+          <tr>
+            <td>${escapar(per)}</td>
+            <td>${escapar(h)}</td>
+            <td>${escapar(v)}</td>
+            <td>${escapar(t)}</td>
+            <td><button type="button" class="btn btn-sm btn-fantasma" data-cargar-periodo="${escapar(per)}">Cargar</button></td>
+          </tr>`; }).join("")}
+        </tbody>
+      </table>
+    </div>` : "";
+
+  let campos;
+  if (porNivel) {
+    campos = `
+      <div style="margin-bottom:12px; max-width:200px;">
+        <label>Período escolar</label>
+        <input type="text" name="periodo_escolar" id="inputPeriodo" list="listaPeriodos" value="${escapar(periodo)}" placeholder="2026-2027" autocomplete="off">
+        <datalist id="listaPeriodos">${periodosConocidos().map((per) => `<option value="${escapar(per)}"></option>`).join("")}</datalist>
+      </div>
+      <div class="tabla-responsive">
+        <table>
+          <thead><tr><th>Nivel</th><th>Hembras</th><th>Varones</th><th>Total</th></tr></thead>
+          <tbody>${nivelesMarcados().map((n) => {
+            const escrito = valores && valores.porNivel && valores.porNivel[n.clave];
+            const guardado = previosNivel[n.clave];
+            const h = escrito ? escrito.hembras : (guardado ? guardado.hembras : "");
+            const v = escrito ? escrito.varones : (guardado ? guardado.varones : "");
+            return `
+            <tr data-nivel="${escapar(n.clave)}">
+              <td>${escapar(n.nombre)}</td>
+              <td><input type="number" class="inp-h" min="0" step="1" style="width:100px;" value="${escapar(h)}"></td>
+              <td><input type="number" class="inp-v" min="0" step="1" style="width:100px;" value="${escapar(v)}"></td>
+              <td class="tot-fila"><strong>—</strong></td>
+            </tr>`; }).join("")}
+          </tbody>
+          <tfoot><tr>
+            <td><strong>Total del plantel</strong></td>
+            <td id="totalH"><strong>—</strong></td>
+            <td id="totalV"><strong>—</strong></td>
+            <td id="totalT"><strong>—</strong></td>
+          </tr></tfoot>
+        </table>
+      </div>`;
+  } else {
+    const h = valores && valores.hembras !== "" ? valores.hembras : (filaPeriodoTotal ? filaPeriodoTotal.hembras : "");
+    const v = valores && valores.varones !== "" ? valores.varones : (filaPeriodoTotal ? filaPeriodoTotal.varones : "");
+    campos = `
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; align-items:end;">
+        <div>
+          <label>Período escolar</label>
+          <input type="text" name="periodo_escolar" id="inputPeriodo" list="listaPeriodos" value="${escapar(periodo)}" placeholder="2026-2027" autocomplete="off">
+          <datalist id="listaPeriodos">${periodosConocidos().map((per) => `<option value="${escapar(per)}"></option>`).join("")}</datalist>
+        </div>
+        <div><label>Hembras</label><input type="number" name="hembras" id="inputHembras" min="0" step="1" value="${escapar(h)}"></div>
+        <div><label>Varones</label><input type="number" name="varones" id="inputVarones" min="0" step="1" value="${escapar(v)}"></div>
+        <div><label>Total</label><div id="textoTotal" style="padding:9px 0; font-weight:700;">—</div></div>
+      </div>`;
+  }
+
+  cont.oninput = null; // se vuelve a poner abajo si el bloque es por nivel
+  cont.innerHTML = campos + tablaHistorial;
+  cont.querySelectorAll("label").forEach((l) => { l.style.display = "block"; l.style.fontSize = ".78rem"; l.style.marginBottom = "4px"; });
+
+  const inputPeriodo = document.getElementById("inputPeriodo");
+
+  // Totales en vivo
+  if (porNivel) {
+    const num = (input) => (input.value.trim() === "" ? null : Number(input.value));
+    const recalcular = () => {
+      let th = 0, tv = 0, alguno = false;
+      cont.querySelectorAll("tbody tr[data-nivel]").forEach((tr) => {
+        const h = num(tr.querySelector(".inp-h"));
+        const v = num(tr.querySelector(".inp-v"));
+        const celda = tr.querySelector(".tot-fila strong");
+        if (h === null && v === null) { celda.textContent = "—"; return; }
+        alguno = true;
+        th += h || 0;
+        tv += v || 0;
+        celda.textContent = String((h || 0) + (v || 0));
+      });
+      document.querySelector("#totalH strong").textContent = alguno ? String(th) : "—";
+      document.querySelector("#totalV strong").textContent = alguno ? String(tv) : "—";
+      document.querySelector("#totalT strong").textContent = alguno ? String(th + tv) : "—";
+    };
+    cont.oninput = (e) => {
+      if (e.target.classList && (e.target.classList.contains("inp-h") || e.target.classList.contains("inp-v"))) recalcular();
+    };
+    recalcular();
+  } else {
+    const inputHembras = document.getElementById("inputHembras");
+    const inputVarones = document.getElementById("inputVarones");
+    const textoTotal = document.getElementById("textoTotal");
+    const actualizarTotal = () => {
+      const h = inputHembras.value.trim();
+      const v = inputVarones.value.trim();
+      textoTotal.textContent = h === "" && v === "" ? "—" : String((Number(h) || 0) + (Number(v) || 0));
+    };
+    inputHembras.addEventListener("input", actualizarTotal);
+    inputVarones.addEventListener("input", actualizarTotal);
+    actualizarTotal();
+  }
+
+  // Cargar los valores de un período del histórico en los campos
+  const cargarPeriodo = (nombre) => {
+    if (porNivel) {
+      const previos = filasNivelDelPeriodo(nombre);
+      inputPeriodo.value = nombre;
+      cont.querySelectorAll("tbody tr[data-nivel]").forEach((tr) => {
+        const f = previos[tr.dataset.nivel];
+        tr.querySelector(".inp-h").value = f ? f.hembras : "";
+        tr.querySelector(".inp-v").value = f ? f.varones : "";
+      });
+      cont.querySelector("tbody tr[data-nivel] .inp-h").dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      const fila = historialActual.find((f) => f.periodo_escolar === nombre);
+      if (!fila) return;
+      inputPeriodo.value = fila.periodo_escolar;
+      document.getElementById("inputHembras").value = fila.hembras;
+      document.getElementById("inputVarones").value = fila.varones;
+      document.getElementById("inputHembras").dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  };
+  inputPeriodo.addEventListener("change", () => cargarPeriodo(inputPeriodo.value.trim()));
+  cont.querySelectorAll("[data-cargar-periodo]").forEach((btn) => {
+    btn.addEventListener("click", () => cargarPeriodo(btn.dataset.cargarPeriodo));
+  });
+}
+
 async function abrirFormulario(plantel) {
   editando = plantel ? plantel.codigo_plantel : null;
   const p = plantel || {};
@@ -293,23 +492,45 @@ async function abrirFormulario(plantel) {
   panel.innerHTML = `<div class="cargando">Cargando plantel…</div>`;
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  // Histórico de matrícula del plantel (solo si ya existe).
+  // Histórico de matrícula (totales) y niveles del plantel (solo si ya existe).
   historialActual = [];
+  filasNivelActual = [];
+  nivelesSel = new Set();
+  nivelesOriginales = [];
+  catalogoNiveles = [];
+  nivelesDisponibles = false;
   let avisoMatricula = "";
+  let avisoNiveles = "";
   if (plantel) {
+    const codigo = encodeURIComponent(plantel.codigo_plantel);
     try {
-      const resp = await RAC.get(`/api/supervision/matricula/${encodeURIComponent(plantel.codigo_plantel)}`);
+      const resp = await RAC.get(`/api/supervision/matricula/${codigo}`);
       historialActual = RAC.lista(resp, "matricula") || [];
     } catch (err) {
       avisoMatricula = `No se pudo cargar el histórico de matrícula (${err.message}).`;
+    }
+    try {
+      const resp = await RAC.get(`/api/supervision/matricula-nivel/${codigo}`);
+      catalogoNiveles = resp.catalogo || [];
+      nivelesSel = new Set(resp.asignados || []);
+      nivelesOriginales = [...nivelesSel];
+      filasNivelActual = resp.filas || [];
+      nivelesDisponibles = catalogoNiveles.length > 0;
+    } catch (err) {
+      avisoNiveles = `No se pudieron cargar los niveles (${err.message}). La matrícula se carga como un solo total.`;
+    }
+  } else {
+    try {
+      const resp = await RAC.get("/api/supervision/niveles");
+      catalogoNiveles = resp.niveles || [];
+      nivelesDisponibles = catalogoNiveles.length > 0;
+    } catch (err) {
+      avisoNiveles = `No se pudieron cargar los niveles (${err.message}). La matrícula se carga como un solo total.`;
     }
   }
 
   const dependencias = ["NACIONAL", "ESTADAL", "MUNICIPAL", "PRIVADA", "AUTÓNOMA", "SUBVENCIONADOS OFICIALES", "SUBVENCIONADA MPPE"];
   if (p.dependencia && !dependencias.includes(p.dependencia)) dependencias.push(p.dependencia);
-
-  const periodo = periodoActual();
-  const filaPeriodo = historialActual.find((f) => f.periodo_escolar === periodo);
 
   panel.innerHTML = `
     <h3 style="margin-bottom:14px;">${plantel ? `Editar plantel — ${escapar(p.codigo_plantel)}` : "Nuevo plantel"}</h3>
@@ -337,37 +558,30 @@ async function abrirFormulario(plantel) {
       <div><label>Coordenadas geo</label><input type="text" name="coordenadas_geo" value="${escapar(p.coordenadas_geo)}"></div>
       <div><label>Ubicación geo</label><input type="text" name="ubicacion_geo" value="${escapar(p.ubicacion_geo)}"></div>
 
+      ${nivelesDisponibles ? `
+      <div style="grid-column:1/-1; border-top:1px solid var(--rac-border, #dfe7f0); padding-top:14px; margin-top:4px;">
+        <h3 style="margin-bottom:4px;">Niveles del plantel</h3>
+        <p style="font-size:.8rem; color:var(--muted); margin-bottom:10px;">
+          Marca los niveles que atiende este plantel: la matrícula se carga por cada uno y el total es la suma.
+          ${plantel && !nivelesOriginales.length ? "Este plantel todavía no tiene niveles asignados." : ""}
+        </p>
+        <div id="listaNiveles" style="display:flex; flex-wrap:wrap; gap:8px 18px;">
+          ${catalogoNiveles.map((n) => `
+            <label class="lbl-check" style="display:flex; gap:6px; align-items:center; font-size:.84rem;">
+              <input type="checkbox" data-nivel="${escapar(n.clave)}" ${nivelesSel.has(n.clave) ? "checked" : ""}> ${escapar(n.nombre)}
+            </label>`).join("")}
+        </div>
+      </div>` : ""}
+
       <div style="grid-column:1/-1; border-top:1px solid var(--rac-border, #dfe7f0); padding-top:14px; margin-top:4px;">
         <h3 style="margin-bottom:4px;">Matrícula</h3>
         <p style="font-size:.8rem; color:var(--muted); margin-bottom:12px;">
           Se guarda por período escolar: si el período ya existe se actualiza; si es uno nuevo se agrega al histórico sin tocar los anteriores. Déjala en blanco para no cambiarla.
+          ${nivelesDisponibles ? "Con niveles marcados se carga por nivel (todos los niveles del período)." : ""}
         </p>
         ${avisoMatricula ? `<p style="font-size:.8rem; color:#b7791f; margin-bottom:10px;">${escapar(avisoMatricula)}</p>` : ""}
-        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; align-items:end;">
-          <div>
-            <label>Período escolar</label>
-            <input type="text" name="periodo_escolar" id="inputPeriodo" list="listaPeriodos" value="${escapar(periodo)}" placeholder="2026-2027" autocomplete="off">
-            <datalist id="listaPeriodos">${historialActual.map((f) => `<option value="${escapar(f.periodo_escolar)}"></option>`).join("")}</datalist>
-          </div>
-          <div><label>Hembras</label><input type="number" name="hembras" id="inputHembras" min="0" step="1" value="${filaPeriodo ? escapar(filaPeriodo.hembras) : ""}"></div>
-          <div><label>Varones</label><input type="number" name="varones" id="inputVarones" min="0" step="1" value="${filaPeriodo ? escapar(filaPeriodo.varones) : ""}"></div>
-          <div><label>Total</label><div id="textoTotal" style="padding:9px 0; font-weight:700;">—</div></div>
-        </div>
-        ${historialActual.length ? `
-          <div class="tabla-responsive" style="margin-top:14px;">
-            <table>
-              <thead><tr><th>Período</th><th>Hembras</th><th>Varones</th><th>Total</th><th></th></tr></thead>
-              <tbody>${historialActual.map((f) => `
-                <tr>
-                  <td>${escapar(f.periodo_escolar)}</td>
-                  <td>${escapar(f.hembras)}</td>
-                  <td>${escapar(f.varones)}</td>
-                  <td>${escapar(f.total !== null && f.total !== undefined ? f.total : (Number(f.hembras) || 0) + (Number(f.varones) || 0))}</td>
-                  <td><button type="button" class="btn btn-sm btn-fantasma" data-cargar-periodo="${escapar(f.periodo_escolar)}">Cargar</button></td>
-                </tr>`).join("")}
-              </tbody>
-            </table>
-          </div>` : ""}
+        ${avisoNiveles ? `<p style="font-size:.8rem; color:#b7791f; margin-bottom:10px;">${escapar(avisoNiveles)}</p>` : ""}
+        <div id="bloqueMatricula"></div>
       </div>
 
       <div style="grid-column:1/-1; display:flex; gap:10px; margin-top:6px;">
@@ -376,12 +590,7 @@ async function abrirFormulario(plantel) {
       </div>
     </form>
   `;
-  panel.querySelectorAll("label").forEach((l) => { l.style.display = "block"; l.style.fontSize = ".78rem"; l.style.marginBottom = "4px"; });
-
-  const inputPeriodo = document.getElementById("inputPeriodo");
-  const inputHembras = document.getElementById("inputHembras");
-  const inputVarones = document.getElementById("inputVarones");
-  const textoTotal = document.getElementById("textoTotal");
+  panel.querySelectorAll("label:not(.lbl-check)").forEach((l) => { l.style.display = "block"; l.style.fontSize = ".78rem"; l.style.marginBottom = "4px"; });
 
   const btnProvisional = document.getElementById("btnCodigoProvisional");
   if (btnProvisional) {
@@ -390,26 +599,19 @@ async function abrirFormulario(plantel) {
     });
   }
 
-  const actualizarTotal = () => {
-    const h = inputHembras.value.trim();
-    const v = inputVarones.value.trim();
-    textoTotal.textContent = h === "" && v === "" ? "—" : String((Number(h) || 0) + (Number(v) || 0));
-  };
-  const cargarPeriodo = (nombre) => {
-    const fila = historialActual.find((f) => f.periodo_escolar === nombre);
-    if (!fila) return;
-    inputPeriodo.value = fila.periodo_escolar;
-    inputHembras.value = fila.hembras;
-    inputVarones.value = fila.varones;
-    actualizarTotal();
-  };
-  inputHembras.addEventListener("input", actualizarTotal);
-  inputVarones.addEventListener("input", actualizarTotal);
-  inputPeriodo.addEventListener("change", () => cargarPeriodo(inputPeriodo.value.trim()));
-  panel.querySelectorAll("[data-cargar-periodo]").forEach((btn) => {
-    btn.addEventListener("click", () => cargarPeriodo(btn.dataset.cargarPeriodo));
-  });
-  actualizarTotal();
+  // Marcar / desmarcar niveles: se vuelve a dibujar el bloque de matrícula sin perder lo escrito.
+  const lista = document.getElementById("listaNiveles");
+  if (lista) {
+    lista.addEventListener("change", (e) => {
+      const caja = e.target;
+      if (!caja.dataset || !caja.dataset.nivel) return;
+      const valores = leerValoresMatricula();
+      if (caja.checked) nivelesSel.add(caja.dataset.nivel); else nivelesSel.delete(caja.dataset.nivel);
+      dibujarBloqueMatricula(valores);
+    });
+  }
+
+  dibujarBloqueMatricula(null);
 
   document.getElementById("btnCancelarPlantel").addEventListener("click", cerrarFormulario);
   document.getElementById("formPlantel").addEventListener("submit", guardarPlantel);
@@ -434,13 +636,40 @@ async function guardarPlantel(e) {
   delete datos.hembras;
   delete datos.varones;
 
-  const quiereMatricula = hembras !== "" || varones !== "";
-  if (quiereMatricula) {
-    const esEntero = (t) => /^\d+$/.test(t);
-    if (!periodo) { mostrarToast("Indica el período escolar de la matrícula.", true); return; }
-    if (hembras === "" || varones === "") { mostrarToast("Para guardar la matrícula completa hembras y varones.", true); return; }
-    if (!esEntero(hembras) || !esEntero(varones)) { mostrarToast("Hembras y varones deben ser números enteros (0 o más).", true); return; }
+  const esEntero = (t) => /^\d+$/.test(t);
+  const porNivel = usaNivelesEnForm();
+
+  // Se valida TODO antes de guardar nada, para no dejar el plantel a medias.
+  let quiereMatricula = false;
+  let niveles = [];
+  if (porNivel) {
+    const filas = [...document.querySelectorAll("#bloqueMatricula tr[data-nivel]")].map((tr) => ({
+      nivel: tr.dataset.nivel,
+      nombre: tr.firstElementChild.textContent,
+      h: tr.querySelector(".inp-h").value.trim(),
+      v: tr.querySelector(".inp-v").value.trim(),
+    }));
+    quiereMatricula = filas.some((f) => f.h !== "" || f.v !== "");
+    if (quiereMatricula) {
+      if (!periodo) { mostrarToast("Indica el período escolar de la matrícula.", true); return; }
+      for (const f of filas) {
+        if (f.h === "" || f.v === "") { mostrarToast(`Completa hembras y varones de ${f.nombre} (si no hay estudiantes, coloca 0).`, true); return; }
+        if (!esEntero(f.h) || !esEntero(f.v)) { mostrarToast(`En ${f.nombre}, hembras y varones deben ser números enteros (0 o más).`, true); return; }
+      }
+      niveles = filas.map((f) => ({ nivel: f.nivel, hembras: Number(f.h), varones: Number(f.v) }));
+    }
+  } else {
+    quiereMatricula = hembras !== "" || varones !== "";
+    if (quiereMatricula) {
+      if (!periodo) { mostrarToast("Indica el período escolar de la matrícula.", true); return; }
+      if (hembras === "" || varones === "") { mostrarToast("Para guardar la matrícula completa hembras y varones.", true); return; }
+      if (!esEntero(hembras) || !esEntero(varones)) { mostrarToast("Hembras y varones deben ser números enteros (0 o más).", true); return; }
+    }
   }
+
+  const nivelesActuales = [...nivelesSel].sort();
+  const cambioNiveles = nivelesDisponibles
+    && JSON.stringify(nivelesActuales) !== JSON.stringify([...nivelesOriginales].sort());
 
   boton.disabled = true;
   try {
@@ -452,13 +681,28 @@ async function guardarPlantel(e) {
       codigo = String(datos.codigo_plantel || "").trim();
     }
 
+    if (cambioNiveles) {
+      try {
+        await RAC.put(`/api/supervision/planteles/${encodeURIComponent(codigo)}/niveles`, { niveles: nivelesActuales });
+      } catch (err) {
+        mostrarToast(`Plantel guardado, pero los niveles no: ${err.message}`, true);
+        cerrarFormulario();
+        refrescar();
+        return;
+      }
+    }
+
     if (quiereMatricula) {
       try {
-        await RAC.post(`/api/supervision/matricula/${encodeURIComponent(codigo)}`, {
-          periodo_escolar: periodo,
-          hembras: Number(hembras),
-          varones: Number(varones),
-        });
+        if (porNivel) {
+          await RAC.post(`/api/supervision/matricula-nivel/${encodeURIComponent(codigo)}`, { periodo_escolar: periodo, niveles });
+        } else {
+          await RAC.post(`/api/supervision/matricula/${encodeURIComponent(codigo)}`, {
+            periodo_escolar: periodo,
+            hembras: Number(hembras),
+            varones: Number(varones),
+          });
+        }
       } catch (err) {
         mostrarToast(`Plantel guardado, pero la matrícula no: ${err.message}`, true);
         cerrarFormulario();
