@@ -125,7 +125,7 @@ router.post("/planteles", requireAuth, requireRol(...ROLES_SUPERVISION), async (
   const {
     codigo_plantel, eponimo_anterior, eponimo_actual, denominacion,
     niveles_modalidad, dependencia, turno, direccion,
-    coordenadas_geo, ubicacion_geo, cod_comuna, nombre_comuna,
+    coordenadas_geo, ubicacion_geo, cod_comuna, nombre_comuna, en_gescolar,
   } = req.body || {};
   if (!codigo_plantel || !eponimo_actual) {
     return res.status(400).json({ error: "Faltan codigo_plantel o eponimo_actual." });
@@ -134,12 +134,12 @@ router.post("/planteles", requireAuth, requireRol(...ROLES_SUPERVISION), async (
     const { rows } = await pool.query(
       `INSERT INTO planteles_supervision
         (codigo_plantel, eponimo_anterior, eponimo_actual, denominacion, niveles_modalidad,
-         dependencia, turno, direccion, coordenadas_geo, ubicacion_geo, cod_comuna, nombre_comuna)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         dependencia, turno, direccion, coordenadas_geo, ubicacion_geo, cod_comuna, nombre_comuna, en_gescolar)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE($13::boolean, false))
        RETURNING *`,
       [codigo_plantel, eponimo_anterior || null, eponimo_actual, denominacion || null, niveles_modalidad || null,
        dependencia || null, turno || null, direccion || null, coordenadas_geo || null, ubicacion_geo || null,
-       cod_comuna || null, nombre_comuna || null]
+       cod_comuna || null, nombre_comuna || null, typeof en_gescolar === "boolean" ? en_gescolar : null]
     );
     res.status(201).json({ plantel: rows[0] });
   } catch (err) {
@@ -153,19 +153,20 @@ router.put("/planteles/:codigoPlantel", requireAuth, requireRol(...ROLES_SUPERVI
   const codigoPlantel = req.params.codigoPlantel.trim();
   const {
     eponimo_anterior, eponimo_actual, denominacion, niveles_modalidad,
-    dependencia, turno, direccion, coordenadas_geo, ubicacion_geo, cod_comuna, nombre_comuna,
+    dependencia, turno, direccion, coordenadas_geo, ubicacion_geo, cod_comuna, nombre_comuna, en_gescolar,
   } = req.body || {};
   try {
     const { rows } = await pool.query(
       `UPDATE planteles_supervision SET
         eponimo_anterior = $1, eponimo_actual = $2, denominacion = $3, niveles_modalidad = $4,
         dependencia = $5, turno = $6, direccion = $7, coordenadas_geo = $8, ubicacion_geo = $9,
-        cod_comuna = $10, nombre_comuna = $11, actualizado_en = now()
+        cod_comuna = $10, nombre_comuna = $11, en_gescolar = COALESCE($13::boolean, en_gescolar),
+        actualizado_en = now()
        WHERE codigo_plantel = $12
        RETURNING *`,
       [eponimo_anterior || null, eponimo_actual, denominacion || null, niveles_modalidad || null,
        dependencia || null, turno || null, direccion || null, coordenadas_geo || null, ubicacion_geo || null,
-       cod_comuna || null, nombre_comuna || null, codigoPlantel]
+       cod_comuna || null, nombre_comuna || null, codigoPlantel, typeof en_gescolar === "boolean" ? en_gescolar : null]
     );
     if (!rows[0]) return res.status(404).json({ error: "No existe ese plantel." });
     res.json({ plantel: rows[0] });
@@ -214,7 +215,7 @@ router.get("/consolidado", requireAuth, requireRol(...ROLES_SUPERVISION), async 
     const { rows } = await pool.query(`
       SELECT
         p.codigo_plantel, p.eponimo_actual, p.denominacion, p.niveles_modalidad,
-        p.dependencia, p.turno, p.direccion, p.nombre_comuna,
+        p.dependencia, p.turno, p.direccion, p.nombre_comuna, p.en_gescolar,
         d.nombre AS director_nombre, d.cedula AS director_cedula, d.telefono AS director_telefono,
         string_agg(DISTINCT sm.nombre, ', ')                       AS supervisores_municipales,
         string_agg(DISTINCT (sc.nombres || ' ' || sc.apellidos), ', ') AS supervisores_circuitales,
@@ -234,7 +235,7 @@ router.get("/consolidado", requireAuth, requireRol(...ROLES_SUPERVISION), async 
         LIMIT 1
       ) m ON true
       GROUP BY p.codigo_plantel, p.eponimo_actual, p.denominacion, p.niveles_modalidad,
-               p.dependencia, p.turno, p.direccion, p.nombre_comuna,
+               p.dependencia, p.turno, p.direccion, p.nombre_comuna, p.en_gescolar,
                d.nombre, d.cedula, d.telefono,
                m.periodo_escolar, m.hembras, m.varones, m.total
       ORDER BY p.eponimo_actual
@@ -1246,6 +1247,105 @@ router.get("/estadisticas/dependencias", requireAuth, requireRol(...ROLES_SUPERV
   } catch (err) {
     console.error("Error calculando estadísticas por tipo de plantel:", err);
     res.status(500).json({ error: "No se pudieron calcular las estadísticas por tipo de plantel." });
+  }
+});
+
+// =========================================================
+// ESTADÍSTICAS POR NIVEL -- matrícula (hembras/varones) por Maternal, Preescolar,
+// Primaria, Media General, Media Técnica, Escuelas Técnicas, Educación Adulto y
+// Educación Especial, para un período. Mismo `alcance` que el reporte por tipo de
+// plantel (gescolar = solo los marcados en_gescolar; todos = todo el sistema).
+// Solo suma lo cargado POR NIVEL: los planteles que cargaron únicamente un total
+// (o que no tienen niveles asignados) no entran en esta tabla; se cuentan aparte
+// (solo_total / sin_niveles) para que nadie tome una cifra parcial como la final.
+// =========================================================
+
+router.get("/estadisticas/niveles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
+  const periodo = leerPeriodo(req);
+  const alcance = String(req.query.alcance || "gescolar").toLowerCase() === "todos" ? "todos" : "gescolar";
+  const soloGescolar = alcance === "gescolar";
+  const ALCANCE = `
+    WITH alcance AS (
+      SELECT codigo_plantel FROM planteles_supervision
+      WHERE ($2::boolean = false OR en_gescolar)
+    )`;
+  try {
+    const [porNivel, cobertura] = await Promise.all([
+      pool.query(
+        `${ALCANCE}
+         SELECT n.clave, n.nombre, n.orden,
+                (SELECT COUNT(*) FROM plantel_niveles pn
+                   JOIN alcance a ON a.codigo_plantel = pn.codigo_plantel
+                  WHERE pn.nivel = n.clave)::int AS planteles,
+                (SELECT COUNT(*) FROM matricula_nivel mn
+                   JOIN alcance a ON a.codigo_plantel = mn.codigo_plantel
+                  WHERE mn.nivel = n.clave AND mn.periodo_escolar = $1
+                    AND mn.hembras + mn.varones > 0)::int AS con_matricula,
+                (SELECT COALESCE(SUM(mn.hembras), 0) FROM matricula_nivel mn
+                   JOIN alcance a ON a.codigo_plantel = mn.codigo_plantel
+                  WHERE mn.nivel = n.clave AND mn.periodo_escolar = $1)::int AS hembras,
+                (SELECT COALESCE(SUM(mn.varones), 0) FROM matricula_nivel mn
+                   JOIN alcance a ON a.codigo_plantel = mn.codigo_plantel
+                  WHERE mn.nivel = n.clave AND mn.periodo_escolar = $1)::int AS varones
+         FROM niveles_matricula n
+         ORDER BY n.orden`,
+        [periodo, soloGescolar]
+      ),
+      pool.query(
+        `${ALCANCE}
+         SELECT
+           (SELECT COUNT(*) FROM alcance)::int AS planteles,
+           (SELECT COUNT(*) FROM alcance a
+             WHERE NOT EXISTS (SELECT 1 FROM plantel_niveles pn WHERE pn.codigo_plantel = a.codigo_plantel))::int AS sin_niveles,
+           (SELECT COUNT(DISTINCT mn.codigo_plantel) FROM matricula_nivel mn
+              JOIN alcance a ON a.codigo_plantel = mn.codigo_plantel
+             WHERE mn.periodo_escolar = $1 AND mn.hembras + mn.varones > 0)::int AS con_matricula_por_nivel,
+           (SELECT COUNT(*) FROM matricula_planteles m
+              JOIN alcance a ON a.codigo_plantel = m.codigo_plantel
+             WHERE m.periodo_escolar = $1 AND m.hembras + m.varones > 0
+               AND NOT EXISTS (SELECT 1 FROM matricula_nivel mn
+                                WHERE mn.codigo_plantel = m.codigo_plantel AND mn.periodo_escolar = m.periodo_escolar
+                                  AND mn.hembras + mn.varones > 0))::int AS solo_total,
+           (SELECT COALESCE(SUM(m.hembras + m.varones), 0) FROM matricula_planteles m
+              JOIN alcance a ON a.codigo_plantel = m.codigo_plantel
+             WHERE m.periodo_escolar = $1 AND m.hembras + m.varones > 0
+               AND NOT EXISTS (SELECT 1 FROM matricula_nivel mn
+                                WHERE mn.codigo_plantel = m.codigo_plantel AND mn.periodo_escolar = m.periodo_escolar
+                                  AND mn.hembras + mn.varones > 0))::int AS matricula_solo_total`,
+        [periodo, soloGescolar]
+      ),
+    ]);
+
+    const niveles = porNivel.rows.map((n) => ({
+      clave: n.clave,
+      nombre: n.nombre,
+      planteles: n.planteles,
+      con_matricula: n.con_matricula,
+      sin_matricula: n.planteles - n.con_matricula,
+      hembras: n.hembras,
+      varones: n.varones,
+      total: n.hembras + n.varones,
+    }));
+    const suma = (campo) => niveles.reduce((acc, n) => acc + n[campo], 0);
+    const c = cobertura.rows[0];
+    res.json({
+      periodo,
+      alcance,
+      niveles,
+      general: {
+        hembras: suma("hembras"),
+        varones: suma("varones"),
+        total: suma("total"),
+        planteles: c.planteles,
+        sin_niveles: c.sin_niveles,
+        con_matricula_por_nivel: c.con_matricula_por_nivel,
+        solo_total: c.solo_total,
+        matricula_solo_total: c.matricula_solo_total,
+      },
+    });
+  } catch (err) {
+    console.error("Error calculando estadísticas por nivel:", err);
+    res.status(500).json({ error: "No se pudieron calcular las estadísticas por nivel." });
   }
 });
 
