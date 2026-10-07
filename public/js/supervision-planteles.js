@@ -15,6 +15,10 @@
 // planteles (vienen de /consolidado, sin el límite de 300 del listado). Un
 // plantel sin código DEA se registra con un código provisional "SIN-DEA-001"
 // (botón en el formulario de nuevo plantel) y así queda contado y visible.
+//
+// Teléfono/tablet: el formulario del plantel usa columnas con minmax(0,1fr) y
+// pasa a una sola columna en pantallas angostas; las tablas de matrícula e
+// histórico tienen su propio scroll lateral y no ensanchan el formulario.
 
 const usuario = renderShell("supervision-planteles", "Supervisión · Planteles");
 const LIMITE_LISTADO = 300; // el backend corta el listado en 300 filas
@@ -51,6 +55,30 @@ let filasNivelActual = []; // matrícula por nivel ya cargada: [{ periodo_escola
     + ".lista-scroll th,.lista-scroll td{padding:8px;}"
     + ".lista-scroll td:first-child{white-space:nowrap;}"
     + ".lista-scroll thead th{position:sticky;top:0;z-index:2;background:#eef3f9;box-shadow:0 1px 0 #d9e1ec;white-space:nowrap;}";
+  document.head.appendChild(st);
+})();
+
+// Formulario del plantel: columnas que SÍ se pueden encoger (minmax(0,1fr)) para
+// que las tablas y textos largos no lo ensanchen más que la pantalla. En
+// teléfono pasa a una sola columna. En escritorio se ve igual que antes.
+(function () {
+  if (document.getElementById("estiloFormPlantel")) return;
+  const st = document.createElement("style");
+  st.id = "estiloFormPlantel";
+  st.textContent = ".form-plantel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}"
+    + ".form-plantel-grid>*{min-width:0;}"
+    + "#bloqueMatricula{min-width:0;max-width:100%;}"
+    + ".matricula-total-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end;}"
+    + "@media (max-width:700px){"
+    + "#panelFormulario{padding:14px !important;}"
+    + ".form-plantel-grid{grid-template-columns:minmax(0,1fr);}"
+    + ".form-plantel-grid input[type=text],.form-plantel-grid select{width:100%;max-width:100%;}"
+    + ".matricula-total-grid{grid-template-columns:repeat(2,minmax(0,1fr));}"
+    + ".matricula-total-grid input{width:100%;max-width:100%;}"
+    + "#bloqueMatricula th,#bloqueMatricula td{padding:8px 6px;}"
+    + "#bloqueMatricula .inp-h,#bloqueMatricula .inp-v{width:100% !important;min-width:72px;}"
+    + "#bloqueMatricula #inputPeriodo{width:100%;max-width:100%;}"
+    + "}";
   document.head.appendChild(st);
 })();
 
@@ -414,7 +442,7 @@ function dibujarBloqueMatricula(valores) {
     const h = valores && valores.hembras !== "" ? valores.hembras : (filaPeriodoTotal ? filaPeriodoTotal.hembras : "");
     const v = valores && valores.varones !== "" ? valores.varones : (filaPeriodoTotal ? filaPeriodoTotal.varones : "");
     campos = `
-      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; align-items:end;">
+      <div class="matricula-total-grid">
         <div>
           <label>Período escolar</label>
           <input type="text" name="periodo_escolar" id="inputPeriodo" list="listaPeriodos" value="${escapar(periodo)}" placeholder="2026-2027" autocomplete="off">
@@ -545,7 +573,7 @@ async function abrirFormulario(plantel) {
 
   panel.innerHTML = `
     <h3 style="margin-bottom:14px;">${plantel ? `Editar plantel — ${escapar(p.codigo_plantel)}` : "Nuevo plantel"}</h3>
-    <form id="formPlantel" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px;">
+    <form id="formPlantel" class="form-plantel-grid">
       <div>
         <label>Código de plantel</label>
         <input type="text" name="codigo_plantel" id="inputCodigoPlantel" value="${escapar(p.codigo_plantel)}" ${plantel ? "readonly" : "required"}>
@@ -569,7 +597,7 @@ async function abrirFormulario(plantel) {
       <div><label>Coordenadas geo</label><input type="text" name="coordenadas_geo" value="${escapar(p.coordenadas_geo)}"></div>
       <div><label>Ubicación geo</label><input type="text" name="ubicacion_geo" value="${escapar(p.ubicacion_geo)}"></div>
       <div style="grid-column:1/-1;">
-        <label class="lbl-check" style="display:flex; gap:8px; align-items:center; font-size:.84rem;">
+        <label class="lbl-check" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:.84rem;">
           <input type="checkbox" id="chkEnGescolar" ${p.en_gescolar ? "checked" : ""}> Está registrado en GESCOLAR
           <span style="color:var(--muted); font-size:.78rem;">(cuenta para el reporte oficial)</span>
         </label>
