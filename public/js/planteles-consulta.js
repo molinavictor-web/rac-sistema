@@ -351,6 +351,23 @@ function fechaRelativa(fechaISO) {
   return `Actualizada hace ${anios} año${anios === 1 ? "" : "s"}`;
 }
 
+// Fecha y hora exactas (hora de Venezuela) a partir del modifiedTime de
+// Drive, ej. "07/10/2026 14:35". Si no hay fecha o es inválida, "—".
+function formatoFechaHora(fechaISO) {
+  if (!fechaISO) return "—";
+  const fecha = new Date(fechaISO);
+  if (Number.isNaN(fecha.getTime())) return "—";
+  return fecha.toLocaleString("es-VE", {
+    timeZone: "America/Caracas",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).replace(",", "");
+}
+
 // ---- Ubicación: mapa, "capturado por", "cómo llegar", edificio compartido
 // y formulario para cargar coordenadas a mano cuando no existan ----
 
@@ -489,7 +506,7 @@ function dibujarArchivosFicha(codigoDea, resp) {
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px;">
         <div style="min-width:0;">
           <div style="font-size:.86rem; font-weight:600; color:var(--navy-900); overflow-wrap:anywhere;">${escapar(a.nombre)}</div>
-          <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)}</div>
+          <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)} · Actualizado: ${formatoFechaHora(a.modificado)}</div>
         </div>
         <button class="btn btn-fantasma btn-sm" data-descargar="${i}" style="flex:0 0 auto;">Descargar</button>
       </div>
@@ -520,19 +537,25 @@ async function subirArchivosDrive(codigoDea, fileList) {
   const input = document.getElementById("inputSubirArchivos");
   const formData = new FormData();
   Array.from(fileList).forEach((f) => formData.append("archivos", f));
+  const cantidadEnviada = fileList.length;
 
-  if (estado) estado.textContent = `Subiendo ${fileList.length} archivo(s)…`;
+  if (estado) estado.textContent = `Subiendo ${cantidadEnviada} archivo(s)…`;
   try {
     const resp = await fetch(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos`, {
       method: "POST",
       headers: { Authorization: "Bearer " + RAC.getToken() },
       body: formData,
     });
+    const data = await resp.json().catch(() => null);
     if (!resp.ok) {
-      const data = await resp.json().catch(() => null);
       throw new Error((data && data.error) || `Error ${resp.status}`);
     }
-    mostrarToast(`Subido${fileList.length === 1 ? "" : "s"} a Drive (${fileList.length}).`);
+    // Solo se da por buena la subida si el servidor confirma cuántos
+    // archivos quedaron realmente en Drive.
+    if (!data || !data.ok || !data.total) {
+      throw new Error("El servidor no confirmó que el archivo se guardara en Drive.");
+    }
+    mostrarToast(`Subido${data.total === 1 ? "" : "s"} a Drive (${data.total}).`);
     cargarArchivosFicha(codigoDea);
   } catch (err) {
     if (estado) estado.textContent = "";
