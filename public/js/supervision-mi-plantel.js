@@ -24,7 +24,17 @@ let nivelesInfo = null; // { catalogo, asignados, filas } o null si no se pudo c
   const st = document.createElement("style");
   st.id = "estiloMiPlantel";
   st.textContent = ".ficha-datos-grid>*{min-width:0;overflow-wrap:anywhere;}"
+    + ".hist-tarjetas{display:none;}"
     + "@media (max-width:700px){"
+    + ".hist-tabla{display:none;}"
+    + ".hist-tarjetas{display:grid;gap:10px;}"
+    + ".hist-tarjeta{border:1px solid #dfe7f0;border-radius:10px;padding:12px;background:#fff;}"
+    + ".hist-tarjeta-cab{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:10px;}"
+    + ".hist-tarjeta-cab span{font-size:.72rem;color:#718096;}"
+    + ".hist-tarjeta-nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center;}"
+    + ".hist-tarjeta-nums small{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:#718096;margin-bottom:2px;}"
+    + ".hist-tarjeta-niv{margin-top:10px;padding-top:10px;border-top:1px solid #edf1f5;}"
+    + ".hist-tarjeta-niv small{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:#718096;margin-bottom:4px;}"
     + ".tabla-responsive th,.tabla-responsive td{padding:8px 6px;}"
     + ".tabla-responsive td{font-size:.84rem;}"
     + "#formMatricula .inp-h,#formMatricula .inp-v{width:100% !important;min-width:58px;}"
@@ -83,6 +93,47 @@ function detalleDelPeriodo(periodo) {
   return filas
     .map((f) => `<div style="font-size:.78rem;">${escapar(nombres[f.nivel] || f.nivel)}: H ${f.hembras} · V ${f.varones}</div>`)
     .join("");
+}
+
+// Histórico en tarjetas (una por período): se muestra solo en pantallas
+// pequeñas; en escritorio se sigue viendo la tabla.
+function htmlHistoricoTarjetas(historico, conNiveles) {
+  return `
+    <div class="hist-tarjetas">
+      ${historico.map((m) => `
+        <div class="hist-tarjeta">
+          <div class="hist-tarjeta-cab">
+            <strong>${escapar(m.periodo_escolar)}</strong>
+            <span>Actualizado ${new Date(m.actualizado_en).toLocaleDateString("es-VE")}</span>
+          </div>
+          <div class="hist-tarjeta-nums">
+            <div><small>Hembras</small>${m.hembras}</div>
+            <div><small>Varones</small>${m.varones}</div>
+            <div><small>Total</small><strong>${m.total}</strong></div>
+          </div>
+          ${conNiveles ? `<div class="hist-tarjeta-niv"><small>Por nivel</small>${detalleDelPeriodo(m.periodo_escolar)}</div>` : ""}
+        </div>`).join("")}
+    </div>`;
+}
+
+// Lista de niveles del plantel, solo lectura: el director ve cuáles tiene
+// asignados Supervisión pero no puede cambiarlos.
+function htmlNivelesSoloLectura() {
+  if (!nivelesInfo || !nivelesInfo.catalogo || !nivelesInfo.catalogo.length) return "";
+  const asignados = new Set(nivelesInfo.asignados || []);
+  return `
+    <div style="border-top:1px solid var(--rac-border, #dfe7f0); margin-top:16px; padding-top:14px;">
+      <div style="font-size:.7rem; text-transform:uppercase; color:#718096; margin-bottom:8px;">Niveles del plantel</div>
+      <div id="listaNivelesLectura" style="display:flex; flex-wrap:wrap; gap:8px 18px;">
+        ${nivelesInfo.catalogo.map((n) => `
+          <label style="display:flex; gap:6px; align-items:center; font-size:.84rem;">
+            <input type="checkbox" disabled ${asignados.has(n.clave) ? "checked" : ""}> ${escapar(n.nombre)}
+          </label>`).join("")}
+      </div>
+      <p style="font-size:.75rem; color:var(--muted); margin:10px 0 0;">
+        ${asignados.size ? "Estos niveles los asigna Supervisión. Si necesitas cambiarlos, comunícate con ellos." : "Supervisión todavía no le ha asignado niveles a tu plantel."}
+      </p>
+    </div>`;
 }
 
 function htmlFormularioMatricula(ultimo) {
@@ -173,6 +224,7 @@ function dibujarPantalla(datos) {
         <div><div style="font-size:.7rem; text-transform:uppercase; color:#718096;">Dirección</div><div>${escapar(p.direccion || "—")}</div></div>
         <div><div style="font-size:.7rem; text-transform:uppercase; color:#718096;">Comuna</div><div>${escapar(p.nombre_comuna || "—")}</div></div>
       </div>
+      ${htmlNivelesSoloLectura()}
     </div>
 
     <div class="panel" style="padding:20px; margin-bottom:20px;">
@@ -183,7 +235,7 @@ function dibujarPantalla(datos) {
     <div class="panel" style="padding:20px;">
       <h3 style="margin-bottom:10px;">Histórico de matrícula</h3>
       ${historico.length ? `
-        <div class="tabla-responsive">
+        <div class="tabla-responsive hist-tabla">
           <table>
             <thead><tr><th>Período</th><th>Hembras</th><th>Varones</th><th>Total</th>${conNiveles ? "<th>Por nivel</th>" : ""}<th>Actualizado</th></tr></thead>
             <tbody>${historico.map((m) => `
@@ -198,6 +250,7 @@ function dibujarPantalla(datos) {
             </tbody>
           </table>
         </div>
+        ${htmlHistoricoTarjetas(historico, conNiveles)}
       ` : `<div class="vacio"><strong>Sin matrícula cargada todavía</strong>Usa el formulario de arriba para cargar el primer período.</div>`}
     </div>
   `;
