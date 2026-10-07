@@ -97,6 +97,50 @@ async function asegurarCredencialesEscritura() {
   return true;
 }
 
+// Resumen legible de un error de Google para los logs de Render. Antes solo
+// se imprimía el error crudo, y un permiso vencido ("invalid_grant") quedaba
+// escondido en un mensaje genérico.
+function detalleErrorGoogle(err) {
+  const estado = (err && err.response && err.response.status) || (err && err.code) || "sin código";
+  const datos = err && err.response && err.response.data;
+  let motivo = "";
+  if (datos) {
+    if (typeof datos.error === "string") motivo = datos.error;
+    else if (datos.error && datos.error.message) motivo = datos.error.message;
+  }
+  return `[estado ${estado}] ${motivo || (err && err.message) || "error desconocido"}`;
+}
+
+// ¿El fallo es porque el permiso de Drive venció, fue revocado o es inválido?
+// Google responde 400 con "invalid_grant" cuando el refresh token caducó
+// (cada 7 días si la app de Google Cloud está en modo "Pruebas"). Ese caso
+// no traía código 401, por eso antes caía en el mensaje genérico.
+function esErrorDeCredenciales(err) {
+  const estado = Number((err && err.response && err.response.status) || (err && err.code));
+  const datos = err && err.response && err.response.data;
+  const texto =
+    (datos && (typeof datos.error === "string" ? datos.error : datos.error && datos.error.message)) || "";
+  return (
+    estado === 401 ||
+    /invalid_grant|invalid_client|unauthorized_client|invalid_token/i.test(`${texto} ${(err && err.message) || ""}`)
+  );
+}
+
+// Devuelve el mensaje que se le muestra al usuario ante un fallo de escritura
+// en Drive. Si el problema es el permiso, marca las credenciales para releer
+// en el próximo intento.
+function mensajeErrorEscrituraDrive(err, mensajeGenerico) {
+  if (err && err.sinCredencialesEscritura) return err.message;
+  if (esErrorDeCredenciales(err)) {
+    credencialesCargadas = false;
+    return "La conexión con Google Drive venció o fue revocada. Un administrador debe usar el botón 'Reconectar Google Drive' (pantalla Consultar planteles) y luego volver a intentar.";
+  }
+  if (err && err.code === 403) {
+    return "Sin permiso de escritura en Drive. Reconecta con la cuenta correcta (botón 'Reconectar Google Drive').";
+  }
+  return mensajeGenerico;
+}
+
 // Estados temporales del flujo OAuth (protege /drive-oauth/callback contra
 // que alguien active la reconexión sin haber pasado por /drive-oauth/iniciar
 // primero, ya que un redirect de Google no puede llevar el token JWT normal
@@ -475,16 +519,8 @@ router.post("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PL
     }
     res.json({ ok: true, subidos, total: subidos.length });
   } catch (err) {
-    console.error("Error subiendo archivos a Drive:", err);
-    let mensaje = "No se pudo subir el archivo a Drive.";
-    if (err && err.sinCredencialesEscritura) {
-      mensaje = err.message;
-    } else if (err && err.code === 403) {
-      mensaje = "Sin permiso de escritura en Drive. Reconecta con la cuenta correcta (botón 'Reconectar Google Drive').";
-    } else if (err && (err.code === 401 || (err.response && err.response.status === 401))) {
-      mensaje = "La conexión con Google Drive expiró. Usa el botón 'Reconectar Google Drive' y vuelve a intentar.";
-      credencialesCargadas = false; // fuerza a releer/renovar en el próximo intento
-    }
+    console.error("Error subiendo archivos a Drive:", detalleErrorGoogle(err), err);
+    const mensaje = mensajeErrorEscrituraDrive(err, "No se pudo subir el archivo a Drive.");
     res.status(500).json({ error: mensaje });
   }
 });
@@ -539,8 +575,9 @@ router.post("/:codigoDea/foto-fachada", requireAuth, requireRol(...ROLES_CONSULT
     });
     res.json({ ok: true, nombre });
   } catch (err) {
-    console.error("Error subiendo foto de fachada:", err);
-    res.status(500).json({ error: "No se pudo subir la foto." });
+    console.error("Error subiendo foto de fachada:", detalleErrorGoogle(err), err);
+    const mensaje = mensajeErrorEscrituraDrive(err, "No se pudo subir la foto.");
+    res.status(500).json({ error: mensaje });
   }
 });
 
@@ -675,7 +712,7 @@ router.get("/drive-oauth/callback", async (req, res) => {
 
     res.send(paginaHtml("Google Drive reconectado ✔", "Ya puedes volver a subir archivos desde la ficha del plantel."));
   } catch (err) {
-    console.error("Error en drive-oauth/callback:", err);
+    console.error("Error en drive-oauth/callback:", detalleErrorGoogle(err), err);
     res.status(500).send(paginaHtml("Error al reconectar", "No se pudo completar la conexión con Google. Intenta de nuevo."));
   }
 });
