@@ -3,7 +3,8 @@
 // con búsqueda por circuito y lista de planteles que faltan por cargar matrícula.
 // La pestaña "Por tipo de plantel" muestra instituciones y matrícula por
 // dependencia (nacional, estadal, municipal, autónoma, subvencionadas, privada)
-// y arma el reporte de texto que la profesora de Supervisión envía.
+// y arma el reporte de texto que la profesora de Supervisión envía; debajo suma
+// la matrícula por nivel (Maternal, Preescolar, Primaria, ...) y la incluye en el reporte.
 (function () {
   "use strict";
 
@@ -21,6 +22,8 @@
     sinMatricula: [],      // respuesta de /estadisticas/sin-matricula
     dependencias: null,    // respuesta de /estadisticas/dependencias
     depError: null,        // mensaje si falló /estadisticas/dependencias
+    niveles: null,         // respuesta de /estadisticas/niveles
+    nivError: null,        // mensaje si falló /estadisticas/niveles
     alcance: "gescolar",   // "gescolar" = reporte oficial, "todos" = todos los planteles
     pestana: "dependencias",
     soloIncompletos: false,
@@ -156,7 +159,7 @@
     if (estado.pestana === "dependencias") {
       panel.innerHTML = htmlDependencias();
       const ta = document.getElementById("estReporte");
-      if (ta && estado.dependencias) ta.value = textoReporte(estado.dependencias);
+      if (ta && estado.dependencias) ta.value = textoReporte(estado.dependencias, estado.niveles);
     } else if (estado.pestana === "circuitos") panel.innerHTML = htmlCircuitos();
     else if (estado.pestana === "municipios") panel.innerHTML = htmlMunicipios();
     else if (estado.pestana === "buscar") {
@@ -181,16 +184,21 @@
     sin_dependencia: { mat: "Sin dependencia", inst: "Sin dependencia" },
   };
 
-  function textoReporte(d) {
+  function textoReporte(d, niv) {
     const etq = (t, campo) => (ETIQUETAS_REPORTE[t.clave] || {})[campo] || t.nombre;
     const lineasMatricula = d.tipos.map((t) => `🔹${etq(t, "mat")}: ${miles(t.total)}`);
     const lineasInstituciones = d.tipos.map((t) => `🔹${etq(t, "inst")}: ${miles(t.planteles)}`);
+    // Matrícula por nivel: solo si ya hay algo cargado por nivel en este período.
+    const lineasNiveles = niv && niv.general && niv.general.total > 0
+      ? ["📚Matrícula por nivel:", ...niv.niveles.map((n) => `🔹${n.nombre}: ${miles(n.total)}`)]
+      : [];
     return [
       "📝Estado: Monagas",
       `📅Período escolar: ${d.periodo}`,
       "🚻Matrícula disgregada por dependencia:",
       ...lineasMatricula,
       `📈Total Matrícula Del Estado: ${miles(d.general.total)}`,
+      ...lineasNiveles,
       "✨✨✨✨✨✨✨",
       "🏤Cantidad de instituciones por dependencia:",
       ...lineasInstituciones,
@@ -248,6 +256,8 @@
       </div>
       <p class="est-nota" style="margin-top:8px">Subvencionadas suma las subvencionadas por el MPPE y las oficiales. La matrícula cuenta solo los planteles que ya la cargaron en este período.</p>
 
+      ${htmlNiveles()}
+
       <div class="est-detalle" style="margin-top:16px">
         <h3>Reporte para enviar</h3>
         <div class="meta">Mismo formato del reporte de Supervisión. Puedes editar el texto antes de copiarlo.</div>
@@ -257,6 +267,62 @@
           <button type="button" class="btn btn-sm btn-fantasma" data-accion="regenerar-reporte">Restablecer texto</button>
         </div>
       </div>`;
+  }
+
+  function htmlNiveles() {
+    if (estado.nivError) {
+      return `<div class="est-aviso" style="margin-top:16px">No se pudo cargar la matrícula por nivel: ${esc(estado.nivError)}</div>`;
+    }
+    const n = estado.niveles;
+    if (!n) return "";
+    const g = n.general;
+    const filas = n.niveles.map((t) => `
+      <tr>
+        <td>${esc(t.nombre)}</td>
+        <td class="num">${fmt(t.planteles)}</td>
+        <td class="num">${cobertura(t.con_matricula, t.planteles)}</td>
+        <td class="num">${fmt(t.hembras)}</td>
+        <td class="num">${fmt(t.varones)}</td>
+        <td class="num"><strong>${fmt(t.total)}</strong></td>
+        <td>${barra(t.hembras, t.varones)}</td>
+      </tr>`).join("");
+    const avisos = [];
+    if (g.total === 0) {
+      avisos.push(`Todavía no hay matrícula cargada por nivel en el período ${n.periodo}.`);
+    }
+    if (g.solo_total > 0) {
+      avisos.push(`${fmt(g.solo_total)} planteles (${fmt(g.matricula_solo_total)} estudiantes) cargaron solo un total y no aparecen en esta tabla hasta que su matrícula se cargue por nivel.`);
+    }
+    if (g.sin_niveles > 0) {
+      avisos.push(`${fmt(g.sin_niveles)} planteles no tienen niveles asignados.`);
+    }
+    return `
+      <h3 style="margin:22px 0 8px">Matrícula por nivel</h3>
+      ${avisos.map((a) => `<div class="est-aviso">${esc(a)}</div>`).join("")}
+      <div class="est-herramientas">
+        <span class="espacio"></span>
+        <button type="button" class="btn btn-sm btn-fantasma" data-accion="csv-niveles">Exportar CSV</button>
+      </div>
+      <div class="tabla-responsive">
+        <table class="est-tabla">
+          <thead><tr><th>Nivel</th><th class="num">Planteles con el nivel</th><th class="num">Con matrícula</th><th class="num">Hembras</th><th class="num">Varones</th><th class="num">Total</th><th></th></tr></thead>
+          <tbody>${filas}</tbody>
+          <tfoot><tr><td>Total por nivel</td><td class="num"></td><td class="num">${fmt(g.con_matricula_por_nivel)} planteles</td><td class="num">${fmt(g.hembras)}</td><td class="num">${fmt(g.varones)}</td><td class="num">${fmt(g.total)}</td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <p class="est-nota" style="margin-top:8px">Un plantel con varios niveles aparece en cada uno. Solo suma lo cargado por nivel; el total por tipo de plantel de arriba incluye también los planteles que cargaron un solo total.</p>`;
+  }
+
+  function exportarNiveles() {
+    const n = estado.niveles;
+    if (!n) return;
+    const filas = n.niveles.map((t) => [t.nombre, t.planteles, t.con_matricula, t.sin_matricula, t.hembras, t.varones, t.total]);
+    filas.push(["TOTAL POR NIVEL", "", n.general.con_matricula_por_nivel, "", n.general.hembras, n.general.varones, n.general.total]);
+    descargarCsv(
+      `matricula-por-nivel-${n.alcance}-${n.periodo}.csv`,
+      ["Nivel", "Planteles con el nivel", "Con matrícula", "Sin matrícula", "Hembras", "Varones", "Matrícula total"],
+      filas
+    );
   }
 
   async function copiarReporte() {
@@ -557,9 +623,11 @@
       copiarReporte();
     } else if (accion === "regenerar-reporte") {
       const ta = document.getElementById("estReporte");
-      if (ta && estado.dependencias) ta.value = textoReporte(estado.dependencias);
+      if (ta && estado.dependencias) ta.value = textoReporte(estado.dependencias, estado.niveles);
     } else if (accion === "csv-dependencias") {
       exportarDependencias();
+    } else if (accion === "csv-niveles") {
+      exportarNiveles();
     } else if (accion === "ver-circuito") {
       estado.circuitoSel = el.dataset.codigo;
       estado.pestana = "buscar";
@@ -635,12 +703,23 @@
   // "Por tipo de plantel" muestra el error.
   async function cargarDependencias() {
     estado.depError = null;
-    try {
-      const q = `?periodo=${encodeURIComponent(estado.periodo)}&alcance=${encodeURIComponent(estado.alcance)}`;
-      estado.dependencias = await RAC.get(`${API}/estadisticas/dependencias${q}`);
-    } catch (err) {
+    estado.nivError = null;
+    const q = `?periodo=${encodeURIComponent(estado.periodo)}&alcance=${encodeURIComponent(estado.alcance)}`;
+    const [dep, niv] = await Promise.allSettled([
+      RAC.get(`${API}/estadisticas/dependencias${q}`),
+      RAC.get(`${API}/estadisticas/niveles${q}`),
+    ]);
+    if (dep.status === "fulfilled") {
+      estado.dependencias = dep.value;
+    } else {
       estado.dependencias = null;
-      estado.depError = (err && err.message) || "No se pudieron cargar las estadísticas por tipo de plantel.";
+      estado.depError = (dep.reason && dep.reason.message) || "No se pudieron cargar las estadísticas por tipo de plantel.";
+    }
+    if (niv.status === "fulfilled") {
+      estado.niveles = niv.value;
+    } else {
+      estado.niveles = null;
+      estado.nivError = (niv.reason && niv.reason.message) || "No se pudo cargar la matrícula por nivel.";
     }
   }
 

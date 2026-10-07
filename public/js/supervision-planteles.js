@@ -8,6 +8,9 @@
 // Si un plantel no tiene niveles asignados (o no se pudieron consultar), la
 // matrícula se carga como un solo total de hembras y varones, igual que antes.
 //
+// La casilla "Está registrado en GESCOLAR" marca si el plantel cuenta para el
+// reporte oficial; el filtro "Solo fuera de GESCOLAR" lista los que no están.
+//
 // Filtros "Solo sin director" y "Solo sin código DEA": trabajan sobre TODOS los
 // planteles (vienen de /consolidado, sin el límite de 300 del listado). Un
 // plantel sin código DEA se registra con un código provisional "SIN-DEA-001"
@@ -24,6 +27,7 @@ let todosPlanteles = []; // todos los planteles con su director (viene de /conso
 let directorPorPlantel = {}; // codigo_plantel -> nombre del director
 let soloSinDirector = false;
 let soloSinCodigo = false;
+let soloFueraGescolar = false;
 let editando = null; // codigo_plantel en edición, o null si el formulario es "nuevo"
 let textoBusqueda = "";
 let temporizadorBusqueda;
@@ -70,7 +74,7 @@ function normalizar(valor) {
 }
 
 const esProvisional = (codigo) => /^SIN-DEA-/i.test(String(codigo || ""));
-const filtrosActivos = () => soloSinDirector || soloSinCodigo;
+const filtrosActivos = () => soloSinDirector || soloSinCodigo || soloFueraGescolar;
 
 // Total real del catálogo, todos los planteles con su director y la última
 // matrícula por plantel. Si alguno falla, la pantalla sigue funcionando.
@@ -140,6 +144,9 @@ function dibujarPantalla() {
         <label style="display:flex; gap:6px; align-items:center; font-size:.82rem; white-space:nowrap;">
           <input type="checkbox" id="chkSinCodigo" ${soloSinCodigo ? "checked" : ""}> Solo sin código DEA <span id="cntSinCodigo" style="color:var(--muted);"></span>
         </label>
+        <label style="display:flex; gap:6px; align-items:center; font-size:.82rem; white-space:nowrap;">
+          <input type="checkbox" id="chkFueraGescolar" ${soloFueraGescolar ? "checked" : ""}> Solo fuera de GESCOLAR <span id="cntFueraGescolar" style="color:var(--muted);"></span>
+        </label>
       </div>
       <button type="button" class="btn" id="btnNuevo">+ Nuevo plantel</button>
     </div>
@@ -160,6 +167,7 @@ function dibujarPantalla() {
   });
   document.getElementById("chkSinDirector").addEventListener("change", (e) => { soloSinDirector = e.target.checked; dibujarTabla(); });
   document.getElementById("chkSinCodigo").addEventListener("change", (e) => { soloSinCodigo = e.target.checked; dibujarTabla(); });
+  document.getElementById("chkFueraGescolar").addEventListener("change", (e) => { soloFueraGescolar = e.target.checked; dibujarTabla(); });
   document.getElementById("btnNuevo").addEventListener("click", () => abrirFormulario(null));
 }
 
@@ -181,6 +189,7 @@ function filasVisibles() {
   return todosPlanteles.filter((f) =>
     (!soloSinDirector || !f.director_nombre) &&
     (!soloSinCodigo || esProvisional(f.codigo_plantel)) &&
+    (!soloFueraGescolar || f.en_gescolar === false) &&
     (!q || normalizar([f.codigo_plantel, f.eponimo_actual, f.nombre_comuna].join(" ")).includes(q))
   );
 }
@@ -196,6 +205,7 @@ function dibujarTabla() {
   const q = textoBusqueda.trim();
   const sinDirectorN = todosPlanteles.filter((f) => !f.director_nombre).length;
   const sinCodigoN = todosPlanteles.filter((f) => esProvisional(f.codigo_plantel)).length;
+  const fueraGescolarN = todosPlanteles.filter((f) => f.en_gescolar === false).length;
   const faltaRegistrar = totalCatalogo !== null && totalCatalogo < ESPERADO_PLANTELES ? ESPERADO_PLANTELES - totalCatalogo : 0;
 
   document.getElementById("heroConteo").textContent =
@@ -203,6 +213,7 @@ function dibujarTabla() {
   if (todosPlanteles.length) {
     document.getElementById("cntSinDirector").textContent = `(${sinDirectorN})`;
     document.getElementById("cntSinCodigo").textContent = `(${sinCodigoN})`;
+    document.getElementById("cntFueraGescolar").textContent = `(${fueraGescolarN})`;
   }
 
   const cont = document.getElementById("tablaPlanteles");
@@ -219,7 +230,7 @@ function dibujarTabla() {
 
   let resumen = "";
   if (filtrosActivos()) {
-    const quienes = [soloSinDirector ? "sin director" : "", soloSinCodigo ? "sin código DEA" : ""].filter(Boolean).join(" y ");
+    const quienes = [soloSinDirector ? "sin director" : "", soloSinCodigo ? "sin código DEA" : "", soloFueraGescolar ? "fuera de GESCOLAR" : ""].filter(Boolean).join(" y ");
     resumen = `Mostrando ${lista.length} plantel${lista.length === 1 ? "" : "es"} ${quienes}${q ? ` para "${q}"` : ""}.${notaFalta}`;
   } else if (q) {
     resumen = `${lista.length} resultado${lista.length === 1 ? "" : "s"} para "${q}"`;
@@ -246,7 +257,7 @@ function dibujarTabla() {
           const sinDir = todosPlanteles.length && !directorPorPlantel[p.codigo_plantel];
           return `
           <tr>
-            <td>${escapar(p.codigo_plantel)}${esProvisional(p.codigo_plantel) ? ` <span style="color:#9c4221; font-size:.72rem; font-weight:600;">· sin código DEA</span>` : ""}</td>
+            <td>${escapar(p.codigo_plantel)}${esProvisional(p.codigo_plantel) ? ` <span style="color:#9c4221; font-size:.72rem; font-weight:600;">· sin código DEA</span>` : ""}${p.en_gescolar === false ? ` <span style="color:#6b7a90; font-size:.72rem; font-weight:600;">· fuera de GESCOLAR</span>` : ""}</td>
             <td>${escapar(p.eponimo_actual)}</td>
             <td>${escapar(p.denominacion || "—")}</td>
             <td>${escapar(p.dependencia || "—")}</td>
@@ -557,6 +568,12 @@ async function abrirFormulario(plantel) {
       <div><label>Comuna (nombre)</label><input type="text" name="nombre_comuna" value="${escapar(p.nombre_comuna)}"></div>
       <div><label>Coordenadas geo</label><input type="text" name="coordenadas_geo" value="${escapar(p.coordenadas_geo)}"></div>
       <div><label>Ubicación geo</label><input type="text" name="ubicacion_geo" value="${escapar(p.ubicacion_geo)}"></div>
+      <div style="grid-column:1/-1;">
+        <label class="lbl-check" style="display:flex; gap:8px; align-items:center; font-size:.84rem;">
+          <input type="checkbox" id="chkEnGescolar" ${p.en_gescolar ? "checked" : ""}> Está registrado en GESCOLAR
+          <span style="color:var(--muted); font-size:.78rem;">(cuenta para el reporte oficial)</span>
+        </label>
+      </div>
 
       ${nivelesDisponibles ? `
       <div style="grid-column:1/-1; border-top:1px solid var(--rac-border, #dfe7f0); padding-top:14px; margin-top:4px;">
@@ -635,6 +652,7 @@ async function guardarPlantel(e) {
   delete datos.periodo_escolar;
   delete datos.hembras;
   delete datos.varones;
+  datos.en_gescolar = document.getElementById("chkEnGescolar").checked; // una casilla sin marcar no viaja en FormData
 
   const esEntero = (t) => /^\d+$/.test(t);
   const porNivel = usaNivelesEnForm();
