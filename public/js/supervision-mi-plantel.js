@@ -9,11 +9,28 @@
 // total del plantel es la suma. Si el plantel todavía no tiene niveles
 // asignados (o no se pudieron consultar), se muestra el formulario anterior
 // con un solo total de hembras y varones, para que nadie quede sin poder cargar.
+//
+// Teléfono: las tablas (matrícula por nivel e histórico) se compactan para que
+// quepan en pantalla; si aun así no caben, tienen su scroll lateral propio.
 
 const usuario = renderShell("supervision-mi-plantel", "Mi plantel");
 const codigoPlantel = usuario ? usuario.codigo_plantel : null;
 
 let nivelesInfo = null; // { catalogo, asignados, filas } o null si no se pudo consultar
+
+// Ajustes de ancho para pantallas pequeñas (en escritorio no cambia nada).
+(function () {
+  if (document.getElementById("estiloMiPlantel")) return;
+  const st = document.createElement("style");
+  st.id = "estiloMiPlantel";
+  st.textContent = ".ficha-datos-grid>*{min-width:0;overflow-wrap:anywhere;}"
+    + "@media (max-width:700px){"
+    + ".tabla-responsive th,.tabla-responsive td{padding:8px 6px;}"
+    + ".tabla-responsive td{font-size:.84rem;}"
+    + "#formMatricula .inp-h,#formMatricula .inp-v{width:100% !important;min-width:58px;}"
+    + "}";
+  document.head.appendChild(st);
+})();
 
 if (usuario && !codigoPlantel) {
   document.getElementById("contenido").innerHTML = `
@@ -150,7 +167,7 @@ function dibujarPantalla(datos) {
 
     <div class="panel" style="padding:20px; margin-bottom:20px;">
       <h3 style="margin-bottom:10px;">Datos del plantel</h3>
-      <div class="ficha-datos-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px;">
+      <div class="ficha-datos-grid" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px;">
         <div><div style="font-size:.7rem; text-transform:uppercase; color:#718096;">Niveles / modalidad</div><div>${escapar(p.niveles_modalidad || "—")}</div></div>
         <div><div style="font-size:.7rem; text-transform:uppercase; color:#718096;">Dependencia</div><div>${escapar(p.dependencia || "—")}</div></div>
         <div><div style="font-size:.7rem; text-transform:uppercase; color:#718096;">Dirección</div><div>${escapar(p.direccion || "—")}</div></div>
