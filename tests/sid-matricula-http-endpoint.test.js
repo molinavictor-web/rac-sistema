@@ -37,8 +37,10 @@ test('POST matrícula-nivel: endpoint real, permisos, consolidación, histórico
   r=await send('XYZ',body('2025-2026',[['primaria',50,60]]),token(14,'supervision',null));assert.equal(r.status,200);
   const rows=(await pool.query('SELECT codigo_plantel,periodo_escolar,hembras,varones FROM matricula_planteles ORDER BY codigo_plantel,periodo_escolar')).rows;
   assert.deepEqual(rows.map(x=>[x.codigo_plantel,x.periodo_escolar,x.hembras,x.varones]),[['ABC','2024-2025',8,7],['ABC','2025-2026',15,17],['XYZ','2025-2026',50,60]]);
-  // Error real de integer overflow: el INSERT de niveles falla y la transacción debe revertirse.
-  r=await send('ABC',body('2025-2026',[['primaria',99,99],['inicial',2147483648,1]]),director);assert.equal(r.status,500);
+  // Valores fuera de int4 se rechazan antes de abrir una transacción.
+  r=await send('ABC',body('2025-2026',[['primaria',99,99],['inicial',2147483648,1]]),director);assert.equal(r.status,400);
+  // Dos niveles válidos por separado pueden desbordar el agregado: rollback atómico.
+  r=await send('ABC',body('2025-2026',[['primaria',2147483647,99],['inicial',1,1]]),director);assert.equal(r.status,500);
   const after=(await pool.query("SELECT hembras,varones FROM matricula_nivel WHERE codigo_plantel='ABC' AND periodo_escolar='2025-2026' AND nivel='primaria'")).rows[0];
   assert.equal(after.hembras,12);assert.equal(after.varones,13);
  }finally{
