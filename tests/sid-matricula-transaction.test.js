@@ -20,7 +20,7 @@ function harness({assigned=['primaria'],failOn=null}={}){
  const routes=[];
  const router={post(...args){routes.push(args)}};
  const pool={connect:async()=>client};
- const ctx={router,pool,requireAuth(){},requireRol(){},requireMismoPlantel(){},ROLES_SUPERVISION_Y_DIRECTOR:['admin','supervision','director'],textoVacio:v=>v===undefined||v===null||String(v).trim()==='',console};
+ const ctx={router,pool,requireAuth(){},requireRol(){},requireMismoPlantel(){},ROLES_SUPERVISION_Y_DIRECTOR:['admin','supervision','director'],textoVacio:v=>v===undefined||v===null||String(v).trim()==='',MAX_MATRICULA_ENTERO:2147483647,console};
  vm.runInNewContext(snippet,ctx);
  const handler=routes[0].at(-1);
  async function run(body){
