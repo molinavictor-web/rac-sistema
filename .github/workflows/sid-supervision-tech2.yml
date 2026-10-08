@@ -1,0 +1,26 @@
+name: SID Supervision Tech 2.0 - preflight
+on:
+  push:
+    branches: [release/sid-supervision-tech2]
+  pull_request:
+    paths:
+      - 'public/supervision/**'
+      - 'public/css/sid-supervision-tech.css'
+      - 'public/js/nav.js'
+      - 'public/classroom.svg'
+      - '.github/workflows/sid-supervision-tech2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate JavaScript syntax
+        run: node --check public/js/nav.js && node --check public/js/supervision-login.js
+      - name: Verify 11 supervision pages and login form
+        run: node --test tests/sid-supervision-tech2.test.js
