@@ -1580,7 +1580,7 @@ router.post(
     const { periodo_escolar, hembras, varones } = req.body || {};
     const h = Number(hembras);
     const v = Number(varones);
-    if (typeof periodo_escolar !== 'string' || !periodo_escolar.trim() || periodo_escolar.length > 20 || (hembras === null || hembras === undefined || String(hembras).trim() === '') || (varones === null || varones === undefined || String(varones).trim() === '') || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0) {
+    if (typeof periodo_escolar !== 'string' || !periodo_escolar.trim() || periodo_escolar.length > 20 || (hembras === null || hembras === undefined || String(hembras).trim() === '') || (varones === null || varones === undefined || String(varones).trim() === '') || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0 || h > 2147483647 || v > 2147483647) {
       return res.status(400).json({ error: "Faltan periodo_escolar, hembras o varones válidos (>= 0)." });
     }
     try {
@@ -1611,6 +1611,8 @@ router.post(
 // =========================================================
 
 const textoVacio = (v) => v === undefined || v === null || String(v).trim() === "";
+const MAX_MATRICULA_ENTERO = 2147483647; // PostgreSQL INTEGER (int4)
+
 
 // Catálogo de los niveles (para mostrar los que se pueden asignar a un plantel nuevo).
 router.get("/niveles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
@@ -1685,7 +1687,7 @@ router.post(
       const h = Number((it || {}).hembras);
       const v = Number((it || {}).varones);
       if (!nivel || textoVacio((it || {}).hembras) || textoVacio((it || {}).varones)
-          || !Number.isInteger(h) || !Number.isInteger(v) || h < 0 || v < 0) {
+          || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0 || h > MAX_MATRICULA_ENTERO || v > MAX_MATRICULA_ENTERO) {
         return res.status(400).json({ error: "Cada nivel necesita hembras y varones como números enteros (0 o más)." });
       }
       if (vistos.has(nivel)) return res.status(400).json({ error: "Hay un nivel repetido en la matrícula." });
