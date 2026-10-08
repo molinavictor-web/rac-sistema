@@ -24,3 +24,8 @@ jobs:
         run: node --check public/js/nav.js && node --check public/js/supervision-login.js
       - name: Verify 11 supervision pages and login form
         run: node --test tests/sid-supervision-tech2.test.js tests/sid-supervision-login.behavior.test.js tests/sid-supervision-permissions.test.js
+
+      - name: Install Chromium for isolated browser smoke test
+        run: npm install --no-save --package-lock=false playwright@1.56.1 && npx playwright install --with-deps chromium
+      - name: Verify responsive login in real browser
+        run: node tests/sid-supervision-browser.cjs
