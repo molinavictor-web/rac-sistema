@@ -128,11 +128,12 @@ function renderShell(paginaActiva, tituloTopbar) {
           <button type="button" class="sidebar-mobile-close" id="btnCerrarMenuMovil" aria-label="Cerrar menú">×</button>
         </div>
         <div class="sidebar-brand">
+          ${sidDashboard ? `<div class="sid-tech-logo" aria-label="SID"><span class="sid-tech-glyph" aria-hidden="true">◈</span><strong>SID</strong></div>` : ""}
           <div class="sidebar-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7"/></svg></div>
           <div class="sidebar-brand-text"><strong>${nombreMarca}</strong><span>${subtituloMarca}</span></div>
         </div>
-        <div class="sidebar-marca">Monagas · Educación</div>
-        <div class="sidebar-titulo">Gestión educativa</div>
+        <div class="sidebar-marca">${sidDashboard ? "SID · EDUCACIÓN" : "Monagas · Educación"}</div>
+        <div class="sidebar-titulo">${sidDashboard ? "Gestión educativa digital" : "Gestión educativa"}</div>
         <nav>${navHtml}</nav>
         <div class="sidebar-pie">
           <div class="usuario-chip">
@@ -145,6 +146,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       <div class="main-col">
         <header class="topbar">
           <div class="topbar-title"><div><div class="crumb">${ubicacionMarca}</div><div class="title">${tituloTopbar}</div></div></div>
+          ${sidDashboard ? `<div class="sid-tech-topbar-identity" aria-label="Plataforma SID-Educación"><strong>EDUCACIÓN</strong><span>Sistema Integrado Digital</span></div>` : ""}
           <div class="topbar-user" aria-label="Sesión activa">
             <div class="topbar-user-avatar">${(usuario.nombre || "U").charAt(0).toUpperCase()}</div>
             <div class="topbar-user-info"><strong>${usuario.nombre || "Usuario"}</strong><span>${rolLabel}</span></div>
