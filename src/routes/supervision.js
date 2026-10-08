@@ -3,7 +3,13 @@ const bcrypt = require("bcryptjs");
 const { pool } = require("../db/pool");
 const { requireAuth, requireRol, requireMismoPlantel } = require("../middleware/auth");
 
+const { requireCuentaSupervisionActiva } = require("../middleware/supervisionAccount");
+
 const router = express.Router();
+
+// Valida el estado actual de la cuenta en TODAS las rutas de Supervisión.
+// Solo se aplica a este router: las rutas RAC conservan su comportamiento.
+router.use(requireAuth, requireCuentaSupervisionActiva);
 
 // Roles que administran el módulo (ven y editan TODO): mismo criterio que
 // ya usa requireMismoMunicipio/requireMismoPlantel para "oficina central".
