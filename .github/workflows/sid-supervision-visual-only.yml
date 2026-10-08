@@ -1,0 +1,21 @@
+name: SID Supervision visual-only
+on:
+  push:
+    branches: [release/sid-supervision-visual-only]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  visual-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate navigation syntax
+        run: node --check public/js/nav.js
+      - name: Install isolated Chromium
+        run: npm install --no-save --package-lock=false playwright@1.56.1 && npx playwright install --with-deps chromium
+      - name: Test Supervisión responsive in Chromium
+        run: node tests/sid-supervision-browser.cjs
