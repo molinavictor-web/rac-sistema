@@ -29,11 +29,11 @@ const server=http.createServer((req,res)=>{
     assert.equal(await page.locator('.sidebar').count(),1,role+'/'+file+' sidebar');
     assert.equal(await page.locator('.topbar').count(),1,role+'/'+file+' topbar');
     assert.equal(await page.locator('.sidebar .usuario-chip').count(),1,role+'/'+file+' user');
-    assert.equal(await page.locator('a[href="/dashboard.html"]').count(),1,role+'/'+file+' dashboard link');
-    assert.equal(await page.locator('a[href="/rac.html"]').count(),1,role+'/'+file+' RAC link');
-    assert.equal(await page.locator('a[href="/usuarios.html"]').count(),role==='admin'?1:0,'usuarios visibility '+role);
-    assert.equal(await page.locator('a[href="/credenciales.html"]').count(),['admin','operador_credenciales'].includes(role)?1:0,'credenciales visibility '+role);
-    assert.equal(await page.locator('a[href="/directorio-directores.html"]').count(),['admin','operador','operador_plantel'].includes(role)?1:0,'directorio visibility '+role);
+    assert.equal(await page.locator('.sidebar nav a[href="/dashboard.html"]').count(),1,role+'/'+file+' dashboard link');
+    assert.equal(await page.locator('.sidebar nav a[href="/rac.html"]').count(),1,role+'/'+file+' RAC link');
+    assert.equal(await page.locator('.sidebar nav a[href="/usuarios.html"]').count(),role==='admin'?1:0,'usuarios visibility '+role);
+    assert.equal(await page.locator('.sidebar nav a[href="/credenciales.html"]').count(),['admin','operador_credenciales'].includes(role)?1:0,'credenciales visibility '+role);
+    assert.equal(await page.locator('.sidebar nav a[href="/directorio-directores.html"]').count(),['admin','operador','operador_plantel'].includes(role)?1:0,'directorio visibility '+role);
     assert.deepEqual(errors,[],'Browser JS errors '+role+'/'+file);
     if(file==='rac.html'){
      await page.locator('#cedulaBusqueda').fill('12345678');
