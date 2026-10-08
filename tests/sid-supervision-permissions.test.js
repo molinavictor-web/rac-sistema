@@ -56,3 +56,10 @@ test('responsive stylesheet defines mobile breakpoints and overflow',()=>{
  assert.match(css,/body\.sid-tech-supervision/);
  for(const name of ['login','mi-plantel'])assert.match(read('public/supervision/'+name+'.html'),/name="viewport"/);
 });
+
+test('total matricula rejects fractional and unsafe numbers at backend',()=>{
+ const route=routes.match(/router\.post\(\s*"\/matricula\/:codigoPlantel"[\s\S]*?\/\/ =========================================================\n\/\/ MATRÍCULA POR NIVEL/);
+ assert.ok(route,'Total matricula route exists');
+ assert.match(route[0],/Number\.isSafeInteger\(h\)/);
+ assert.match(route[0],/Number\.isSafeInteger\(v\)/);
+});
