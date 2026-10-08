@@ -1,0 +1,60 @@
+/* SID Tech 2.0 — piloto opt-in exclusivo del dashboard RAC.
+   No modifica rutas, permisos, datos ni estilos de otras pantallas. */
+body.sid-tech-educacion {
+  --sid-primary: #0d47a1;
+  --sid-secondary: #1976d2;
+  --sid-accent: #42a5f5;
+  --sid-ink: #102949;
+  --sid-surface: #f3f7ff;
+  --sid-radius: 16px;
+  background: var(--sid-surface);
+}
+body.sid-tech-educacion .sidebar {
+  background: linear-gradient(165deg, #071b40 0%, #0d47a1 78%, #083372 100%);
+  box-shadow: 8px 0 30px rgba(7,27,64,.12);
+}
+body.sid-tech-educacion .sidebar-brand-mark {
+  background: linear-gradient(135deg, #1976d2, #4bd9d0);
+}
+body.sid-tech-educacion .nav-link.activo {
+  background: linear-gradient(100deg,#1976d2,#0d47a1);
+  color: white;
+  box-shadow: 0 5px 18px rgba(25,118,210,.25);
+}
+body.sid-tech-educacion .nav-link:hover { background-color: rgba(255,255,255,.13); }
+body.sid-tech-educacion .topbar {
+  background: rgba(255,255,255,.96);
+  border-bottom: 1px solid #dce7f7;
+  box-shadow: 0 2px 14px rgba(13,71,161,.05);
+}
+body.sid-tech-educacion .topbar .crumb { color: #0d47a1; }
+body.sid-tech-educacion .contenido { background: var(--sid-surface); }
+body.sid-tech-educacion .dashboard-hero {
+  background: linear-gradient(110deg,#071b40 0%,#0d47a1 66%,#1976d2 100%);
+  border-radius: var(--sid-radius);
+  box-shadow: 0 12px 35px rgba(13,71,161,.16);
+}
+body.sid-tech-educacion .dashboard-hero .hero-eyebrow { color: #bce8ff; }
+body.sid-tech-educacion .stat-card,
+body.sid-tech-educacion .dashboard-panel,
+body.sid-tech-educacion .acciones-rapidas,
+body.sid-tech-educacion .panel {
+  border-radius: var(--sid-radius);
+  border: 1px solid #dce7f7;
+  box-shadow: 0 5px 24px rgba(13,71,161,.07);
+}
+body.sid-tech-educacion .stat-card { border-top: 3px solid var(--sid-accent); }
+body.sid-tech-educacion .stat-card .num { color: var(--sid-primary); }
+body.sid-tech-educacion .btn-primario {
+  background: linear-gradient(110deg,var(--sid-primary),var(--sid-secondary));
+  border-radius: 10px;
+}
+@media (max-width: 768px) {
+  body.sid-tech-educacion .contenido { padding: 16px 12px 40px; }
+  body.sid-tech-educacion .dashboard-hero { border-radius: 14px; }
+  body.sid-tech-educacion .sidebar { max-width: min(320px, 88vw); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.sid-tech-educacion *, body.sid-tech-educacion *::before,
+  body.sid-tech-educacion *::after { transition-duration: .01ms !important; }
+}
