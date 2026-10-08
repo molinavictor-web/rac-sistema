@@ -23,3 +23,10 @@
 6. Comparar visualmente contra referencia SID Tech 2.0 aprobada y corregir diferencias.
 
 **Regla:** ningún cambio en producción sin pruebas satisfactorias y autorización previa explícita.
+
+## Avance adicional: login y componentes
+- Login de Supervisión rediseñado en `public/supervision/login.html` con composición SID Tech 2.0, fondo ilustrado local y formulario responsive.
+- Conservados los identificadores de formulario y el script `public/js/supervision-login.js` sin alterar autenticación ni redirecciones.
+- Estilos internos de tablas, filtros, formularios y modales agregados en `public/css/sid-supervision-tech.css`.
+- Validación pendiente: login por rol, credenciales inválidas, navegación móvil, matrícula del director, modales, contraste y regresión de permisos.
+- No se ha ejecutado prueba visual o funcional ni despliegue.
