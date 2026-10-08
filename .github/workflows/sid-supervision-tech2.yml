@@ -23,7 +23,7 @@ jobs:
       - name: Validate JavaScript syntax
         run: node --check public/js/nav.js && node --check public/js/supervision-login.js && node --check src/routes/supervision.js && node --check src/middleware/supervisionAccount.js
       - name: Verify 11 supervision pages and login form
-        run: node --test tests/sid-supervision-tech2.test.js tests/sid-supervision-login.behavior.test.js tests/sid-supervision-permissions.test.js tests/sid-matricula-transaction.test.js tests/sid-matricula-total.behavior.test.js tests/sid-matricula-access.test.js tests/sid-login-active.behavior.test.js tests/sid-matricula-historico.behavior.test.js tests/sid-supervision-revocation.test.js
+        run: node --test tests/sid-supervision-tech2.test.js tests/sid-supervision-login.behavior.test.js tests/sid-supervision-permissions.test.js tests/sid-matricula-transaction.test.js tests/sid-matricula-total.behavior.test.js tests/sid-matricula-access.test.js tests/sid-login-active.behavior.test.js tests/sid-matricula-historico.behavior.test.js tests/sid-supervision-revocation.test.js tests/sid-rac-regression.test.js
 
       - name: Install Chromium for isolated browser smoke test
         run: npm install --no-save --package-lock=false playwright@1.56.1 && npx playwright install --with-deps chromium
