@@ -59,11 +59,12 @@ async function cargarResumen() {
     contenido.innerHTML = `
       <section class="dashboard-hero">
         <div class="hero-copy">
-          <span class="hero-eyebrow">CENTRO DE LA CALIDAD EDUCATIVA · ESTADO MONAGAS</span>
-          <h2>RAC · Sistema</h2>
-          <p>Registro de Asignación de Cargos</p>
-          <small>Gestión, validación y control de la información del personal y planteles educativos.</small>
+          <span class="hero-eyebrow">SISTEMA INTEGRADO DIGITAL · MINISTERIO DE EDUCACIÓN</span>
+          <h2>Bienvenido a<br>SID-Educación</h2>
+          <p>RAC · Supervisión Educativa · Gestión institucional</p>
+          <small>Información educativa para una mejor gestión y toma de decisiones.</small>
         </div>
+        <div class="hero-claim" aria-hidden="true">Más educación<br>para un mejor futuro<span></span></div>
         <div class="hero-symbol" aria-hidden="true">
           <svg viewBox="0 0 64 64">
             <path d="M18 9h29a4 4 0 0 1 4 4v34a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4V13a4 4 0 0 1 4-4Z"/>
