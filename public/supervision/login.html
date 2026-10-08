@@ -3,38 +3,45 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Supervisión — RAC Monagas</title>
+<meta name="theme-color" content="#061b41">
+<title>SID-Educación · Acceso a Supervisión</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css">
-<style>
-  body{min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--surface-2, #f2f5fa); margin:0;}
-  .login-card{width:100%; max-width:380px; background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(20,30,60,.08); padding:32px 28px;}
-  .login-card h1{font-family:"Space Grotesk", sans-serif; font-size:1.3rem; margin:0 0 4px;}
-  .login-card p{color:var(--muted); font-size:.85rem; margin:0 0 24px;}
-  .login-card label{display:block; font-size:.8rem; font-weight:600; margin-bottom:6px; margin-top:16px;}
-  .login-card input{width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:.95rem;}
-  .login-card button{width:100%; margin-top:22px; padding:11px; border:0; border-radius:8px; background:var(--navy-900, #1a2b4c); color:#fff; font-weight:600; cursor:pointer; font-size:.95rem;}
-  .login-card button:disabled{opacity:.6; cursor:default;}
-  .login-error{margin-top:14px; font-size:.82rem; color:#b3261e; display:none;}
-  .login-error.visible{display:block;}
-</style>
+<link rel="stylesheet" href="/css/sid-supervision-tech.css">
 </head>
-<body>
-  <div class="login-card">
-    <h1>Módulo Supervisión</h1>
-    <p>Zona Educativa de Monagas — acceso para el equipo de Supervisión y directores de plantel.</p>
-    <form id="formLogin">
-      <label for="email">Correo</label>
-      <input type="email" id="email" required autocomplete="username">
-      <label for="password">Contraseña</label>
-      <input type="password" id="password" required autocomplete="current-password">
-      <button type="submit" id="btnEntrar">Entrar</button>
-      <div class="login-error" id="loginError"></div>
-    </form>
-  </div>
-
-  <script src="/js/api.js"></script>
-  <script src="/js/supervision-login.js"></script>
+<body class="sid-tech-supervision sid-supervision-login">
+<main class="sid-login-layout">
+  <section class="sid-login-intro" aria-labelledby="sid-login-titulo">
+    <div class="sid-login-brand"><span class="sid-login-mark" aria-hidden="true">◈</span><strong>SID</strong><span>EDUCACIÓN<small>Sistema Integrado Digital</small></span></div>
+    <div class="sid-login-copy">
+      <div class="sid-login-kicker">MINISTERIO DE EDUCACIÓN · MONAGAS</div>
+      <h1 id="sid-login-titulo">Supervisión<br><span>Educativa</span></h1>
+      <p>Gestión integrada de planteles, circuitos educativos, supervisores, directores y matrícula escolar.</p>
+      <div class="sid-login-line" aria-hidden="true"></div>
+      <div class="sid-login-tag">Una plataforma. Información organizada. Mejores decisiones.</div>
+    </div>
+    <div class="sid-login-foot">SID Tech 2.0 · Supervisión Educativa</div>
+  </section>
+  <section class="sid-login-access" aria-labelledby="sid-login-form-titulo">
+    <div class="login-card">
+      <div class="sid-login-icon" aria-hidden="true">⌁</div>
+      <div class="sid-login-eyebrow">ACCESO INSTITUCIONAL</div>
+      <h2 id="sid-login-form-titulo">Iniciar sesión</h2>
+      <p>Acceso exclusivo para el equipo de Supervisión y directores de plantel autorizados.</p>
+      <form id="formLogin">
+        <label for="email">Correo electrónico</label>
+        <input type="email" id="email" required autocomplete="username" placeholder="usuario@institucion.gob.ve">
+        <label for="password">Contraseña</label>
+        <input type="password" id="password" required autocomplete="current-password" placeholder="Introduce tu contraseña">
+        <button type="submit" id="btnEntrar">Entrar a Supervisión <span aria-hidden="true">→</span></button>
+        <div class="login-error" id="loginError" role="alert" aria-live="polite"></div>
+      </form>
+      <div class="sid-login-note">Tu acceso y permisos dependen del rol asignado a tu cuenta.</div>
+    </div>
+  </section>
+</main>
+<script src="/js/api.js"></script>
+<script src="/js/supervision-login.js"></script>
 </body>
 </html>
