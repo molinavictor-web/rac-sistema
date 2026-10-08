@@ -290,3 +290,81 @@ body.sid-supervision-login {
   .sid-supervision-login .sid-login-line {margin:15px 0 0}
   .sid-supervision-login .login-card {padding:26px 22px}
 }
+
+
+/* Componentes internos: tablas, filtros, formularios y modales. */
+body.sid-tech-supervision:not(.sid-supervision-login) {
+  --tinta:#193658;--tinta-suave:#607a99;
+  --papel-2:#fff;--sello:#bc7427;--tiza-clara:#287b61;
+}
+body.sid-tech-supervision .panel-cabecera {background:linear-gradient(110deg,#f2f8ff,#fff);border-bottom:1px solid #dbe8f8}
+body.sid-tech-supervision .panel-cabecera h2,
+body.sid-tech-supervision .panel-cabecera h3 {color:#0b3f83}
+body.sid-tech-supervision .filtros input,
+body.sid-tech-supervision .filtros select,
+body.sid-tech-supervision .campo input,
+body.sid-tech-supervision .campo select,
+body.sid-tech-supervision .campo textarea,
+body.sid-tech-supervision .est-campo input,
+body.sid-tech-supervision .est-campo select {
+  max-width:100%;border:1px solid #c5dbf3;border-radius:9px;
+  background:#f9fcff;color:#183756;min-height:39px;
+}
+body.sid-tech-supervision .campo label {color:#3b5b7f}
+body.sid-tech-supervision .btn-fantasma {
+  border:1px solid #bcd7f3;color:#0d4d9d;background:rgba(248,252,255,.92);
+  border-radius:9px;
+}
+body.sid-tech-supervision .btn-fantasma:hover {background:#eaf5ff;border-color:#55b6ff}
+body.sid-tech-supervision .btn-peligro {border-radius:9px}
+body.sid-tech-supervision .modal-fondo {
+  background:rgba(4,23,59,.68);backdrop-filter:blur(4px);
+}
+body.sid-tech-supervision .modal {
+  border:1px solid rgba(86,176,255,.44);border-top:4px solid #238fff;
+  border-radius:16px;box-shadow:0 20px 55px rgba(4,35,85,.25);
+}
+body.sid-tech-supervision .modal h2,
+body.sid-tech-supervision .modal h3 {color:#0c428b}
+body.sid-tech-supervision .modal-fondo.pantalla-completa .modal {
+  border-radius:0;border-top:4px solid #168fff;
+}
+body.sid-tech-supervision .tabla-responsive,
+body.sid-tech-supervision .hist-tabla {
+  max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
+}
+body.sid-tech-supervision table {background:#fff}
+body.sid-tech-supervision th {
+  background:#eaf4ff;color:#315477;border-bottom:1px solid #c9e1fa;
+}
+body.sid-tech-supervision td {border-bottom-color:#e4eef9}
+body.sid-tech-supervision tr:hover td {background:#f2f8ff}
+body.sid-tech-supervision .cod {
+  background:#edf6ff;color:#0d4a97;border:1px solid #d3e8ff;
+  border-radius:6px;
+}
+body.sid-tech-supervision .badge-pendiente {background:#fff2df;color:#985611}
+body.sid-tech-supervision .badge-resuelto {background:#e0f6ec;color:#146747}
+body.sid-tech-supervision .badge-revisado {background:#e5f0ff;color:#0c4c9b}
+body.sid-tech-supervision .toast {background:#083c83;border:1px solid #3baaff}
+body.sid-tech-supervision .vacio {color:#5a7797}
+body.sid-tech-supervision .vacio strong {color:#183b69}
+body.sid-tech-supervision .est-tabla th {background:#eaf4ff;color:#315477}
+body.sid-tech-supervision .est-tabla tbody tr:hover {background:#f2f8ff}
+body.sid-tech-supervision .est-lista button {
+  border:1px solid #d0e3f8;border-radius:10px;background:#fff;
+}
+body.sid-tech-supervision .est-lista button:hover {background:#eef7ff;border-color:#55b6ff}
+body.sid-tech-supervision .est-hero-periodo select {
+  background:#fff;color:#142f52;border:1px solid #9dd6ff;
+}
+body.sid-tech-supervision .est-tab:focus-visible {outline:3px solid #35c9f7;outline-offset:2px}
+@media(max-width:768px) {
+  body.sid-tech-supervision .filtros {align-items:stretch}
+  body.sid-tech-supervision .filtros input,
+  body.sid-tech-supervision .filtros select {min-width:0}
+  body.sid-tech-supervision .modal {padding:18px;max-height:calc(100dvh - 24px)}
+  body.sid-tech-supervision .modal-fondo {padding:12px}
+  body.sid-tech-supervision .modal-fondo.pantalla-completa {padding:0}
+  body.sid-tech-supervision .form-grid {grid-template-columns:1fr}
+}
