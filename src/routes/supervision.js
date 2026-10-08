@@ -1574,7 +1574,7 @@ router.post(
     const { periodo_escolar, hembras, varones } = req.body || {};
     const h = Number(hembras);
     const v = Number(varones);
-    if (!periodo_escolar || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0) {
+    if (typeof periodo_escolar !== 'string' || !periodo_escolar.trim() || periodo_escolar.length > 20 || (hembras === null || hembras === undefined || String(hembras).trim() === '') || (varones === null || varones === undefined || String(varones).trim() === '') || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0) {
       return res.status(400).json({ error: "Faltan periodo_escolar, hembras o varones válidos (>= 0)." });
     }
     try {
