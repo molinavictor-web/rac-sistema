@@ -57,4 +57,8 @@ jobs:
       - name: Install PostgreSQL driver for isolated test
         run: npm install --no-save --package-lock=false
       - name: Exercise real PostgreSQL transactions without production access
-        run: node --test tests/sid-postgres-isolated.test.js tests/sid-http-postgres-isolated.test.js tests/sid-matricula-nivel-postgres.test.js tests/sid-matricula-http-endpoint.test.js
+        run: |
+          node --test tests/sid-postgres-isolated.test.js
+          node --test tests/sid-http-postgres-isolated.test.js
+          node --test tests/sid-matricula-nivel-postgres.test.js
+          node --test tests/sid-matricula-http-endpoint.test.js
