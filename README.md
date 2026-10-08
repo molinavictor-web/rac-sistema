@@ -1,8 +1,10 @@
-# SIGE — Sistema Integrado de Gestión Educativa (en desarrollo)
+# SID — Sistema Integrado Digital (evolución en desarrollo)
 
 > **Estado:** evolución gradual del sistema RAC existente. La aplicación en producción continúa funcionando con su arquitectura y autorizaciones actuales. Los cambios SIGE se preparan en la rama `feature/sige-permisos-fase1`; no están desplegados.
 
-SIGE busca integrar progresivamente tres ámbitos: **RAC**, **Supervisión Educativa** y **Planteles FEDE**, con una identidad y una administración de accesos coherentes, sin perder las funcionalidades actuales.
+La identidad de producto acordada es **SID — Sistema Integrado Digital**. **SID-Educación** comprende RAC y Supervisión Educativa (departamento ministerial); **SID-FEDE** tendrá identidad visual y administrativa propia como solución para el organismo autónomo adscrito al Ministerio. FEDE **permanece técnicamente dentro de la aplicación actual por ahora**; no se ha ejecutado ninguna separación. La rama y documentación histórica conservan el nombre SIGE durante la transición.
+
+**[Decisión institucional y lineamientos de identidad SID](docs/SID_ARQUITECTURA_IDENTIDAD.md)**.
 
 ## Regla obligatoria de seguridad y despliegue
 
