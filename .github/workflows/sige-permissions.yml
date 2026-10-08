@@ -1,0 +1,27 @@
+name: SIGE - Pruebas de permisos
+on:
+  push:
+    branches:
+      - feature/sige-permisos-fase1
+  pull_request:
+    paths:
+      - 'src/core/permissions.js'
+      - 'tests/permissions*.test.js'
+      - 'package.json'
+      - '.github/workflows/sige-permissions.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  permisos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Descargar rama
+        uses: actions/checkout@v4
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Ejecutar pruebas sin credenciales ni base de datos
+        run: npm run test:permissions
