@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "migrate": "node scripts/migrate.js",
-    "seed:planteles": "node scripts/importar_planteles.js"
+    "seed:planteles": "node scripts/importar_planteles.js",
+    "test:permissions": "node --test tests/permissions.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
