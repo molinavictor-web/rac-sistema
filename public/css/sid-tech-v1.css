@@ -225,3 +225,92 @@ body.sid-tech-educacion .accion-rapida:hover { background: #eaf4ff; }
   body.sid-tech-educacion .stat-icon { top: 20px; }
   body.sid-tech-educacion .dashboard-hero h2 { font-size: 27px; }
 }
+
+
+/* SID Tech 2.0 — identidad estructural y accesibilidad del dashboard. */
+body.sid-tech-educacion .sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 6px 18px;
+  border-bottom: 1px solid rgba(94,194,255,.3);
+}
+body.sid-tech-educacion .sid-tech-logo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-family: var(--display);
+  line-height: 1;
+  color: #fff;
+  filter: drop-shadow(0 0 9px rgba(29,169,255,.55));
+}
+body.sid-tech-educacion .sid-tech-logo strong {
+  font-size: clamp(38px,3.5vw,54px);
+  letter-spacing: -.075em;
+  font-weight: 700;
+  background: linear-gradient(125deg,#fff 12%,#73c8ff 53%,#1be2e7 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+body.sid-tech-educacion .sid-tech-glyph {
+  font-size: 25px;
+  color: #28c9ff;
+}
+body.sid-tech-educacion .sidebar-brand > .sidebar-brand-mark { display: none; }
+body.sid-tech-educacion .sidebar-brand-text { flex: 1 1 90px; min-width: 0; }
+body.sid-tech-educacion .sidebar-brand-text strong {
+  font-size: 13px;
+  letter-spacing: 0;
+  text-shadow: none;
+}
+body.sid-tech-educacion .sidebar-brand-text span {
+  display: block;
+  font-size: 10px;
+  line-height: 1.3;
+}
+body.sid-tech-educacion .sidebar-marca { margin-top: 12px; }
+body.sid-tech-educacion .sidebar-titulo { font-size: 14px; }
+body.sid-tech-educacion .sid-tech-topbar-identity {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 18px;
+  margin-right: auto;
+  border-left: 2px solid #33a9ff;
+  border-radius: 0 12px 12px 0;
+  background: linear-gradient(100deg,rgba(16,132,245,.12),rgba(255,255,255,.3));
+}
+body.sid-tech-educacion .sid-tech-topbar-identity strong {
+  color: #0b438e;
+  font-family: var(--display);
+  letter-spacing: .07em;
+  font-size: 14px;
+}
+body.sid-tech-educacion .sid-tech-topbar-identity span {
+  font-size: 11px;
+  color: #52779e;
+}
+body.sid-tech-educacion .sidebar nav { scrollbar-width: thin; scrollbar-color: #319af2 transparent; }
+body.sid-tech-educacion .nav-link:focus-visible,
+body.sid-tech-educacion .nav-grupo-titulo:focus-visible,
+body.sid-tech-educacion .mobile-menu:focus-visible,
+body.sid-tech-educacion .btn-salir:focus-visible {
+  outline: 3px solid #75e9ff;
+  outline-offset: 2px;
+}
+body.sid-tech-educacion .dashboard-hero {
+  background:
+    linear-gradient(90deg,rgba(3,31,88,.98) 0%,rgba(7,65,148,.89) 42%,rgba(7,64,139,.48) 74%,rgba(4,30,76,.76) 100%),
+    url("/classroom.svg") center / cover no-repeat,
+    linear-gradient(120deg,#031b49,#167dd5);
+}
+@media(max-width:1000px) {
+  body.sid-tech-educacion .sid-tech-topbar-identity { display: none; }
+}
+@media(max-width:768px) {
+  body.sid-tech-educacion .sidebar-brand { display: none; }
+  body.sid-tech-educacion .sidebar-mobile-head { background: linear-gradient(110deg,#052659,#0867ba); }
+  body.sid-tech-educacion .sidebar-marca { margin-top: 10px; }
+}
