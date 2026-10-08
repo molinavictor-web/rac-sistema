@@ -126,3 +126,47 @@ body.sid-tech-supervision .est-kpi .val {color:#0b3c7d}
   body.sid-tech-supervision *,body.sid-tech-supervision *::before,
   body.sid-tech-supervision *::after {transition-duration:.01ms!important}
 }
+
+
+/* Resumen y otras cabeceras de Supervisión: foto/ilustración local y carpeta tech. */
+body.sid-tech-supervision .planteles-hero {
+  position:relative; isolation:isolate; overflow:hidden;
+  min-height:190px; display:flex; align-items:center;
+  padding:30px 32px; margin-bottom:20px;
+  border:1px solid rgba(70,175,255,.62);
+  border-radius:15px; color:#fff;
+  background:linear-gradient(100deg,rgba(3,34,91,.98),rgba(7,71,154,.87) 57%,rgba(4,50,112,.59)),
+    url("/classroom.svg") center/cover no-repeat;
+  box-shadow:0 12px 28px rgba(5,63,138,.2);
+}
+body.sid-tech-supervision .planteles-hero:before {
+  content:"";position:absolute;top:0;left:0;width:48%;height:22px;
+  background:linear-gradient(90deg,rgba(34,163,255,.68),rgba(105,208,255,.1));
+  clip-path:polygon(0 0,100% 0,95% 100%,0 100%);
+}
+body.sid-tech-supervision .planteles-hero-copy {position:relative;z-index:1}
+body.sid-tech-supervision .planteles-hero h1,
+body.sid-tech-supervision .planteles-hero .planteles-eyebrow,
+body.sid-tech-supervision .planteles-hero p {color:#fff}
+body.sid-tech-supervision .planteles-hero h1 {
+  font-size:clamp(25px,3vw,38px);font-weight:700;
+  text-shadow:0 2px 12px rgba(0,19,61,.4)
+}
+body.sid-tech-supervision .planteles-hero .planteles-eyebrow {
+  color:#8de7ff;letter-spacing:.12em;font-weight:700
+}
+body.sid-tech-supervision .planteles-hero p {color:#d5ebff}
+body.sid-tech-supervision .tarjetas-resumen .panel {
+  border:1px solid #d6e7fb;border-top:3px solid #2b9dff;
+  transition:transform .15s,box-shadow .15s;
+}
+body.sid-tech-supervision .tarjetas-resumen .panel:hover {
+  transform:translateY(-2px);box-shadow:0 10px 28px rgba(12,97,190,.17)
+}
+body.sid-tech-supervision .tarjetas-resumen .panel:focus-visible {
+  outline:3px solid #27c6f6;outline-offset:3px
+}
+@media(max-width:768px) {
+  body.sid-tech-supervision .planteles-hero {padding:24px 18px;min-height:160px}
+  body.sid-tech-supervision .tarjetas-resumen {grid-template-columns:1fr!important}
+}
