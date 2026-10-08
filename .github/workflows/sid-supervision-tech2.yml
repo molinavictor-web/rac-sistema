@@ -23,4 +23,4 @@ jobs:
       - name: Validate JavaScript syntax
         run: node --check public/js/nav.js && node --check public/js/supervision-login.js
       - name: Verify 11 supervision pages and login form
-        run: node --test tests/sid-supervision-tech2.test.js tests/sid-supervision-login.behavior.test.js
+        run: node --test tests/sid-supervision-tech2.test.js tests/sid-supervision-login.behavior.test.js tests/sid-supervision-permissions.test.js
