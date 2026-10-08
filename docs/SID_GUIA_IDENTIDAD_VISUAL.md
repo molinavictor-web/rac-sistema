@@ -1,6 +1,23 @@
-# SID — Guía de identidad visual v0.1
+# SID — Guía de identidad visual v0.2 · SID Tech 2.0
 
 **Estado:** línea gráfica y colores base aprobados por el responsable el 8 de octubre de 2026. Documento de diseño; no autoriza despliegue.
+
+## Aprobación definitiva — SID Tech 2.0 (8 de octubre de 2026)
+
+**Decisión explícita del responsable:** se aprueba la **segunda propuesta visual, SID Tech 2.0**, como referencia definitiva para la familia SID. Esta decisión sustituye la primera propuesta institucional como referencia visual principal; se conserva su criterio de seriedad y claridad.
+
+### Elementos aprobados
+- Marca matriz **SID — Sistema Integrado Digital**, estética tecnológica moderna y degradado azul–turquesa.
+- **SID-Educación:** azul institucional profundo (`#0D47A1`) y azul secundario (`#1976D2`), con acentos luminosos.
+- **SID-FEDE:** verde institucional (`#2E7D32`) y verde secundario (`#43A047`), con acentos esmeralda.
+- Diseño compartido: menús laterales, encabezados, tarjetas de indicadores, accesos rápidos, formularios, iconos consistentes, diseño responsive y tipografía moderna.
+- Diferenciación visual e institucional de SID-Educación y SID-FEDE, manteniendo por ahora la arquitectura técnica existente.
+
+### Límites de la aprobación
+- La imagen conceptual **no define datos reales**: nombres, cifras, métricas, roles y módulos futuros mostrados son ilustrativos.
+- Los colores exactos de acento, el logotipo vectorial y los detalles de accesibilidad se ajustarán en prototipos y pruebas sin cambiar el concepto aprobado.
+- **No autoriza** modificar producción, desplegar, fusionar a `main`, ejecutar migraciones ni cambiar permisos o integraciones.
+- Implementar en rama de desarrollo, verificar escritorio/móvil y funciones existentes; solicitar autorización explícita antes de producción.
 
 ## Marca matriz
 SID — Sistema Integrado Digital. La identidad común debe facilitar reconocimiento entre plataformas sectoriales sin borrar su autonomía institucional.
