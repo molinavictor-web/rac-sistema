@@ -170,3 +170,123 @@ body.sid-tech-supervision .tarjetas-resumen .panel:focus-visible {
   body.sid-tech-supervision .planteles-hero {padding:24px 18px;min-height:160px}
   body.sid-tech-supervision .tarjetas-resumen {grid-template-columns:1fr!important}
 }
+
+
+/* Login SID Tech 2.0 — mantiene IDs y JS de autenticación originales. */
+body.sid-supervision-login {
+  min-height:100vh; margin:0; display:block;
+  background:#e8f4ff; color:#12325a;
+}
+.sid-supervision-login .sid-login-layout {
+  min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr);
+}
+.sid-supervision-login .sid-login-intro {
+  position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;
+  min-height:100vh;padding:clamp(26px,4vw,62px);
+  color:#fff;border-right:3px solid #26a9ff;
+  background:
+    linear-gradient(105deg,rgba(3,24,65,.97),rgba(6,59,133,.87) 70%,rgba(8,73,147,.67)),
+    url("/classroom.svg") center/cover no-repeat,
+    #082f6c;
+}
+.sid-supervision-login .sid-login-intro:before {
+  content:"";position:absolute;top:0;left:0;width:70%;height:26px;
+  background:linear-gradient(90deg,rgba(38,176,255,.72),rgba(101,213,255,.07));
+  clip-path:polygon(0 0,100% 0,96% 100%,0 100%);
+}
+.sid-supervision-login .sid-login-intro:after {
+  content:"";position:absolute;inset:auto -140px -160px auto;
+  width:430px;height:430px;border-radius:50%;
+  border:1px solid rgba(117,218,255,.25);
+  box-shadow:0 0 0 55px rgba(33,157,255,.07),0 0 0 110px rgba(33,157,255,.04);
+  pointer-events:none;
+}
+.sid-supervision-login .sid-login-brand {display:flex;align-items:center;gap:10px;position:relative;z-index:1}
+.sid-supervision-login .sid-login-brand>strong {
+  font-family:var(--display);font-size:clamp(45px,5vw,74px);
+  line-height:1;letter-spacing:-.075em;
+  background:linear-gradient(130deg,#fff,#8acfff 60%,#30e5ed);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 0 12px rgba(40,167,255,.4));
+}
+.sid-supervision-login .sid-login-mark {font-size:29px;color:#35d3ff}
+.sid-supervision-login .sid-login-brand>span:last-child {
+  border-left:1px solid rgba(178,226,255,.7);padding-left:13px;
+  font-size:15px;letter-spacing:.1em;font-weight:700;
+}
+.sid-supervision-login .sid-login-brand small {
+  display:block;margin-top:4px;font-size:10px;letter-spacing:.01em;
+  color:#b7e2ff;font-weight:400;
+}
+.sid-supervision-login .sid-login-copy {margin:auto 0;position:relative;z-index:1;max-width:580px}
+.sid-supervision-login .sid-login-kicker {font-size:11px;font-weight:700;letter-spacing:.17em;color:#86e0ff}
+.sid-supervision-login .sid-login-copy h1 {
+  font-size:clamp(40px,5.2vw,70px);line-height:1.08;margin:18px 0;
+  letter-spacing:-.035em;color:#fff;
+}
+.sid-supervision-login .sid-login-copy h1 span {color:#73cfff}
+.sid-supervision-login .sid-login-copy p {max-width:520px;color:#d7edff;font-size:16px;line-height:1.75}
+.sid-supervision-login .sid-login-line {height:3px;width:100px;margin:28px 0 20px;background:linear-gradient(90deg,#20e1d4,#49adff);box-shadow:0 0 16px rgba(32,225,212,.6)}
+.sid-supervision-login .sid-login-tag {color:#e0f4ff;font-size:13px}
+.sid-supervision-login .sid-login-foot {position:relative;z-index:1;color:#a7cffa;font-size:12px}
+.sid-supervision-login .sid-login-access {
+  display:flex;align-items:center;justify-content:center;padding:clamp(20px,5vw,65px);
+  background:radial-gradient(circle at 80% 15%,rgba(69,170,255,.14),transparent 48%),#f3f9ff;
+}
+.sid-supervision-login .login-card {
+  width:100%;max-width:440px;padding:clamp(25px,3.5vw,42px);
+  border:1px solid #c9e2ff;border-top:4px solid #168cff;border-radius:20px;
+  background:rgba(255,255,255,.96);box-shadow:0 24px 60px rgba(6,62,129,.13);
+}
+.sid-supervision-login .sid-login-icon {
+  display:grid;place-items:center;width:48px;height:48px;margin-bottom:22px;
+  border-radius:13px;color:#fff;font-size:30px;
+  background:linear-gradient(130deg,#084cb2,#1daeff);
+  box-shadow:0 8px 24px rgba(22,142,255,.27);
+}
+.sid-supervision-login .sid-login-eyebrow {color:#1474d6;font-size:11px;font-weight:700;letter-spacing:.16em}
+.sid-supervision-login .login-card h2 {
+  margin:9px 0 6px;font-size:clamp(25px,3vw,33px);color:#082d61;
+}
+.sid-supervision-login .login-card p {color:#617b9d;font-size:13px;line-height:1.6;margin-bottom:25px}
+.sid-supervision-login .login-card label {display:block;margin:17px 0 7px;color:#284568;font-size:13px;font-weight:700}
+.sid-supervision-login .login-card input {
+  width:100%;padding:13px 14px;min-height:46px;border:1px solid #c8dbef;
+  border-radius:10px;background:#f8fbff;color:#112d50;font-size:15px;
+}
+.sid-supervision-login .login-card input:focus-visible {outline:3px solid #64caff;outline-offset:1px}
+.sid-supervision-login .login-card button {
+  width:100%;display:flex;justify-content:center;align-items:center;gap:10px;
+  margin-top:24px;padding:14px 18px;min-height:48px;border:0;border-radius:11px;
+  background:linear-gradient(110deg,#0c4aa7,#148bff);color:#fff;font-size:15px;
+  font-weight:700;cursor:pointer;box-shadow:0 9px 24px rgba(17,116,217,.22);
+}
+.sid-supervision-login .login-card button:hover:not(:disabled) {filter:brightness(1.07)}
+.sid-supervision-login .login-card button:disabled {opacity:.65;cursor:wait}
+.sid-supervision-login .login-error {
+  display:none;margin-top:15px;padding:12px;border:1px solid #f2b7b7;
+  border-radius:9px;background:#fff2f2;color:#a32626;font-size:13px;
+}
+.sid-supervision-login .login-error.visible {display:block}
+.sid-supervision-login .sid-login-note {
+  margin-top:25px;padding-top:16px;border-top:1px solid #e3ecf7;
+  color:#6a83a2;font-size:12px;line-height:1.5;text-align:center;
+}
+@media(max-width:900px) {
+  .sid-supervision-login .sid-login-layout {grid-template-columns:1fr}
+  .sid-supervision-login .sid-login-intro {min-height:300px;padding:30px 24px}
+  .sid-supervision-login .sid-login-copy {margin:30px 0 20px}
+  .sid-supervision-login .sid-login-copy h1 {font-size:40px}
+  .sid-supervision-login .sid-login-foot {display:none}
+  .sid-supervision-login .sid-login-access {padding:28px 16px 45px}
+}
+@media(max-width:520px) {
+  .sid-supervision-login .sid-login-intro {min-height:250px;padding:24px 18px}
+  .sid-supervision-login .sid-login-copy h1 {font-size:32px;margin:9px 0}
+  .sid-supervision-login .sid-login-copy p {font-size:13px;line-height:1.5}
+  .sid-supervision-login .sid-login-brand>strong {font-size:45px}
+  .sid-supervision-login .sid-login-brand>span:last-child {font-size:11px}
+  .sid-supervision-login .sid-login-tag {display:none}
+  .sid-supervision-login .sid-login-line {margin:15px 0 0}
+  .sid-supervision-login .login-card {padding:26px 22px}
+}
