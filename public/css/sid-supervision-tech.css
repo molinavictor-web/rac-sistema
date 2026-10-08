@@ -1,0 +1,370 @@
+/* SID Tech 2.0 · Supervisión Educativa
+   Presentación aislada por body.sid-tech-supervision; sin cambios en API ni roles. */
+body.sid-tech-supervision {
+  --sid-primary:#0d47a1; --sid-electric:#158dff; --sid-glow:#27c6f6;
+  --sid-ink:#102c52; --sid-panel:rgba(255,255,255,.95);
+  --pizarra:#082650; --pizarra-2:#0d47a1; --papel:#edf5ff;
+  --borde:#d7e6fa; --radio:12px;
+  background:linear-gradient(135deg,#eaf4ff,#f8fbff);
+}
+body.sid-tech-supervision .app-shell {
+  min-height:100vh;
+  border-top:3px solid #168fff;
+  box-shadow:inset 0 0 0 1px rgba(35,170,255,.15);
+}
+body.sid-tech-supervision .sidebar {
+  background:linear-gradient(160deg,#061b41,#082f6c 68%,#031936);
+  border-right:1px solid rgba(51,181,255,.38);
+  box-shadow:6px 0 25px rgba(5,38,90,.11);
+}
+body.sid-tech-supervision .sidebar-brand {
+  display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+  padding-bottom:16px; border-bottom:1px solid rgba(116,201,255,.22);
+}
+body.sid-tech-supervision .sid-tech-logo {
+  display:flex; align-items:center; gap:3px; line-height:1;
+  filter:drop-shadow(0 0 9px rgba(38,157,255,.45));
+}
+body.sid-tech-supervision .sid-tech-logo strong {
+  font-family:var(--display); font-size:45px; font-weight:700; letter-spacing:-.07em;
+  color:#d9f5ff;
+  background:linear-gradient(130deg,#fff 10%,#83cbff 60%,#36e3e9);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+}
+body.sid-tech-supervision .sid-tech-glyph {font-size:22px;color:#39d4ff}
+body.sid-tech-supervision .sidebar-brand > .sidebar-brand-mark {display:none}
+body.sid-tech-supervision .sidebar-brand-text {min-width:0;flex:1 1 80px}
+body.sid-tech-supervision .sidebar-brand-text strong {
+  font-size:13px;letter-spacing:.02em;color:#fff;text-shadow:none
+}
+body.sid-tech-supervision .sidebar-brand-text span {font-size:10px;color:#b9ddff}
+body.sid-tech-supervision .sidebar-marca {color:#85d9ff; margin-top:12px}
+body.sid-tech-supervision .sidebar-titulo {color:#fff;font-size:15px}
+body.sid-tech-supervision .nav-link {border-radius:9px;transition:background .15s,box-shadow .15s}
+body.sid-tech-supervision .nav-link:hover {background:rgba(51,161,255,.18)}
+body.sid-tech-supervision .nav-link.activo {
+  background:linear-gradient(105deg,#076ce2,#1898ff);
+  box-shadow:0 0 16px rgba(14,136,255,.4);
+}
+body.sid-tech-supervision .nav-grupo-titulo {color:#a6cefb}
+body.sid-tech-supervision .sidebar-pie {border-color:rgba(128,203,255,.24)}
+body.sid-tech-supervision .topbar {
+  background:linear-gradient(110deg,rgba(255,255,255,.98),rgba(226,242,255,.93));
+  border-bottom:1px solid #d1e5fa;
+  box-shadow:0 3px 14px rgba(15,73,145,.07);
+}
+body.sid-tech-supervision .topbar .crumb {color:#1162b5}
+body.sid-tech-supervision .topbar .title {color:#092e63;font-weight:800}
+body.sid-tech-supervision .sid-tech-topbar-identity {
+  margin-right:auto; padding:6px 16px; border-left:2px solid #35c9f7;
+  background:linear-gradient(90deg,rgba(26,139,246,.11),transparent);
+  display:flex;flex-direction:column;
+}
+body.sid-tech-supervision .sid-tech-topbar-identity strong {
+  color:#0c4998;letter-spacing:.06em;font-size:13px
+}
+body.sid-tech-supervision .sid-tech-topbar-identity span {font-size:11px;color:#6483a7}
+body.sid-tech-supervision .contenido {
+  background:linear-gradient(160deg,#eaf4ff,#f9fcff);
+  min-height:calc(100vh - 78px);
+}
+body.sid-tech-supervision .contenido > h1,
+body.sid-tech-supervision .contenido > h2 {color:#0b3b7d}
+body.sid-tech-supervision .panel,
+body.sid-tech-supervision .stat-card,
+body.sid-tech-supervision .est-kpi,
+body.sid-tech-supervision .est-detalle {
+  border-radius:14px; border-color:#d6e7fb;
+  background:var(--sid-panel);
+  box-shadow:0 6px 22px rgba(9,75,154,.075);
+}
+body.sid-tech-supervision .stat-card {border-top:3px solid #279cff}
+body.sid-tech-supervision .stat-card .num {color:#0a438f}
+body.sid-tech-supervision .btn-primario {
+  border-radius:10px;
+  background:linear-gradient(110deg,#0d47a1,#158cff);
+  box-shadow:0 4px 14px rgba(17,113,214,.18);
+}
+body.sid-tech-supervision .panel-cabecera,
+body.sid-tech-supervision th {background:#f1f7ff}
+body.sid-tech-supervision tbody tr:hover {background:#eff7ff}
+body.sid-tech-supervision input:focus-visible,
+body.sid-tech-supervision select:focus-visible,
+body.sid-tech-supervision textarea:focus-visible,
+body.sid-tech-supervision button:focus-visible,
+body.sid-tech-supervision a:focus-visible {
+  outline:3px solid #35c9f7;outline-offset:2px
+}
+body.sid-tech-supervision .est-hero {
+  position:relative; isolation:isolate; overflow:hidden;
+  border:1px solid rgba(84,190,255,.5);
+  background:linear-gradient(105deg,rgba(5,40,100,.96),rgba(8,95,182,.82)),
+    url("/classroom.svg") center/cover no-repeat;
+  box-shadow:0 10px 30px rgba(4,55,129,.2);
+}
+body.sid-tech-supervision .est-hero:before {
+  content:"";position:absolute;z-index:-1;top:0;left:0;
+  height:18px;width:48%;
+  background:linear-gradient(90deg,rgba(41,170,255,.65),rgba(123,216,255,.1));
+  clip-path:polygon(0 0,100% 0,96% 100%,0 100%);
+}
+body.sid-tech-supervision .est-tab.activo {border-bottom-color:#158dff;color:#0d47a1}
+body.sid-tech-supervision .est-kpi .val {color:#0b3c7d}
+@media(max-width:1000px) {
+  body.sid-tech-supervision .sid-tech-topbar-identity {display:none}
+}
+@media(max-width:768px) {
+  body.sid-tech-supervision .sidebar-brand {display:none}
+  body.sid-tech-supervision .sidebar-mobile-head {
+    background:linear-gradient(100deg,#062659,#0a5caa);
+  }
+  body.sid-tech-supervision .contenido {padding:16px 12px 40px}
+  body.sid-tech-supervision .est-hero {padding:20px}
+  body.sid-tech-supervision .panel {max-width:100%}
+}
+@media(prefers-reduced-motion:reduce) {
+  body.sid-tech-supervision *,body.sid-tech-supervision *::before,
+  body.sid-tech-supervision *::after {transition-duration:.01ms!important}
+}
+
+
+/* Resumen y otras cabeceras de Supervisión: foto/ilustración local y carpeta tech. */
+body.sid-tech-supervision .planteles-hero {
+  position:relative; isolation:isolate; overflow:hidden;
+  min-height:190px; display:flex; align-items:center;
+  padding:30px 32px; margin-bottom:20px;
+  border:1px solid rgba(70,175,255,.62);
+  border-radius:15px; color:#fff;
+  background:linear-gradient(100deg,rgba(3,34,91,.98),rgba(7,71,154,.87) 57%,rgba(4,50,112,.59)),
+    url("/classroom.svg") center/cover no-repeat;
+  box-shadow:0 12px 28px rgba(5,63,138,.2);
+}
+body.sid-tech-supervision .planteles-hero:before {
+  content:"";position:absolute;top:0;left:0;width:48%;height:22px;
+  background:linear-gradient(90deg,rgba(34,163,255,.68),rgba(105,208,255,.1));
+  clip-path:polygon(0 0,100% 0,95% 100%,0 100%);
+}
+body.sid-tech-supervision .planteles-hero-copy {position:relative;z-index:1}
+body.sid-tech-supervision .planteles-hero h1,
+body.sid-tech-supervision .planteles-hero .planteles-eyebrow,
+body.sid-tech-supervision .planteles-hero p {color:#fff}
+body.sid-tech-supervision .planteles-hero h1 {
+  font-size:clamp(25px,3vw,38px);font-weight:700;
+  text-shadow:0 2px 12px rgba(0,19,61,.4)
+}
+body.sid-tech-supervision .planteles-hero .planteles-eyebrow {
+  color:#8de7ff;letter-spacing:.12em;font-weight:700
+}
+body.sid-tech-supervision .planteles-hero p {color:#d5ebff}
+body.sid-tech-supervision .tarjetas-resumen .panel {
+  border:1px solid #d6e7fb;border-top:3px solid #2b9dff;
+  transition:transform .15s,box-shadow .15s;
+}
+body.sid-tech-supervision .tarjetas-resumen .panel:hover {
+  transform:translateY(-2px);box-shadow:0 10px 28px rgba(12,97,190,.17)
+}
+body.sid-tech-supervision .tarjetas-resumen .panel:focus-visible {
+  outline:3px solid #27c6f6;outline-offset:3px
+}
+@media(max-width:768px) {
+  body.sid-tech-supervision .planteles-hero {padding:24px 18px;min-height:160px}
+  body.sid-tech-supervision .tarjetas-resumen {grid-template-columns:1fr!important}
+}
+
+
+/* Login SID Tech 2.0 — mantiene IDs y JS de autenticación originales. */
+body.sid-supervision-login {
+  min-height:100vh; margin:0; display:block;
+  background:#e8f4ff; color:#12325a;
+}
+.sid-supervision-login .sid-login-layout {
+  min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr);
+}
+.sid-supervision-login .sid-login-intro {
+  position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;
+  min-height:100vh;padding:clamp(26px,4vw,62px);
+  color:#fff;border-right:3px solid #26a9ff;
+  background:
+    linear-gradient(105deg,rgba(3,24,65,.97),rgba(6,59,133,.87) 70%,rgba(8,73,147,.67)),
+    url("/classroom.svg") center/cover no-repeat,
+    #082f6c;
+}
+.sid-supervision-login .sid-login-intro:before {
+  content:"";position:absolute;top:0;left:0;width:70%;height:26px;
+  background:linear-gradient(90deg,rgba(38,176,255,.72),rgba(101,213,255,.07));
+  clip-path:polygon(0 0,100% 0,96% 100%,0 100%);
+}
+.sid-supervision-login .sid-login-intro:after {
+  content:"";position:absolute;inset:auto -140px -160px auto;
+  width:430px;height:430px;border-radius:50%;
+  border:1px solid rgba(117,218,255,.25);
+  box-shadow:0 0 0 55px rgba(33,157,255,.07),0 0 0 110px rgba(33,157,255,.04);
+  pointer-events:none;
+}
+.sid-supervision-login .sid-login-brand {display:flex;align-items:center;gap:10px;position:relative;z-index:1}
+.sid-supervision-login .sid-login-brand>strong {
+  font-family:var(--display);font-size:clamp(45px,5vw,74px);
+  line-height:1;letter-spacing:-.075em;
+  background:linear-gradient(130deg,#fff,#8acfff 60%,#30e5ed);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 0 12px rgba(40,167,255,.4));
+}
+.sid-supervision-login .sid-login-mark {font-size:29px;color:#35d3ff}
+.sid-supervision-login .sid-login-brand>span:last-child {
+  border-left:1px solid rgba(178,226,255,.7);padding-left:13px;
+  font-size:15px;letter-spacing:.1em;font-weight:700;
+}
+.sid-supervision-login .sid-login-brand small {
+  display:block;margin-top:4px;font-size:10px;letter-spacing:.01em;
+  color:#b7e2ff;font-weight:400;
+}
+.sid-supervision-login .sid-login-copy {margin:auto 0;position:relative;z-index:1;max-width:580px}
+.sid-supervision-login .sid-login-kicker {font-size:11px;font-weight:700;letter-spacing:.17em;color:#86e0ff}
+.sid-supervision-login .sid-login-copy h1 {
+  font-size:clamp(40px,5.2vw,70px);line-height:1.08;margin:18px 0;
+  letter-spacing:-.035em;color:#fff;
+}
+.sid-supervision-login .sid-login-copy h1 span {color:#73cfff}
+.sid-supervision-login .sid-login-copy p {max-width:520px;color:#d7edff;font-size:16px;line-height:1.75}
+.sid-supervision-login .sid-login-line {height:3px;width:100px;margin:28px 0 20px;background:linear-gradient(90deg,#20e1d4,#49adff);box-shadow:0 0 16px rgba(32,225,212,.6)}
+.sid-supervision-login .sid-login-tag {color:#e0f4ff;font-size:13px}
+.sid-supervision-login .sid-login-foot {position:relative;z-index:1;color:#a7cffa;font-size:12px}
+.sid-supervision-login .sid-login-access {
+  display:flex;align-items:center;justify-content:center;padding:clamp(20px,5vw,65px);
+  background:radial-gradient(circle at 80% 15%,rgba(69,170,255,.14),transparent 48%),#f3f9ff;
+}
+.sid-supervision-login .login-card {
+  width:100%;max-width:440px;padding:clamp(25px,3.5vw,42px);
+  border:1px solid #c9e2ff;border-top:4px solid #168cff;border-radius:20px;
+  background:rgba(255,255,255,.96);box-shadow:0 24px 60px rgba(6,62,129,.13);
+}
+.sid-supervision-login .sid-login-icon {
+  display:grid;place-items:center;width:48px;height:48px;margin-bottom:22px;
+  border-radius:13px;color:#fff;font-size:30px;
+  background:linear-gradient(130deg,#084cb2,#1daeff);
+  box-shadow:0 8px 24px rgba(22,142,255,.27);
+}
+.sid-supervision-login .sid-login-eyebrow {color:#1474d6;font-size:11px;font-weight:700;letter-spacing:.16em}
+.sid-supervision-login .login-card h2 {
+  margin:9px 0 6px;font-size:clamp(25px,3vw,33px);color:#082d61;
+}
+.sid-supervision-login .login-card p {color:#617b9d;font-size:13px;line-height:1.6;margin-bottom:25px}
+.sid-supervision-login .login-card label {display:block;margin:17px 0 7px;color:#284568;font-size:13px;font-weight:700}
+.sid-supervision-login .login-card input {
+  width:100%;padding:13px 14px;min-height:46px;border:1px solid #c8dbef;
+  border-radius:10px;background:#f8fbff;color:#112d50;font-size:15px;
+}
+.sid-supervision-login .login-card input:focus-visible {outline:3px solid #64caff;outline-offset:1px}
+.sid-supervision-login .login-card button {
+  width:100%;display:flex;justify-content:center;align-items:center;gap:10px;
+  margin-top:24px;padding:14px 18px;min-height:48px;border:0;border-radius:11px;
+  background:linear-gradient(110deg,#0c4aa7,#148bff);color:#fff;font-size:15px;
+  font-weight:700;cursor:pointer;box-shadow:0 9px 24px rgba(17,116,217,.22);
+}
+.sid-supervision-login .login-card button:hover:not(:disabled) {filter:brightness(1.07)}
+.sid-supervision-login .login-card button:disabled {opacity:.65;cursor:wait}
+.sid-supervision-login .login-error {
+  display:none;margin-top:15px;padding:12px;border:1px solid #f2b7b7;
+  border-radius:9px;background:#fff2f2;color:#a32626;font-size:13px;
+}
+.sid-supervision-login .login-error.visible {display:block}
+.sid-supervision-login .sid-login-note {
+  margin-top:25px;padding-top:16px;border-top:1px solid #e3ecf7;
+  color:#6a83a2;font-size:12px;line-height:1.5;text-align:center;
+}
+@media(max-width:900px) {
+  .sid-supervision-login .sid-login-layout {grid-template-columns:1fr}
+  .sid-supervision-login .sid-login-intro {min-height:300px;padding:30px 24px}
+  .sid-supervision-login .sid-login-copy {margin:30px 0 20px}
+  .sid-supervision-login .sid-login-copy h1 {font-size:40px}
+  .sid-supervision-login .sid-login-foot {display:none}
+  .sid-supervision-login .sid-login-access {padding:28px 16px 45px}
+}
+@media(max-width:520px) {
+  .sid-supervision-login .sid-login-intro {min-height:250px;padding:24px 18px}
+  .sid-supervision-login .sid-login-copy h1 {font-size:32px;margin:9px 0}
+  .sid-supervision-login .sid-login-copy p {font-size:13px;line-height:1.5}
+  .sid-supervision-login .sid-login-brand>strong {font-size:45px}
+  .sid-supervision-login .sid-login-brand>span:last-child {font-size:11px}
+  .sid-supervision-login .sid-login-tag {display:none}
+  .sid-supervision-login .sid-login-line {margin:15px 0 0}
+  .sid-supervision-login .login-card {padding:26px 22px}
+}
+
+
+/* Componentes internos: tablas, filtros, formularios y modales. */
+body.sid-tech-supervision:not(.sid-supervision-login) {
+  --tinta:#193658;--tinta-suave:#607a99;
+  --papel-2:#fff;--sello:#bc7427;--tiza-clara:#287b61;
+}
+body.sid-tech-supervision .panel-cabecera {background:linear-gradient(110deg,#f2f8ff,#fff);border-bottom:1px solid #dbe8f8}
+body.sid-tech-supervision .panel-cabecera h2,
+body.sid-tech-supervision .panel-cabecera h3 {color:#0b3f83}
+body.sid-tech-supervision .filtros input,
+body.sid-tech-supervision .filtros select,
+body.sid-tech-supervision .campo input,
+body.sid-tech-supervision .campo select,
+body.sid-tech-supervision .campo textarea,
+body.sid-tech-supervision .est-campo input,
+body.sid-tech-supervision .est-campo select {
+  max-width:100%;border:1px solid #c5dbf3;border-radius:9px;
+  background:#f9fcff;color:#183756;min-height:39px;
+}
+body.sid-tech-supervision .campo label {color:#3b5b7f}
+body.sid-tech-supervision .btn-fantasma {
+  border:1px solid #bcd7f3;color:#0d4d9d;background:rgba(248,252,255,.92);
+  border-radius:9px;
+}
+body.sid-tech-supervision .btn-fantasma:hover {background:#eaf5ff;border-color:#55b6ff}
+body.sid-tech-supervision .btn-peligro {border-radius:9px}
+body.sid-tech-supervision .modal-fondo {
+  background:rgba(4,23,59,.68);backdrop-filter:blur(4px);
+}
+body.sid-tech-supervision .modal {
+  border:1px solid rgba(86,176,255,.44);border-top:4px solid #238fff;
+  border-radius:16px;box-shadow:0 20px 55px rgba(4,35,85,.25);
+}
+body.sid-tech-supervision .modal h2,
+body.sid-tech-supervision .modal h3 {color:#0c428b}
+body.sid-tech-supervision .modal-fondo.pantalla-completa .modal {
+  border-radius:0;border-top:4px solid #168fff;
+}
+body.sid-tech-supervision .tabla-responsive,
+body.sid-tech-supervision .hist-tabla {
+  max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
+}
+body.sid-tech-supervision table {background:#fff}
+body.sid-tech-supervision th {
+  background:#eaf4ff;color:#315477;border-bottom:1px solid #c9e1fa;
+}
+body.sid-tech-supervision td {border-bottom-color:#e4eef9}
+body.sid-tech-supervision tr:hover td {background:#f2f8ff}
+body.sid-tech-supervision .cod {
+  background:#edf6ff;color:#0d4a97;border:1px solid #d3e8ff;
+  border-radius:6px;
+}
+body.sid-tech-supervision .badge-pendiente {background:#fff2df;color:#985611}
+body.sid-tech-supervision .badge-resuelto {background:#e0f6ec;color:#146747}
+body.sid-tech-supervision .badge-revisado {background:#e5f0ff;color:#0c4c9b}
+body.sid-tech-supervision .toast {background:#083c83;border:1px solid #3baaff}
+body.sid-tech-supervision .vacio {color:#5a7797}
+body.sid-tech-supervision .vacio strong {color:#183b69}
+body.sid-tech-supervision .est-tabla th {background:#eaf4ff;color:#315477}
+body.sid-tech-supervision .est-tabla tbody tr:hover {background:#f2f8ff}
+body.sid-tech-supervision .est-lista button {
+  border:1px solid #d0e3f8;border-radius:10px;background:#fff;
+}
+body.sid-tech-supervision .est-lista button:hover {background:#eef7ff;border-color:#55b6ff}
+body.sid-tech-supervision .est-hero-periodo select {
+  background:#fff;color:#142f52;border:1px solid #9dd6ff;
+}
+body.sid-tech-supervision .est-tab:focus-visible {outline:3px solid #35c9f7;outline-offset:2px}
+@media(max-width:768px) {
+  body.sid-tech-supervision .filtros {align-items:stretch}
+  body.sid-tech-supervision .filtros input,
+  body.sid-tech-supervision .filtros select {min-width:0}
+  body.sid-tech-supervision .modal {padding:18px;max-height:calc(100dvh - 24px)}
+  body.sid-tech-supervision .modal-fondo {padding:12px}
+  body.sid-tech-supervision .modal-fondo.pantalla-completa {padding:0}
+  body.sid-tech-supervision .form-grid {grid-template-columns:1fr}
+}
