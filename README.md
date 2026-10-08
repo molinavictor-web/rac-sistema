@@ -1,4 +1,58 @@
-# RAC Monagas — Sistema web
+# SIGE — Sistema Integrado de Gestión Educativa (en desarrollo)
+
+> **Estado:** evolución gradual del sistema RAC existente. La aplicación en producción continúa funcionando con su arquitectura y autorizaciones actuales. Los cambios SIGE se preparan en la rama `feature/sige-permisos-fase1`; no están desplegados.
+
+SIGE busca integrar progresivamente tres ámbitos: **RAC**, **Supervisión Educativa** y **Planteles FEDE**, con una identidad y una administración de accesos coherentes, sin perder las funcionalidades actuales.
+
+## Regla obligatoria de seguridad y despliegue
+
+**No modificar ni desplegar nada en producción (Render, Supabase, integraciones Google) sin pruebas satisfactorias y autorización explícita del responsable del proyecto.** Un commit, una prueba unitaria aprobada o un workflow exitoso **no constituyen autorización de despliegue**.
+
+1. Trabajar en la rama de desarrollo, sin fusionar a `main` por defecto.
+2. Auditar las autorizaciones actuales y conservar las restricciones por municipio y plantel.
+3. Ejecutar pruebas unitarias, negativas y de integración; verificar usuarios inactivos.
+4. Probar migraciones y restauraciones en una base **aislada**, nunca en la base productiva.
+5. Presentar resultados y riesgos para aprobación humana previa a cualquier cambio productivo.
+
+**Precaución:** `npm run migrate` ejecuta el esquema histórico y **no debe ejecutarse en Supabase de producción**. Los comandos de despliegue y primera instalación que figuran más abajo son documentación histórica, **no instrucciones autorizadas para el entorno actual**. No restaurar un respaldo completo sobre esquemas administrados por Supabase.
+
+## Avance SIGE — Fase 1: roles y permisos
+
+| Componente | Estado |
+|---|---|
+| Respaldo PostgreSQL inicial | Archivo local generado y listado inspeccionado; **restauración integral aún no comprobada** |
+| Inventario de permisos de RAC, Supervisión y FEDE | Auditoría preliminar documentada |
+| Catálogo central `src/core/permissions.js` | Creado; incluye permisos generales y 24 permisos granulares **preparatorios** |
+| Matriz definitiva rol × acción | **Pendiente de validar**; los permisos granulares no se conceden todavía |
+| `requirePermiso` | Prototipo sin conectar a rutas productivas ni a roles persistidos en BD |
+| Migración `sql/20261007_sige_roles_permisos.sql` | Propuesta **NO EJECUTADA**, pendiente de revisión y prueba aislada |
+| Preflight `sql/20261007_sige_preflight_readonly.sql` | Consulta de diagnóstico de solo lectura |
+| Pruebas `tests/permissions*.test.js` | Suites unitarias incorporadas; faltan pruebas de integración/alcance |
+| GitHub Actions | Workflow de pruebas unitarias configurado; verificar resultados en Actions |
+| Despliegue SIGE | **NO REALIZADO** |
+
+Documentación: [Plan de fase 1](docs/SIGE_FASE1.md) · [Auditoría de permisos reales](docs/SIGE_AUDITORIA_PERMISOS.md).
+
+### Pruebas de permisos
+
+```bash
+npm run test:permissions
+```
+
+Este comando ejecuta pruebas unitarias sin conectarse a la base de datos ni requerir credenciales de producción. El workflow `.github/workflows/sige-permissions.yml` las ejecuta en la rama de desarrollo. **No sustituyen** las pruebas de integración, los controles de alcance territorial ni la verificación de cuentas activas.
+
+### Próximas etapas
+
+- Completar auditoría de rutas auxiliares y construir la matriz rol × acción según comportamiento real.
+- Probar denegaciones 401/403, acceso cruzado entre municipios/planteles y usuarios inactivos.
+- Preparar entorno de pruebas PostgreSQL aislado y ensayar migración/recuperación.
+- Diseñar integración de roles múltiples sin alterar sesiones, OAuth, Drive, Sheets o datos existentes.
+- Solo después de pruebas y aprobación explícita, planificar una implementación controlada.
+
+---
+
+## Sistema RAC existente (documentación histórica)
+
 
 Sistema web (Node.js/Express + PostgreSQL + Google Sheets/Drive) para la
 Zona Educativa del estado Monagas. Nació como el backend de validación del
