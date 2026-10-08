@@ -32,5 +32,35 @@ const server=http.createServer((req,res)=>{
    console.log('PASS login viewport '+width+'px, no overflow or JS errors');
    await page.close();
   }
+
+  // Smoke de navegación aislado: usuario ficticio, respuestas API simuladas.
+  // No usa credenciales reales ni toca la base de datos.
+  for(const [role,pages] of [
+   ['supervision',['resumen','estadisticas','alertas','planteles','consolidado','municipales','circuitales','circuitos','directores']],
+   ['director',['mi-plantel']]
+  ]) {
+   for(const name of pages) {
+    const page=await browser.newPage({viewport:{width:375,height:812}});
+    const errors=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    await page.addInitScript(({role})=>{
+     sessionStorage.setItem('rac_token','mock-not-a-real-token');
+     sessionStorage.setItem('rac_usuario',JSON.stringify({id:1,nombre:'Prueba aislada',rol:role,codigo_plantel:'ABC',municipio_id:1}));
+    },{role});
+    await page.route('**/api/**',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({planteles:[],consolidado:[],supervisores:[],directores:[],circuitos:[],alertas:[],municipios:[],catalogo:[],asignados:[],filas:[],matricula_historico:[],plantel:{codigo_plantel:'ABC',eponimo_actual:'Plantel ficticio'},total:0})}));
+    await page.goto(origin+'/supervision/'+name+'.html',{waitUntil:'networkidle'});
+    assert.equal(await page.locator('.sidebar').count(),1,'Missing sidebar on '+name);
+    assert.equal(await page.locator('.topbar').count(),1,'Missing topbar on '+name);
+    const menu=page.locator('.mobile-menu');
+    assert.equal(await menu.isVisible(),true,'Mobile menu missing on '+name);
+    await menu.click();
+    assert.equal(await menu.getAttribute('aria-expanded'),'true','Mobile menu failed to open on '+name);
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.getAttribute('aria-expanded'),'false','Mobile menu failed to close on '+name);
+    assert.deepEqual(errors,[],'JavaScript errors on '+name);
+    console.log('PASS mobile shell/menu '+role+'/'+name);
+    await page.close();
+   }
+  }
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(err=>{console.error(err);process.exitCode=1;server.close();});
