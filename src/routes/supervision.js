@@ -1722,6 +1722,19 @@ router.post(
         );
       }
 
+      // Verificar el acumulado antes de convertirlo a INTEGER (PostgreSQL int4).
+      // SUM(integer) devuelve bigint y permite detectar desbordamientos sin error SQL.
+      const acumulado = await cliente.query(
+        `SELECT COALESCE(SUM(hembras), 0) AS hembras, COALESCE(SUM(varones), 0) AS varones
+         FROM matricula_nivel WHERE codigo_plantel = $1 AND periodo_escolar = $2`,
+        [codigoPlantel, periodo]
+      );
+      if (Number(acumulado.rows[0].hembras) > MAX_MATRICULA_ENTERO ||
+          Number(acumulado.rows[0].varones) > MAX_MATRICULA_ENTERO) {
+        await cliente.query("ROLLBACK");
+        return res.status(400).json({ error: "El total de matrícula supera el máximo permitido." });
+      }
+
       // El total por plantel y período = suma de TODOS sus niveles cargados.
       const total = await cliente.query(
         `INSERT INTO matricula_planteles (codigo_plantel, periodo_escolar, hembras, varones, actualizado_por)
