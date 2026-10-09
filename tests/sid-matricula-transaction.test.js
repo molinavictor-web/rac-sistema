@@ -9,10 +9,13 @@ const end=source.indexOf('// Cambia los niveles de un plantel',start);
 assert.ok(start>0&&end>start);
 const snippet=source.slice(start,end);
 function harness({assigned=['primaria'],failOn=null}={}){
- const calls=[];let released=false;
+ const calls=[];let released=false;const levels=new Map();
  const client={async query(sql,params=[]){
   const s=String(sql).trim();calls.push({sql:s,params});
   if(failOn&&s.includes(failOn))throw Error('simulated db failure');
+  if(s==='ROLLBACK')levels.clear();
+  if(s.startsWith('INSERT INTO matricula_nivel'))levels.set(params[2],{hembras:params[3],varones:params[4]});
+  if(s.startsWith('SELECT COALESCE(SUM(hembras)'))return {rows:[{hembras:[...levels.values()].reduce((a,x)=>a+x.hembras,0),varones:[...levels.values()].reduce((a,x)=>a+x.varones,0)}]};
   if(s.startsWith('SELECT nivel FROM plantel_niveles'))return {rows:assigned.map(nivel=>({nivel}))};
   if(s.includes('RETURNING *'))return {rows:[{codigo_plantel:'ABC',periodo_escolar:params[1],hembras:5,varones:6}]};
   return {rows:[]};
@@ -28,7 +31,7 @@ function harness({assigned=['primaria'],failOn=null}={}){
   const res={statusCode:200,status(n){this.statusCode=n;return this},json(payload){this.payload=payload;return this}};
   await handler(req,res);return res;
  }
- return {run,calls,released:()=>released};
+ return {run,calls,released:()=>released,levels};
 }
 const valid={periodo_escolar:'2026-2027',niveles:[{nivel:'primaria',hembras:5,varones:6}]};
 test('successful matricula por nivel commits and updates aggregate',async()=>{
@@ -65,4 +68,16 @@ test('missing levels and missing period rejected before DB access',async()=>{
   const h=harness();const res=await h.run(body);
   assert.equal(res.statusCode,400);assert.equal(h.calls.length,0);
  }
+});
+
+test('aggregate overflow is rejected with 400 and transaction rolls back',async()=>{
+ const h=harness({assigned:['primaria','inicial']});
+ const res=await h.run({periodo_escolar:'2026-2027',niveles:[{nivel:'primaria',hembras:2147483647,varones:10},{nivel:'inicial',hembras:1,varones:1}]});
+ assert.equal(res.statusCode,400);
+ assert.ok(h.calls.some(c=>c.sql.includes('SELECT COALESCE(SUM(hembras)')));
+ assert.ok(h.calls.some(c=>c.sql==='ROLLBACK'));
+ assert.ok(!h.calls.some(c=>c.sql.includes('INSERT INTO matricula_planteles')));
+ assert.ok(!h.calls.some(c=>c.sql==='COMMIT'));
+ assert.equal(h.levels.size,0);
+ assert.equal(h.released(),true);
 });
