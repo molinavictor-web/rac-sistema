@@ -1,5 +1,37 @@
 require("dotenv").config();
 const express = require("express");
+
+// --- Red de seguridad para errores en rutas async ---------------------
+// Express 4 NO captura los errores de funciones async: si una consulta a
+// la base de datos falla dentro de una ruta sin try/catch, la promesa
+// queda rechazada sin que nadie la atienda y Node tumba todo el servidor
+// (afectando a RAC, Supervisión y Planteles a la vez). Este parche envía
+// ese error al manejador de errores del final de este archivo, que
+// responde 500 y deja el servidor en pie. Es el mismo mecanismo del
+// paquete "express-async-errors", escrito aquí para no sumar dependencias.
+// Si en el futuro se pasa a Express 5 (que ya lo hace de fábrica) el
+// require falla y simplemente se omite el parche.
+try {
+  const Layer = require("express/lib/router/layer");
+  Layer.prototype.handle_request = function handle(req, res, next) {
+    const fn = this.handle;
+    if (fn.length > 3) return next(); // manejadores de error: no se tocan
+    try {
+      const resultado = fn(req, res, next);
+      if (resultado && typeof resultado.catch === "function") resultado.catch(next);
+    } catch (err) {
+      next(err);
+    }
+  };
+} catch (e) {
+  console.warn("No se pudo activar la captura de errores async:", e.message);
+}
+
+// Último recurso: un rechazo que no venga de una ruta (tarea en segundo
+// plano) se registra en el log en vez de tumbar el servidor.
+process.on("unhandledRejection", (motivo) => {
+  console.error("Promesa rechazada sin manejar:", motivo);
+});
 const cors = require("cors");
 const helmet = require("helmet");
 const authRoutes = require("./routes/auth");
@@ -67,6 +99,14 @@ app.use('/api/directorio-directores', directorioDirectoresRoutes);
 app.use('/api/supervision', supervisionRoutes);
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  // Errores del cliente (JSON mal formado, cuerpo demasiado grande...) no
+  // son fallos del servidor: se responden como 4xx y no se llenan los logs.
+  const status = err.status || err.statusCode;
+  if (status >= 400 && status < 500) {
+    const mensaje = status === 413 ? "El contenido enviado es demasiado grande." : "Solicitud inválida.";
+    return res.status(status).json({ error: mensaje });
+  }
   console.error(err);
   res.status(500).json({ error: "Error interno del servidor." });
 });
