@@ -35,6 +35,9 @@ let BASE = {};            // id de rubro -> cantidad guardada en el servidor (n�
 let ACTUAL = {};          // id de rubro -> texto que hay en pantalla (solo los editados)
 let CAB_BASE = null;      // cabecera tal como está en el servidor
 let GESCOLAR = {};        // datos del plantel tal como están en GESCOLAR (para restablecer)
+let CATALOGO = [];        // catálogo de materiales adicionales (para el autocompletado)
+let ADIC_BASE = {};       // id de adicional -> cantidad guardada (número o null)
+let ADIC = [];            // filas de adicionales que hay en pantalla: {id, nombre, unidad, estado, texto}
 let SOLO_LECTURA = false;
 let temporizadorBorrador = null;
 let guardando = false;
@@ -57,8 +60,14 @@ async function cargar() {
     mostrarError(err.message);
     return;
   }
+  try {
+    CATALOGO = (await RAC.get("/api/inspecciones/adicionales")).adicionales;
+  } catch (_) {
+    CATALOGO = []; // sin catálogo no hay autocompletado, pero la planilla se puede usar
+  }
   BASE = {};
   DATA.rubros.forEach((r) => { BASE[r.id] = r.cantidad; });
+  iniciarAdic();
   ACTUAL = {};
   const i = DATA.inspeccion;
   CAB_BASE = {
@@ -204,6 +213,16 @@ function dibujar() {
         <div class="filtros"><input type="search" id="buscarRubro" placeholder="Buscar un rubro…" style="flex:1; min-width:220px;"></div>
       </div>
       ${bloques}
+      <div class="pl-adic" id="seccionAdic">
+        <h3 style="margin:0 0 4px;">Materiales adicionales</h3>
+        <p style="margin:0 0 12px; color:var(--rac-muted,#718198); font-size:.82rem;">Los que <strong>no están</strong> en la lista oficial. Escribe para buscar; si no existe, créalo (queda pendiente hasta que lo apruebe el administrador). Si dejas la cantidad vacía, el material queda anotado pero no suma.</p>
+        ${SOLO_LECTURA ? "" : `
+        <div class="pl-adic-buscar">
+          <input type="search" id="adicBuscar" autocomplete="off" maxlength="200" placeholder="Escribe para buscar o agregar un material…">
+          <div class="pl-sug" id="adicSug"></div>
+        </div>`}
+        <div id="adicLista"></div>
+      </div>
       <div class="pl-barra">
         <span class="estado" id="estadoBarra"></span>
         <button type="button" class="btn btn-primario" id="btnGuardar" ${SOLO_LECTURA ? "disabled" : ""}>Guardar</button>
@@ -213,6 +232,8 @@ function dibujar() {
 
   document.getElementById("cabEstado").value = CAB_BASE.estado;
   enlazarEventos();
+  pintarAdic();
+  enlazarAdic();
   DATA.rubros.forEach((r) => marcarFila(r.id));
   actualizarConteos();
 }
@@ -367,13 +388,14 @@ function alCambiarCabecera() {
 }
 
 function hayInvalidos() {
-  return Object.keys(ACTUAL).some((id) => Number.isNaN(leer(ACTUAL[id])));
+  return Object.keys(ACTUAL).some((id) => Number.isNaN(leer(ACTUAL[id]))) || adicCambios().invalidos > 0;
 }
 
 function actualizarBarra() {
   const barra = document.getElementById("estadoBarra");
   if (!barra) return;
   const nCant = Object.keys(ACTUAL).length;
+  const nAdic = adicCambios().total;
   const nCab = cabeceraCambio();
   barra.className = "estado";
   if (SOLO_LECTURA) { barra.textContent = "Solo lectura (plan cerrado)."; return; }
@@ -382,10 +404,11 @@ function actualizarBarra() {
     barra.textContent = "Hay cantidades con formato inválido (marcadas en rojo). Usa números positivos con hasta 3 decimales.";
     return;
   }
-  if (!nCant && !nCab) { barra.textContent = "Todo guardado."; return; }
+  if (!nCant && !nCab && !nAdic) { barra.textContent = "Todo guardado."; return; }
   barra.classList.add("sucio");
   const partes = [];
   if (nCant) partes.push(`${nCant} cantidad${nCant === 1 ? "" : "es"}`);
+  if (nAdic) partes.push(`${nAdic} cambio${nAdic === 1 ? "" : "s"} en adicionales`);
   if (nCab) partes.push("datos de cabecera");
   barra.textContent = `Sin guardar: ${partes.join(" y ")}. Guardado como borrador en este equipo.`;
 }
@@ -403,12 +426,13 @@ function programarBorrador() {
 
 function guardarBorrador() {
   try {
-    const sucio = Object.keys(ACTUAL).length || cabeceraCambio();
+    const sucio = Object.keys(ACTUAL).length || cabeceraCambio() || adicCambios().total;
     if (!sucio) { localStorage.removeItem(CLAVE_BORRADOR); return; }
     localStorage.setItem(CLAVE_BORRADOR, JSON.stringify({
       ts: Date.now(),
       actualizado_en: DATA.inspeccion.actualizado_en,
       cant: ACTUAL,
+      adic: ADIC.map((f) => ({ id: f.id, nombre: f.nombre, unidad: f.unidad, estado: f.estado, texto: f.texto })),
       cab: cabeceraActual(),
     }));
   } catch (_) { /* sin almacenamiento: se trabaja igual, solo sin borrador */ }
@@ -460,11 +484,22 @@ function recuperarBorrador() {
     nCab = cabeceraCambio();
   }
 
-  if (!nCant && !nCab) { borrarBorrador(); return; }
+  let nAdic = 0;
+  if (Array.isArray(b.adic)) {
+    const filas = b.adic
+      .filter((f) => f && Number.isInteger(f.id) && typeof f.nombre === "string" && typeof f.texto === "string")
+      .map((f) => ({ id: f.id, nombre: f.nombre, unidad: String(f.unidad || ""), estado: String(f.estado || "ACTIVO"), texto: f.texto }));
+    const previo = JSON.stringify(ADIC);
+    ADIC = filas;
+    if (JSON.stringify(ADIC) !== previo) { pintarAdic(); }
+    nAdic = adicCambios().total;
+  }
+
+  if (!nCant && !nCab && !nAdic) { borrarBorrador(); return; }
   const cuando = new Date(b.ts).toLocaleString("es-VE");
   const aviso = document.getElementById("avisoBorrador");
   document.getElementById("textoBorrador").innerHTML =
-    `Recuperé lo que habías escrito sin guardar (${escapar(cuando)}): <strong>${nCant}</strong> cantidad${nCant === 1 ? "" : "es"}${nCab ? " y datos de cabecera" : ""}. Revisa y pulsa <strong>Guardar</strong>.`;
+    `Recuperé lo que habías escrito sin guardar (${escapar(cuando)}): <strong>${nCant}</strong> cantidad${nCant === 1 ? "" : "es"}${nAdic ? ` y ${nAdic} cambio${nAdic === 1 ? "" : "s"} en adicionales` : ""}${nCab ? " y datos de cabecera" : ""}. Revisa y pulsa <strong>Guardar</strong>.`;
   aviso.classList.add("visible");
   actualizarConteos();
 }
@@ -473,13 +508,14 @@ function descartarBorrador() {
   borrarBorrador();
   document.getElementById("avisoBorrador").classList.remove("visible");
   ACTUAL = {};
+  iniciarAdic();
   dibujar();
   actualizarBarra();
 }
 
 window.addEventListener("beforeunload", (e) => {
   if (SOLO_LECTURA || !DATA) return;
-  if (Object.keys(ACTUAL).length || cabeceraCambio()) { guardarBorrador(); e.preventDefault(); e.returnValue = ""; }
+  if (Object.keys(ACTUAL).length || cabeceraCambio() || adicCambios().total) { guardarBorrador(); e.preventDefault(); e.returnValue = ""; }
 });
 
 // ---------------------------------------------------------------------------
@@ -491,7 +527,8 @@ async function guardar() {
   if (hayInvalidos()) { mostrarToast("Corrige las cantidades marcadas en rojo antes de guardar.", true); return; }
   const ids = Object.keys(ACTUAL);
   const cabCambio = cabeceraCambio();
-  if (!ids.length && !cabCambio) { mostrarToast("No hay cambios por guardar."); return; }
+  const adic = adicCambios();
+  if (!ids.length && !cabCambio && !adic.total) { mostrarToast("No hay cambios por guardar."); return; }
 
   guardando = true;
   const boton = document.getElementById("btnGuardar");
@@ -514,6 +551,9 @@ async function guardar() {
       ids.forEach((id) => { cantidades[id] = ACTUAL[id].trim(); });
       await RAC.put(`/api/inspecciones/inspeccion/${INSPECCION_ID}/materiales`, { cantidades });
     }
+    if (adic.total) {
+      await RAC.put(`/api/inspecciones/inspeccion/${INSPECCION_ID}/adicionales`, { cantidades: adic.enviar, quitar: adic.quitar });
+    }
     borrarBorrador();
     mostrarToast("Planilla guardada.");
     document.getElementById("avisoBorrador").classList.remove("visible");
@@ -526,6 +566,199 @@ async function guardar() {
     guardando = false;
     const b = document.getElementById("btnGuardar");
     if (b) { b.disabled = SOLO_LECTURA; b.textContent = "Guardar"; }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Materiales adicionales
+// ---------------------------------------------------------------------------
+
+const UNIDADES_COMUNES = ["UND", "M", "M2", "M3", "KG", "SACO", "LT", "GLN", "CUÑETE", "ROLLO", "PAR", "JUEGO", "BARRA", "LÁMINA"];
+
+// Sin acentos, sin signos, minúsculas: «Tubo PVC 2"» y «tubo pvc 2» se comparan igual.
+function norm(t) {
+  return String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function iniciarAdic() {
+  ADIC_BASE = {};
+  ADIC = (DATA.adicionales || []).map((a) => {
+    ADIC_BASE[a.adicional_id] = a.cantidad;
+    return { id: a.adicional_id, nombre: a.nombre, unidad: a.unidad, estado: a.estado, texto: texto(a.cantidad) };
+  });
+}
+
+// Qué hay que mandar al servidor: filas nuevas o con otra cantidad, y las que se quitaron.
+function adicCambios() {
+  const enviar = {};
+  let invalidos = 0;
+  ADIC.forEach((f) => {
+    const v = leer(f.texto);
+    if (Number.isNaN(v)) { invalidos++; return; }
+    const esNueva = !(f.id in ADIC_BASE);
+    if (esNueva || v !== ADIC_BASE[f.id]) enviar[f.id] = f.texto.trim();
+  });
+  const enPantalla = new Set(ADIC.map((f) => f.id));
+  const quitar = Object.keys(ADIC_BASE).map(Number).filter((id) => !enPantalla.has(id));
+  return { enviar, quitar, invalidos, total: Object.keys(enviar).length + quitar.length + invalidos };
+}
+
+function pintarAdic() {
+  const cont = document.getElementById("adicLista");
+  if (!cont) return;
+  if (!ADIC.length) {
+    cont.innerHTML = `<div class="pl-adic-vacio">Todavía no hay materiales adicionales en esta planilla.</div>`;
+    return;
+  }
+  cont.innerHTML = `<div class="tabla-responsive"><table class="pl-tabla pl-adic-tabla">
+    <thead><tr><th>Material</th><th class="uni">Unidad</th><th class="can">Cantidad</th><th class="quitar"></th></tr></thead>
+    <tbody>${ADIC.map((f) => `
+      <tr data-adic="${f.id}" class="${f.id in ADIC_BASE ? "" : "cambiada"}">
+        <td>${escapar(f.nombre)}${f.estado === "PENDIENTE" ? ` <span class="pl-pend" title="Lo propuso un ingeniero; el administrador debe aprobarlo">pendiente de aprobación</span>` : ""}</td>
+        <td class="uni">${escapar(f.unidad)}</td>
+        <td class="can"><input class="cant adic-cant${Number.isNaN(leer(f.texto)) ? " malo" : ""}" type="text" inputmode="decimal" autocomplete="off" data-aid="${f.id}" value="${escapar(f.texto)}" aria-label="Cantidad de ${escapar(f.nombre)}" ${SOLO_LECTURA ? "disabled" : ""}></td>
+        <td class="quitar">${SOLO_LECTURA ? "" : `<button type="button" class="btn btn-fantasma btn-sm" data-quitar="${f.id}" title="Quitar de esta planilla" aria-label="Quitar ${escapar(f.nombre)}">✕</button>`}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+}
+
+function enlazarAdic() {
+  const lista = document.getElementById("adicLista");
+  if (!lista) return;
+  lista.addEventListener("input", (e) => {
+    const inp = e.target.closest("input[data-aid]");
+    if (!inp) return;
+    const fila = ADIC.find((f) => f.id === Number(inp.dataset.aid));
+    if (!fila) return;
+    fila.texto = inp.value;
+    inp.classList.toggle("malo", Number.isNaN(leer(fila.texto)));
+    const tr = inp.closest("tr");
+    tr.classList.toggle("cambiada", !(fila.id in ADIC_BASE) || leer(fila.texto) !== ADIC_BASE[fila.id]);
+    actualizarBarra();
+    programarBorrador();
+  });
+  lista.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-quitar]");
+    if (!b) return;
+    ADIC = ADIC.filter((f) => f.id !== Number(b.dataset.quitar));
+    pintarAdic();
+    actualizarBarra();
+    programarBorrador();
+  });
+  const buscar = document.getElementById("adicBuscar");
+  if (!buscar) return;
+  // Los clics dentro de la lista de sugerencias no deben cerrarla (el contenido se redibuja al hacer clic).
+  document.getElementById("adicSug").addEventListener("click", (e) => e.stopPropagation());
+  buscar.addEventListener("input", sugerirAdic);
+  buscar.addEventListener("focus", sugerirAdic);
+  buscar.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") cerrarSug();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const primera = document.querySelector("#adicSug [data-pick]");
+      if (primera) primera.click();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".pl-adic-buscar")) cerrarSug();
+  });
+}
+
+function cerrarSug() {
+  const sug = document.getElementById("adicSug");
+  if (sug) { sug.classList.remove("abierta"); sug.innerHTML = ""; }
+}
+
+function sugerirAdic() {
+  const sug = document.getElementById("adicSug");
+  const q = document.getElementById("adicBuscar").value.trim();
+  if (!sug) return;
+  if (q.length < 2) { cerrarSug(); return; }
+  const palabras = norm(q).split(" ").filter(Boolean);
+  const yaEstan = new Set(ADIC.map((f) => f.id));
+  const candidatos = CATALOGO.filter((m) => {
+    if (yaEstan.has(m.id)) return false;
+    const pajar = norm(m.nombre + " " + (m.alias || []).join(" "));
+    return palabras.every((w) => pajar.includes(w));
+  });
+  const nq = norm(q);
+  candidatos.sort((a, b) => {
+    const pa = norm(a.nombre).startsWith(nq) ? 0 : 1, pb = norm(b.nombre).startsWith(nq) ? 0 : 1;
+    return pa - pb || a.nombre.localeCompare(b.nombre, "es");
+  });
+  const items = candidatos.slice(0, 8).map((m) => `
+    <button type="button" class="pl-sug-item" data-pick="${m.id}">
+      <span>${escapar(m.nombre)}${m.estado === "PENDIENTE" ? ` <em>(pendiente)</em>` : ""}</span><small>${escapar(m.unidad)}</small>
+    </button>`);
+  const existeIgual = CATALOGO.some((m) => norm(m.nombre) === nq || (m.alias || []).some((a) => norm(a) === nq));
+  const yaAgregado = ADIC.some((f) => norm(f.nombre) === nq);
+  if (q.length >= 3 && !existeIgual && !yaAgregado) {
+    items.push(`<button type="button" class="pl-sug-item pl-sug-crear" data-crear="1"><span>➕ Crear «${escapar(q)}» como material nuevo</span></button>`);
+  }
+  if (!items.length) items.push(`<div class="pl-sug-vacio">${yaAgregado || existeIgual ? "Ese material ya está en la planilla." : "Sin coincidencias."}</div>`);
+  sug.innerHTML = items.join("");
+  sug.classList.add("abierta");
+  sug.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => agregarAdic(Number(b.dataset.pick))));
+  const crear = sug.querySelector("[data-crear]");
+  if (crear) crear.addEventListener("click", () => formularioCrear(q));
+}
+
+function agregarAdic(id, enfocar = true) {
+  const m = CATALOGO.find((x) => x.id === id);
+  if (!m || ADIC.some((f) => f.id === id)) return;
+  ADIC.push({ id: m.id, nombre: m.nombre, unidad: m.unidad, estado: m.estado, texto: "" });
+  document.getElementById("adicBuscar").value = "";
+  cerrarSug();
+  pintarAdic();
+  actualizarBarra();
+  programarBorrador();
+  if (enfocar) {
+    const inp = document.querySelector(`input[data-aid="${id}"]`);
+    if (inp) inp.focus();
+  }
+}
+
+function formularioCrear(nombreInicial) {
+  const sug = document.getElementById("adicSug");
+  sug.innerHTML = `
+    <div class="pl-crear">
+      <strong>Material nuevo</strong>
+      <label>Nombre <input type="text" id="nuevoNombre" maxlength="200" value="${escapar(nombreInicial)}"></label>
+      <label>Unidad <input type="text" id="nuevaUnidad" maxlength="20" list="listaUnidades" placeholder="Ej.: UND, M, KG"></label>
+      <datalist id="listaUnidades">${UNIDADES_COMUNES.map((u) => `<option value="${escapar(u)}">`).join("")}</datalist>
+      <div class="pl-crear-botones">
+        <button type="button" class="btn btn-primario btn-sm" id="btnCrearAdic">Crear y agregar</button>
+        <button type="button" class="btn btn-fantasma btn-sm" id="btnCancelarCrear">Cancelar</button>
+      </div>
+      <span class="pl-crear-error" id="errorCrear"></span>
+    </div>`;
+  sug.classList.add("abierta");
+  document.getElementById("nuevaUnidad").focus();
+  document.getElementById("btnCancelarCrear").addEventListener("click", cerrarSug);
+  document.getElementById("btnCrearAdic").addEventListener("click", crearAdic);
+}
+
+async function crearAdic() {
+  const nombre = document.getElementById("nuevoNombre").value.trim();
+  const unidad = document.getElementById("nuevaUnidad").value.trim();
+  const error = document.getElementById("errorCrear");
+  error.textContent = "";
+  if (nombre.length < 3) { error.textContent = "Escribe el nombre del material."; return; }
+  if (!unidad) { error.textContent = "Indica la unidad."; return; }
+  const boton = document.getElementById("btnCrearAdic");
+  boton.disabled = true;
+  try {
+    const r = await RAC.post("/api/inspecciones/adicionales", { nombre, unidad });
+    CATALOGO.push(r.adicional);
+    agregarAdic(r.adicional.id);
+    mostrarToast(r.adicional.estado === "PENDIENTE" ? "Material creado: queda pendiente de aprobación." : "Material creado.");
+  } catch (err) {
+    boton.disabled = false;
+    error.textContent = err.message;
+    // Si ya existía (otro ingeniero lo creó), se busca en el catálogo y se agrega ese
+    try { CATALOGO = (await RAC.get("/api/inspecciones/adicionales")).adicionales; } catch (_) { /* nada */ }
+    const k = norm(nombre);
+    const ya = CATALOGO.find((m) => norm(m.nombre) === k || (m.alias || []).some((x) => norm(x) === k));
+    if (ya) agregarAdic(ya.id);
   }
 }
 

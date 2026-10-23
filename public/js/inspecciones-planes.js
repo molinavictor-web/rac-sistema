@@ -138,7 +138,8 @@ function dibujarPlan() {
         <button type="button" class="btn btn-fantasma btn-sm" id="btnVolver">← Todos los planes</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>
-        <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Ver consolidado</a>
+        <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
+        <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
       </div>
     </div>
 

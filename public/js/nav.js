@@ -50,6 +50,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     ]},
     { id: "inspecciones-grupo", titulo: "Inspecciones", enlaces: [
       { id: "inspecciones-planes", href: "/inspecciones/planes.html", label: "Planes de atención", roles: ["admin", "operador_plantel"] },
+      { id: "inspecciones-catalogo-adicionales", href: "/inspecciones/adicionales-catalogo.html", label: "Catálogo de adicionales", roles: ["admin"] },
     ]},
     { id: "administracion", titulo: "Administración", enlaces: [
       { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
