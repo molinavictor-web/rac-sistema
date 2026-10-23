@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Consolidado de adicionales</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .co-scroll { overflow: auto; max-height: 72vh; border-top: 1px solid var(--borde); }
+  .co-tabla { border-collapse: separate; border-spacing: 0; min-width: 100%; font-size: .82rem; }
+  .co-tabla th, .co-tabla td { padding: 7px 10px; border-bottom: 1px solid var(--borde); background: #fff; white-space: nowrap; }
+  .co-tabla thead th { position: sticky; top: 0; z-index: 3; background: #f4f7fb; font-size: .72rem; text-transform: uppercase; letter-spacing: .02em; vertical-align: bottom; }
+  .co-tabla .rubro { position: sticky; left: 0; z-index: 2; white-space: normal; min-width: 260px; max-width: 360px; box-shadow: 1px 0 0 var(--borde); }
+  .co-tabla thead .rubro { z-index: 4; }
+  .co-tabla .num { text-align: right; font-family: var(--mono, "IBM Plex Mono", monospace); }
+  .co-tabla .uni { color: var(--rac-muted, #718198); font-size: .75rem; }
+  .co-tabla .total { position: sticky; right: 0; background: #eaf4ff; font-weight: 700; box-shadow: -1px 0 0 var(--borde); }
+  .co-tabla thead .total { z-index: 4; }
+  .co-tabla .cero { color: #c4ccd6; }
+  .co-tabla th.plantel { max-width: 130px; white-space: normal; min-width: 96px; }
+  .co-tabla th.plantel a { color: inherit; }
+  .co-pend { background: #fefcbf; color: #744210; font-size: .66rem; font-weight: 600; padding: 1px 6px; border-radius: 99px; margin-left: 6px; }
+  .co-aviso { margin: 0 20px 12px; padding: 10px 14px; border-radius: 10px; background: #fefcbf; color: #744210; font-size: .84rem; }
+  @media print {
+    .sidebar, .no-imprimir, .topbar, .sidebar-mobile-head, .toast { display: none !important; }
+    .app-shell { display: block !important; }
+    .contenido { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+    .co-scroll { max-height: none; overflow: visible; }
+    .co-tabla { font-size: 9px; }
+    .co-tabla th, .co-tabla td { position: static !important; padding: 3px 5px; }
+    @page { size: landscape; margin: 10mm; }
+  }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-adicionales-consolidado.js"></script>
+</body>
+</html>

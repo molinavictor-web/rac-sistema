@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Catálogo de adicionales</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .ca-filtros { padding: 14px 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .ca-filtros input, .ca-filtros select { padding: 7px 10px; border: 1px solid var(--borde); border-radius: 8px; }
+  .ca-tabla td, .ca-tabla th { vertical-align: middle; }
+  .ca-tabla .num { text-align: right; font-family: var(--mono, "IBM Plex Mono", monospace); }
+  .ca-acciones { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ca-alias { color: var(--rac-muted, #718198); font-size: .75rem; }
+  .ca-est { font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
+  .ca-est.ACTIVO { background: #c6f6d5; color: #22543d; }
+  .ca-est.PENDIENTE { background: #fefcbf; color: #744210; }
+  .ca-est.RETIRADO { background: #e2e8f0; color: #4a5568; }
+  .ca-fondo { position: fixed; inset: 0; background: rgba(13,43,82,.45); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .ca-modal { background: #fff; border-radius: 12px; padding: 20px; width: min(480px, 100%); display: grid; gap: 12px; max-height: 90vh; overflow: auto; }
+  .ca-modal label { display: grid; gap: 3px; font-size: .8rem; color: var(--rac-muted, #718198); }
+  .ca-modal input, .ca-modal select { padding: 9px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .92rem; }
+  .ca-modal .err { color: #c53030; font-size: .82rem; }
+  .ca-modal .botones { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-adicionales-catalogo.js"></script>
+</body>
+</html>
