@@ -14,11 +14,27 @@ const INSPECCION_ID = Number(params.get("id"));
 const PLAN_VOLVER = Number(params.get("plan")) || null;
 const MAX_INSPECTORES = 5;
 const REGEX_CANTIDAD = /^\d{1,11}([.,]\d{1,3})?$/;
+// Datos del encabezado oficial de la planilla. Vienen de GESCOLAR y se pueden corregir.
+const CAMPOS_PLANTEL = [
+  { clave: "institucion", etiqueta: "Nombre de la institución", ancho: true },
+  { clave: "codigo", etiqueta: "Código DEA", fijo: true },
+  { clave: "aulas", etiqueta: "Número de aulas", corto: true },
+  { clave: "matricula", etiqueta: "Matrícula", corto: true },
+  { clave: "director", etiqueta: "Nombre del director" },
+  { clave: "telefono", etiqueta: "Teléfono" },
+  { clave: "parroquia", etiqueta: "Parroquia" },
+  { clave: "municipio", etiqueta: "Municipio" },
+  { clave: "direccion", etiqueta: "Dirección", ancho: true },
+  { clave: "comuna", etiqueta: "Comuna (si aplica)" },
+  { clave: "comunidad", etiqueta: "Comunidad (si aplica)" },
+];
+const CLAVES_EDITABLES = CAMPOS_PLANTEL.filter((c) => !c.fijo).map((c) => c.clave);
 
 let DATA = null;          // respuesta del servidor
 let BASE = {};            // id de rubro -> cantidad guardada en el servidor (número o null)
 let ACTUAL = {};          // id de rubro -> texto que hay en pantalla (solo los editados)
 let CAB_BASE = null;      // cabecera tal como está en el servidor
+let GESCOLAR = {};        // datos del plantel tal como están en GESCOLAR (para restablecer)
 let SOLO_LECTURA = false;
 let temporizadorBorrador = null;
 let guardando = false;
@@ -50,7 +66,9 @@ async function cargar() {
     observaciones: i.observaciones || "",
     estado: i.estado,
     inspectores: i.inspectores.slice(),
+    datos: Object.fromEntries(CLAVES_EDITABLES.map((k) => [k, String((i.datos_plantel || {})[k] || "").trim()])),
   };
+  GESCOLAR = i.datos_gescolar || {};
   SOLO_LECTURA = i.planes.some((p) => p.estado === "CERRADO");
   dibujar();
   recuperarBorrador();
@@ -71,11 +89,11 @@ function mostrarError(mensaje) {
 function dibujar() {
   const i = DATA.inspeccion;
   const m = i.membrete || {};
-  const nombre = m.nombre_plantel || i.codigo_dea;
+  const nombre = (i.datos_plantel && i.datos_plantel.institucion) || m.nombre_plantel || i.codigo_dea;
   const planes = i.planes.map((p) => p.nombre);
   const planId = PLAN_VOLVER || (i.planes[0] && i.planes[0].id) || null;
   const volver = planId ? `/inspecciones/planes.html#plan-${planId}` : "/inspecciones/planes.html";
-  const lugar = [m.municipio, m.parroquia].filter(Boolean).join(" · ");
+  const lugar = [CAB_BASE.datos.municipio, CAB_BASE.datos.parroquia].filter(Boolean).join(" · ");
 
   const filasIng = [];
   for (let k = 0; k < MAX_INSPECTORES; k++) {
@@ -139,7 +157,20 @@ function dibujar() {
         <a class="btn btn-fantasma btn-sm" href="${volver}">← Volver al plan</a>
         ${planId ? `<a class="btn btn-fantasma btn-sm" href="/inspecciones/consolidado.html?plan=${planId}">Ver consolidado del plan</a>` : ""}
       </div>
-      <div class="pl-cab">
+      <div class="pl-datos-titulo">
+        <h3 style="margin:0;">Datos del plantel</h3>
+        <span style="color:var(--rac-muted,#718198); font-size:.78rem;">Vienen de GESCOLAR. Corrígelos aquí si hace falta: solo cambia esta planilla.</span>
+        ${SOLO_LECTURA ? "" : `<button type="button" class="btn btn-fantasma btn-sm" id="btnRestablecer">Restablecer desde GESCOLAR</button>`}
+      </div>
+      <div class="pl-cab" id="datosPlantel">
+        ${CAMPOS_PLANTEL.map((c) => `
+          <div class="campo${c.ancho ? " ancho" : ""}">
+            <label for="dp_${c.clave}">${escapar(c.etiqueta)} <span class="pl-editado" data-editado="${c.clave}" style="display:none;">· editado</span></label>
+            <input type="text" id="dp_${c.clave}" data-dp="${c.clave}" maxlength="${c.clave === "direccion" ? 300 : 200}"
+              value="${escapar(c.fijo ? i.codigo_dea : CAB_BASE.datos[c.clave])}" ${c.fijo || SOLO_LECTURA ? "disabled" : ""}>
+          </div>`).join("")}
+      </div>
+      <div class="pl-cab" style="padding-top:0;">
         <div class="campo">
           <label for="cabFecha">Fecha de la inspección</label>
           <input type="date" id="cabFecha" value="${escapar(CAB_BASE.fecha)}" ${SOLO_LECTURA ? "disabled" : ""}>
@@ -204,6 +235,10 @@ function enlazarEventos() {
     el.addEventListener("change", alCambiarCabecera);
   });
   cont.querySelectorAll("[data-ing]").forEach((el) => el.addEventListener("input", alCambiarCabecera));
+  cont.querySelectorAll("[data-dp]").forEach((el) => el.addEventListener("input", alCambiarCabecera));
+  const restablecer = document.getElementById("btnRestablecer");
+  if (restablecer) restablecer.addEventListener("click", restablecerDesdeGescolar);
+  marcarEditados();
   document.getElementById("btnGuardar").addEventListener("click", guardar);
   document.getElementById("btnDescartarBorrador").addEventListener("click", descartarBorrador);
   document.getElementById("buscarRubro").addEventListener("input", filtrar);
@@ -295,7 +330,30 @@ function cabeceraActual() {
     observaciones: document.getElementById("cabObs").value.trim(),
     estado: document.getElementById("cabEstado").value,
     inspectores: Array.from(document.querySelectorAll("[data-ing]")).map((e) => e.value.trim()).filter(Boolean),
+    datos: Object.fromEntries(CLAVES_EDITABLES.map((k) => {
+      const el = document.getElementById(`dp_${k}`);
+      return [k, el ? el.value.trim() : CAB_BASE.datos[k]];
+    })),
   };
+}
+
+// Marca con «· editado» los datos que ya no coinciden con GESCOLAR.
+function marcarEditados() {
+  CLAVES_EDITABLES.forEach((k) => {
+    const el = document.getElementById(`dp_${k}`);
+    const marca = document.querySelector(`[data-editado="${k}"]`);
+    if (!el || !marca) return;
+    marca.style.display = el.value.trim() !== String(GESCOLAR[k] || "").trim() ? "" : "none";
+  });
+}
+
+function restablecerDesdeGescolar() {
+  if (!window.confirm("¿Volver todos los datos del plantel a lo que dice GESCOLAR? Se pierden las correcciones que hiciste en esta planilla (al pulsar Guardar).")) return;
+  CLAVES_EDITABLES.forEach((k) => {
+    const el = document.getElementById(`dp_${k}`);
+    if (el) el.value = String(GESCOLAR[k] || "");
+  });
+  alCambiarCabecera();
 }
 
 function cabeceraCambio() {
@@ -303,6 +361,7 @@ function cabeceraCambio() {
 }
 
 function alCambiarCabecera() {
+  marcarEditados();
   actualizarBarra();
   programarBorrador();
 }
@@ -388,6 +447,13 @@ function recuperarBorrador() {
     if (typeof c.fecha === "string") f.value = c.fecha;
     if (typeof c.observaciones === "string") o.value = c.observaciones;
     if (["BORRADOR", "CARGADA"].includes(c.estado)) e.value = c.estado;
+    if (c.datos && typeof c.datos === "object") {
+      CLAVES_EDITABLES.forEach((k) => {
+        const el = document.getElementById(`dp_${k}`);
+        if (el && typeof c.datos[k] === "string") el.value = c.datos[k];
+      });
+      marcarEditados();
+    }
     if (Array.isArray(c.inspectores)) {
       document.querySelectorAll("[data-ing]").forEach((el, k) => { el.value = String(c.inspectores[k] || ""); });
     }
@@ -439,6 +505,7 @@ async function guardar() {
         observaciones: c.observaciones,
         estado: c.estado,
         inspectores: c.inspectores,
+        datos_plantel: c.datos,
       });
       CAB_BASE = { ...c };
     }
