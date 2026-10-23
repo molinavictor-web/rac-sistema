@@ -48,6 +48,9 @@ function renderShell(paginaActiva, tituloTopbar) {
       { id: "supervision-directores", href: "/supervision/directores.html", label: "Directores", roles: ["admin", "supervision"] },
       { id: "supervision-mi-plantel", href: "/supervision/mi-plantel.html", label: "Mi plantel", roles: ["director"] },
     ]},
+    { id: "inspecciones-grupo", titulo: "Inspecciones", enlaces: [
+      { id: "inspecciones-planes", href: "/inspecciones/planes.html", label: "Planes de atención", roles: ["admin", "operador_plantel"] },
+    ]},
     { id: "administracion", titulo: "Administración", enlaces: [
       { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
     ]},
