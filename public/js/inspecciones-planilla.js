@@ -214,7 +214,7 @@ function dibujar() {
       </div>
       ${bloques}
       <div class="pl-adic" id="seccionAdic">
-        <h3 style="margin:0 0 4px;">Materiales adicionales</h3>
+        <h3 style="margin:0 0 4px;">Materiales adicionales <span class="pl-adic-chip">Fuera de la lista oficial</span></h3>
         <p style="margin:0 0 12px; color:var(--rac-muted,#718198); font-size:.82rem;">Los que <strong>no están</strong> en la lista oficial. Escribe para buscar; si no existe, créalo (queda pendiente hasta que lo apruebe el administrador). Si dejas la cantidad vacía, el material queda anotado pero no suma.</p>
         ${SOLO_LECTURA ? "" : `
         <div class="pl-adic-buscar">
