@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Planilla de materiales</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .pl-cab { padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 18px; }
+  .pl-cab .campo { margin-bottom: 0; }
+  .pl-cab .ancho { grid-column: 1 / -1; }
+  .pl-cab textarea { width: 100%; min-height: 70px; padding: 9px 12px; border: 1px solid var(--borde); border-radius: var(--radio, 8px); resize: vertical; }
+  .pl-ing { display: grid; gap: 8px; }
+  .pl-ing input { width: 100%; }
+  .pl-ing-fila { display: flex; gap: 8px; align-items: center; }
+  .pl-ing-fila .orden { font-size: .72rem; font-weight: 700; color: var(--rac-muted, #718198); min-width: 78px; }
+  .pl-membrete { padding: 0 20px 16px; }
+  .pl-membrete summary { cursor: pointer; color: var(--rac-muted, #718198); font-size: .8rem; }
+  .pl-membrete dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 18px; margin: 10px 0 0; font-size: .8rem; }
+  .pl-membrete dt { color: var(--rac-muted, #718198); font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; }
+  .pl-membrete dd { margin: 0 0 4px; }
+  .pl-aviso { margin: 0 0 16px; padding: 12px 16px; border-radius: 10px; font-size: .85rem; display: none; }
+  .pl-aviso.visible { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .pl-aviso.info { background: #eaf4ff; color: #0d2b52; }
+  .pl-aviso.alerta { background: #fefcbf; color: #744210; }
+  .pl-cap { margin: 0; border-top: 1px solid var(--borde); }
+  .pl-cap > summary { cursor: pointer; padding: 11px 20px; font-weight: 600; background: var(--papel, #f4f7fb); display: flex; justify-content: space-between; gap: 10px; }
+  .pl-cap > summary small { font-weight: 500; color: var(--rac-muted, #718198); }
+  .pl-tabla td, .pl-tabla th { vertical-align: middle; }
+  .pl-tabla .nro { width: 46px; text-align: center; color: var(--rac-muted, #718198); font-size: .78rem; }
+  .pl-tabla .uni { width: 90px; font-size: .78rem; color: var(--rac-muted, #718198); white-space: nowrap; }
+  .pl-tabla .can { width: 118px; }
+  .pl-tabla input.cant { width: 100%; text-align: right; padding: 7px 9px; border: 1px solid var(--borde); border-radius: 8px; font-family: var(--mono, "IBM Plex Mono", monospace); }
+  .pl-tabla tr.cambiada td { background: #fffbea; }
+  .pl-tabla tr.cambiada input.cant { border-color: #d69e2e; }
+  .pl-tabla input.cant.malo { border-color: #df3944; background: #fff5f5; }
+  .pl-tabla tr.oculta { display: none; }
+  .pl-barra { position: sticky; bottom: 0; z-index: 20; background: #fff; border-top: 1px solid var(--borde); box-shadow: 0 -6px 18px rgba(13,43,82,.08); padding: 10px 20px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .pl-barra .estado { font-size: .82rem; color: var(--rac-muted, #718198); }
+  .pl-barra .estado.sucio { color: #b7791f; font-weight: 600; }
+  .pl-barra .estado.malo { color: #c53030; font-weight: 600; }
+  @media (max-width: 600px) {
+    .pl-tabla .uni { display: none; }
+    .pl-tabla .can { width: 104px; }
+  }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-planilla.js"></script>
+</body>
+</html>
