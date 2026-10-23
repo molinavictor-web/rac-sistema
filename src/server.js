@@ -49,6 +49,7 @@ const depurarArchivoRoutes = require('./routes/depurarArchivo');
 const plantelesConsultaRoutes = require('./routes/plantelesConsulta');
 const directorioDirectoresRoutes = require('./routes/directorioDirectores');
 const supervisionRoutes = require('./routes/supervision');
+const inspeccionesRoutes = require('./routes/inspecciones');
 const app = express();
 
 // Helmet por defecto trae una Content-Security-Policy que bloquea cosas que
@@ -97,6 +98,7 @@ app.use('/api/rac', depurarArchivoRoutes);
 app.use('/api/planteles-consulta', plantelesConsultaRoutes);
 app.use('/api/directorio-directores', directorioDirectoresRoutes);
 app.use('/api/supervision', supervisionRoutes);
+app.use('/api/inspecciones', inspeccionesRoutes);
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
