@@ -12,7 +12,7 @@
 //   POST  /planes/:id/planteles/:inspeccionId/desenlazar
 //   POST  /planes/:id/planteles/:inspeccionId/reenlazar
 //   GET   /inspeccion/:id                           planilla: membrete, ingenieros y los 163 rubros con sus cantidades
-//   PATCH /inspeccion/:id                           fecha, observaciones, estado e ingenieros
+//   PATCH /inspeccion/:id                           fecha, observaciones, estado, ingenieros y datos del plantel (membrete)
 //   PUT   /inspeccion/:id/materiales                guardar cantidades (solo las que cambiaron)
 //   GET   /planes/:id/consolidado                   consolidado oficial del plan
 //
@@ -184,7 +184,7 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_GESTION), async (req,
         return {
           inspeccion_id: r.inspeccion_id,
           codigo_dea: r.codigo_dea,
-          nombre_plantel: m.nombre_plantel || "",
+          nombre_plantel: nombreEfectivo(m),
           municipio: m.municipio || "",
           parroquia: m.parroquia || "",
           fecha_inspeccion: r.fecha_inspeccion,
@@ -485,6 +485,73 @@ function cantidadCanonica(valor) {
   return String(Number(crudo));
 }
 
+// ---------------------------------------------------------------------------
+// Datos del plantel en el encabezado de la planilla (membrete)
+// ---------------------------------------------------------------------------
+// Vienen precargados de GESCOLAR (copiados al crear la inspección) y se pueden
+// corregir. Lo corregido se guarda aparte, en membrete.planilla, y NO toca la
+// copia de GESCOLAR: así siempre se puede "restablecer desde GESCOLAR".
+
+// clave del formulario → { etiqueta, candidatos de columna en GESCOLAR, largo máximo }
+const CAMPOS_PLANTEL = [
+  { clave: "institucion", max: 200, candidatos: ["nombre_plantel"] },
+  { clave: "aulas",       max: 20,  candidatos: ["nro_aulas", "numero_aulas", "num_aulas", "cant_aulas", "cantidad_aulas", "total_aulas", "aulas"] },
+  { clave: "matricula",   max: 20,  candidatos: ["matricula_total", "total_matricula", "matricula", "matriculatotal"], contiene: ["matricula", "total"] },
+  { clave: "director",    max: 200, candidatos: ["director_nombre"] },
+  { clave: "telefono",    max: 60,  candidatos: ["telefono_movil_director", "telefono_director"] },
+  { clave: "parroquia",   max: 120, candidatos: ["parroquia"] },
+  { clave: "municipio",   max: 120, candidatos: ["municipio"] },
+  { clave: "direccion",   max: 300, candidatos: ["direccion", "direccion_plantel", "direccion_del_plantel"], empieza: "direccion" },
+  { clave: "comuna",      max: 200, candidatos: [] },
+  { clave: "comunidad",   max: 200, candidatos: [] },
+];
+
+function normalizarClave(k) {
+  return String(k).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+function valorGescolar(membrete, campo) {
+  const m = membrete || {};
+  const porNombre = {};
+  Object.keys(m).forEach((k) => { porNombre[normalizarClave(k)] = m[k]; });
+  const limpio = (v) => (v === undefined || v === null ? "" : String(v).trim());
+  for (const c of campo.candidatos) {
+    const v = limpio(porNombre[c]);
+    if (v) return v;
+  }
+  if (campo.contiene) {
+    const k = Object.keys(porNombre).find((n) => campo.contiene.every((t) => n.includes(t)) && limpio(porNombre[n]));
+    if (k) return limpio(porNombre[k]);
+  }
+  if (campo.empieza) {
+    const k = Object.keys(porNombre).find((n) => n.startsWith(campo.empieza) && limpio(porNombre[n]));
+    if (k) return limpio(porNombre[k]);
+  }
+  return "";
+}
+
+// Lo que dice GESCOLAR para cada campo del formulario.
+function datosDeGescolar(membrete) {
+  const r = {};
+  CAMPOS_PLANTEL.forEach((c) => { r[c.clave] = valorGescolar(membrete, c); });
+  return r;
+}
+
+// Lo que se muestra: lo corregido a mano si existe; si no, lo de GESCOLAR.
+function datosEfectivos(membrete) {
+  const base = datosDeGescolar(membrete);
+  const editado = (membrete && membrete.planilla) || {};
+  const r = {};
+  CAMPOS_PLANTEL.forEach((c) => {
+    r[c.clave] = Object.prototype.hasOwnProperty.call(editado, c.clave) ? String(editado[c.clave]) : base[c.clave];
+  });
+  return r;
+}
+
+function nombreEfectivo(membrete, respaldo) {
+  return datosEfectivos(membrete).institucion || respaldo || "";
+}
+
 router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
@@ -524,6 +591,8 @@ router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (
         origen: i.origen,
         observaciones: i.observaciones || "",
         membrete: i.membrete || {},
+        datos_plantel: datosEfectivos(i.membrete),
+        datos_gescolar: datosDeGescolar(i.membrete),
         actualizado_en: i.actualizado_en,
         inspectores: inspectores.rows.map((r) => r.nombre),
         planes: planes.map((p) => ({ id: p.id, nombre: p.nombre, estado: p.estado })),
@@ -592,7 +661,24 @@ router.patch("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async
       return res.status(400).json({ error: "Cada nombre puede tener hasta 120 caracteres." });
     }
   }
-  if (!cambios.length && inspectores === null) return res.status(400).json({ error: "No hay nada que cambiar." });
+  let datosPlantel = null; // { clave: texto } con los campos que vienen en la solicitud
+  if (cuerpo.datos_plantel !== undefined) {
+    const dp = cuerpo.datos_plantel;
+    if (dp !== null && (typeof dp !== "object" || Array.isArray(dp))) {
+      return res.status(400).json({ error: "Los datos del plantel deben enviarse como un objeto." });
+    }
+    datosPlantel = {};
+    for (const [clave, valor] of Object.entries(dp || {})) {
+      const campo = CAMPOS_PLANTEL.find((c) => c.clave === clave);
+      if (!campo) return res.status(400).json({ error: `Dato de plantel desconocido: ${String(clave).slice(0, 30)}.` });
+      if (typeof valor !== "string" && typeof valor !== "number") return res.status(400).json({ error: "Los datos del plantel deben ser texto." });
+      const t = String(valor).trim();
+      if (t.length > campo.max) return res.status(400).json({ error: `El dato «${clave}» no puede pasar de ${campo.max} caracteres.` });
+      datosPlantel[clave] = t;
+    }
+    datosPlantel.__restablecer = dp === null; // null = volver todo a lo de GESCOLAR
+  }
+  if (!cambios.length && inspectores === null && datosPlantel === null) return res.status(400).json({ error: "No hay nada que cambiar." });
 
   let cliente;
   try {
@@ -601,8 +687,28 @@ router.patch("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async
     const cerrado = (await planesActivosDeInspeccion(id)).find((p) => p.estado === "CERRADO");
     if (cerrado) return res.status(409).json({ error: `El plan «${cerrado.nombre}» está cerrado: reábrelo para modificar la planilla.` });
 
+    let membreteNuevo = null;
+    if (datosPlantel !== null) {
+      const actual = await pool.query("SELECT membrete FROM inspecciones WHERE id = $1", [id]);
+      const membrete = Object.assign({}, actual.rows[0].membrete || {});
+      const deGescolar = datosDeGescolar(membrete);
+      const editado = datosPlantel.__restablecer ? {} : Object.assign({}, membrete.planilla || {});
+      Object.keys(datosPlantel).forEach((clave) => {
+        if (clave === "__restablecer") return;
+        // Si queda igual a GESCOLAR no hace falta guardar la corrección.
+        if (datosPlantel[clave] === deGescolar[clave]) delete editado[clave];
+        else editado[clave] = datosPlantel[clave];
+      });
+      if (Object.keys(editado).length) membrete.planilla = editado; else delete membrete.planilla;
+      membreteNuevo = membrete;
+    }
+
     cliente = await pool.connect();
     await cliente.query("BEGIN");
+    if (membreteNuevo !== null) {
+      valores.push(JSON.stringify(membreteNuevo));
+      cambios.push(`membrete = $${valores.length}::jsonb`);
+    }
     valores.push(req.usuario.id);
     cambios.push(`actualizado_por = $${valores.length}`);
     cambios.push("actualizado_en = NOW()");
@@ -717,7 +823,7 @@ router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_GESTION),
       [planId]
     );
     const columnas = planteles.rows
-      .map((r) => ({ inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea, nombre_plantel: (r.membrete || {}).nombre_plantel || r.codigo_dea }))
+      .map((r) => ({ inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea, nombre_plantel: nombreEfectivo(r.membrete, r.codigo_dea) }))
       .sort((a, b) => a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
 
     const rubros = await pool.query(
