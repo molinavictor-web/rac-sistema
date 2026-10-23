@@ -1,0 +1,69 @@
+name: SID Supervision Tech 2.0 - preflight
+on:
+  push:
+    branches: [release/sid-supervision-tech2]
+  pull_request:
+    paths:
+      - 'public/supervision/**'
+      - 'src/routes/supervision.js'
+      - 'src/middleware/**'
+      - 'tests/**'
+      - 'public/css/sid-supervision-tech.css'
+      - 'public/js/nav.js'
+      - 'public/classroom.svg'
+      - '.github/workflows/sid-supervision-tech2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate JavaScript syntax
+        run: node --check public/js/nav.js && node --check public/js/supervision-login.js && node --check src/routes/supervision.js && node --check src/middleware/supervisionAccount.js
+      - name: Verify 11 supervision pages and login form
+        run: node --test tests/sid-supervision-tech2.test.js tests/sid-supervision-login.behavior.test.js tests/sid-supervision-permissions.test.js tests/sid-matricula-transaction.test.js tests/sid-matricula-total.behavior.test.js tests/sid-matricula-access.test.js tests/sid-login-active.behavior.test.js tests/sid-matricula-historico.behavior.test.js tests/sid-matricula-history.test.js tests/sid-supervision-revocation.test.js tests/sid-rac-regression.test.js
+
+      - name: Install Chromium for isolated browser smoke test
+        run: npm install --no-save --package-lock=false playwright@1.56.1 && npx playwright install --with-deps chromium
+      - name: Verify responsive login in real browser
+        run: |
+          node tests/sid-supervision-browser.cjs
+          node tests/sid-rac-browser.cjs
+
+  postgres-isolated:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sid_test
+          POSTGRES_PASSWORD: sid_test_only
+          POSTGRES_DB: sid_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sid_test -d sid_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SID_TEST_DATABASE_URL: postgresql://sid_test:sid_test_only@127.0.0.1:5432/sid_test
+      DATABASE_URL: postgresql://sid_test:sid_test_only@127.0.0.1:5432/sid_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install PostgreSQL driver for isolated test
+        run: npm install --no-save --package-lock=false
+      - name: Exercise real PostgreSQL transactions without production access
+        run: |
+          node --test tests/sid-postgres-isolated.test.js
+          node --test tests/sid-http-postgres-isolated.test.js
+          node --test tests/sid-matricula-nivel-postgres.test.js
+          node --test tests/sid-matricula-http-endpoint.test.js

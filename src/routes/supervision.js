@@ -3,7 +3,13 @@ const bcrypt = require("bcryptjs");
 const { pool } = require("../db/pool");
 const { requireAuth, requireRol, requireMismoPlantel } = require("../middleware/auth");
 
+const { requireCuentaSupervisionActiva } = require("../middleware/supervisionAccount");
+
 const router = express.Router();
+
+// Valida el estado actual de la cuenta en TODAS las rutas de Supervisión.
+// Solo se aplica a este router: las rutas RAC conservan su comportamiento.
+router.use(requireAuth, requireCuentaSupervisionActiva);
 
 // Roles que administran el módulo (ven y editan TODO): mismo criterio que
 // ya usa requireMismoMunicipio/requireMismoPlantel para "oficina central".
@@ -1574,7 +1580,7 @@ router.post(
     const { periodo_escolar, hembras, varones } = req.body || {};
     const h = Number(hembras);
     const v = Number(varones);
-    if (!periodo_escolar || !Number.isFinite(h) || !Number.isFinite(v) || h < 0 || v < 0) {
+    if (typeof periodo_escolar !== 'string' || !periodo_escolar.trim() || periodo_escolar.length > 20 || (hembras === null || hembras === undefined || String(hembras).trim() === '') || (varones === null || varones === undefined || String(varones).trim() === '') || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0 || h > 2147483647 || v > 2147483647) {
       return res.status(400).json({ error: "Faltan periodo_escolar, hembras o varones válidos (>= 0)." });
     }
     try {
@@ -1605,6 +1611,8 @@ router.post(
 // =========================================================
 
 const textoVacio = (v) => v === undefined || v === null || String(v).trim() === "";
+const MAX_MATRICULA_ENTERO = 2147483647; // PostgreSQL INTEGER (int4)
+
 
 // Catálogo de los niveles (para mostrar los que se pueden asignar a un plantel nuevo).
 router.get("/niveles", requireAuth, requireRol(...ROLES_SUPERVISION), async (req, res) => {
@@ -1679,7 +1687,7 @@ router.post(
       const h = Number((it || {}).hembras);
       const v = Number((it || {}).varones);
       if (!nivel || textoVacio((it || {}).hembras) || textoVacio((it || {}).varones)
-          || !Number.isInteger(h) || !Number.isInteger(v) || h < 0 || v < 0) {
+          || !Number.isSafeInteger(h) || !Number.isSafeInteger(v) || h < 0 || v < 0 || h > MAX_MATRICULA_ENTERO || v > MAX_MATRICULA_ENTERO) {
         return res.status(400).json({ error: "Cada nivel necesita hembras y varones como números enteros (0 o más)." });
       }
       if (vistos.has(nivel)) return res.status(400).json({ error: "Hay un nivel repetido en la matrícula." });
@@ -1712,6 +1720,19 @@ router.post(
                          actualizado_por = EXCLUDED.actualizado_por, actualizado_en = now()`,
           [codigoPlantel, periodo, i.nivel, i.h, i.v, req.usuario.id]
         );
+      }
+
+      // Verificar el acumulado antes de convertirlo a INTEGER (PostgreSQL int4).
+      // SUM(integer) devuelve bigint y permite detectar desbordamientos sin error SQL.
+      const acumulado = await cliente.query(
+        `SELECT COALESCE(SUM(hembras), 0) AS hembras, COALESCE(SUM(varones), 0) AS varones
+         FROM matricula_nivel WHERE codigo_plantel = $1 AND periodo_escolar = $2`,
+        [codigoPlantel, periodo]
+      );
+      if (Number(acumulado.rows[0].hembras) > MAX_MATRICULA_ENTERO ||
+          Number(acumulado.rows[0].varones) > MAX_MATRICULA_ENTERO) {
+        await cliente.query("ROLLBACK");
+        return res.status(400).json({ error: "El total de matrícula supera el máximo permitido." });
       }
 
       // El total por plantel y período = suma de TODOS sus niveles cargados.
