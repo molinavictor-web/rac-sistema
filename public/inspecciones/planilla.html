@@ -43,7 +43,13 @@
   .pl-barra .estado { font-size: .82rem; color: var(--rac-muted, #718198); }
   .pl-barra .estado.sucio { color: #b7791f; font-weight: 600; }
   .pl-barra .estado.malo { color: #c53030; font-weight: 600; }
-  .pl-adic { border-top: 1px solid var(--borde); padding: 18px 20px 20px; }
+  .pl-adic { margin-top: 14px; border-top: 4px solid #e8740c; border-left: 6px solid #e8740c; background: #fff7ed; padding: 18px 20px 20px; }
+  .pl-adic h3 { color: #9a3d00; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .pl-adic-chip { background: #e8740c; color: #fff; font-size: .66rem; font-weight: 700; letter-spacing: .04em; padding: 3px 9px; border-radius: 99px; text-transform: uppercase; }
+  .pl-adic .pl-tabla th { background: #ffedd5; color: #7c2d00; }
+  .pl-adic .pl-tabla td { background: #fff; }
+  .pl-adic .pl-adic-buscar input { border-color: #f0b27a; background: #fff; }
+  .pl-adic .pl-adic-buscar input:focus { outline: 2px solid #e8740c; border-color: #e8740c; }
   .pl-adic-buscar { position: relative; max-width: 560px; margin-bottom: 14px; }
   .pl-adic-buscar input { width: 100%; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 8px; }
   .pl-sug { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 30; background: #fff; border: 1px solid var(--borde); border-radius: 8px; box-shadow: 0 10px 28px rgba(13,43,82,.16); margin-top: 4px; max-height: 340px; overflow: auto; }
