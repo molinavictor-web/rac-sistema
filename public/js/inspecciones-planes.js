@@ -138,6 +138,7 @@ function dibujarPlan() {
         <button type="button" class="btn btn-fantasma btn-sm" id="btnVolver">← Todos los planes</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>
+        <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Ver consolidado</a>
       </div>
     </div>
 
@@ -191,6 +192,7 @@ function pintarPlanteles() {
       <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
       <td>${escapar(p.nombre_plantel) || "—"}<br><span style="color:var(--muted); font-size:.78rem;">${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</span></td>
       <td>${p.activo ? etiqueta("En el plan", "#2f855a", "#e6f4ea") : etiqueta("Desenlazado · en espera", "#718096", "#edf2f7")}</td>
+      <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}&plan=${Number(plan.id)}">${p.activo ? "Planilla" : "Ver planilla"}</a></td>
       <td>${abierto ? (p.activo
         ? `<button type="button" class="btn btn-fantasma btn-sm" data-desenlazar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Desenlazar</button>`
         : `<button type="button" class="btn btn-fantasma btn-sm" data-reenlazar="${Number(p.inspeccion_id)}">Volver a enlazar</button>`) : ""}</td>
@@ -200,7 +202,7 @@ function pintarPlanteles() {
   cont.innerHTML = `
     <div class="tabla-responsive">
       <table>
-        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Materiales</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
     </div>
