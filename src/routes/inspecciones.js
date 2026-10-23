@@ -502,7 +502,7 @@ const CAMPOS_PLANTEL = [
   { clave: "parroquia",   max: 120, candidatos: ["parroquia"] },
   { clave: "municipio",   max: 120, candidatos: ["municipio"] },
   { clave: "direccion",   max: 300, candidatos: ["direccion", "direccion_plantel", "direccion_del_plantel"], empieza: "direccion" },
-  { clave: "comuna",      max: 200, candidatos: [] },
+  { clave: "comuna",      max: 200, candidatos: ["nomb_circuito"] }, // la comuna equivale al circuito comunal de GESCOLAR
   { clave: "comunidad",   max: 200, candidatos: [] },
 ];
 
