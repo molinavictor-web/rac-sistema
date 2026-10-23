@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Planes de atención</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+
+  <div class="modal-fondo" id="modalPlanFondo">
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:4px;" id="modalPlanTitulo">Nuevo plan de atención</h2>
+      <p id="modalPlanSubtitulo" style="margin:0 0 16px; color:var(--muted); font-size:.85rem;">Ej. PRE 2026-2027, Bricomiles 2026.</p>
+      <div class="error-msg" id="errorModalPlan"></div>
+      <form id="formPlan">
+        <div class="campo">
+          <label for="planNombre">Nombre del plan</label>
+          <input type="text" id="planNombre" maxlength="120" placeholder="Ej. PRE 2026-2027">
+        </div>
+        <div class="campo">
+          <label for="planDescripcion">Descripción (opcional)</label>
+          <input type="text" id="planDescripcion" maxlength="500" placeholder="Ej. Plan enviado por las autoridades nacionales">
+        </div>
+        <div class="acciones-form" style="grid-column:1/-1; display:flex; gap:10px; margin-top:8px;">
+          <button type="submit" class="btn btn-primario" id="btnGuardarPlan">Crear plan</button>
+          <button type="button" class="btn btn-fantasma" id="btnCancelarPlan">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-planes.js"></script>
+</body>
+</html>
