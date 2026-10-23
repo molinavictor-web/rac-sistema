@@ -15,6 +15,11 @@
 //   PATCH /inspeccion/:id                           fecha, observaciones, estado, ingenieros y datos del plantel (membrete)
 //   PUT   /inspeccion/:id/materiales                guardar cantidades (solo las que cambiaron)
 //   GET   /planes/:id/consolidado                   consolidado oficial del plan
+//   GET   /adicionales                              catálogo de adicionales (autocompletado)
+//   POST  /adicionales                              proponer un material adicional nuevo
+//   PATCH /adicionales/:id   y  POST .../unificar   (admin) aprobar, retirar, renombrar, unificar
+//   PUT   /inspeccion/:id/adicionales               cantidades de adicionales de un plantel
+//   GET   /planes/:id/consolidado-adicionales       consolidado de adicionales del plan
 //
 // Regla de fondo: la inspección (con sus cantidades) pertenece al PLANTEL,
 // no al plan. "Desenlazar" solo marca una fecha en plan_inspecciones: no
@@ -616,7 +621,27 @@ router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (
       [id, version]
     );
 
+    const adic = await pool.query(
+      `SELECT ia.adicional_id, ia.cantidad, COALESCE(t.nombre, a.nombre) AS nombre, COALESCE(t.unidad, a.unidad) AS unidad,
+              COALESCE(t.estado, a.estado) AS estado
+       FROM inspeccion_adicionales ia
+       JOIN adicionales_catalogo a ON a.id = ia.adicional_id
+       LEFT JOIN adicionales_catalogo t ON t.id = a.unificado_en
+       WHERE ia.inspeccion_id = $1`,
+      [id]
+    );
+    const adicionales = adic.rows
+      .map((r) => ({
+        adicional_id: r.adicional_id,
+        nombre: r.nombre,
+        unidad: r.unidad || "",
+        estado: r.estado,
+        cantidad: r.cantidad === null ? null : Number(r.cantidad),
+      }))
+      .sort((x, y) => x.nombre.localeCompare(y.nombre, "es"));
+
     res.json({
+      adicionales,
       inspeccion: {
         id: i.id,
         codigo_dea: i.codigo_dea,
@@ -841,64 +866,372 @@ router.put("/inspeccion/:id/materiales", requireAuth, requireRol(...ROLES_GESTIO
 // Consolidado oficial del plan (se calcula al momento; nunca se guarda)
 // ---------------------------------------------------------------------------
 
-router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+// ---------------------------------------------------------------------------
+// Materiales adicionales (los que agregan los ingenieros fuera de la lista oficial)
+// ---------------------------------------------------------------------------
+// Cada material tiene un nombre ÚNICO y puede tener alias (otros nombres con los
+// que lo escriben). Los nuevos nacen PENDIENTE y los aprueba o unifica el
+// administrador. Un material unificado se suma junto con el oficial.
+
+const ESTADOS_ADICIONAL = ["ACTIVO", "PENDIENTE", "RETIRADO"];
+
+// Catálogo completo con alias (pequeño: unos cientos). Se usa para el autocompletado.
+async function listarAdicionales({ todos }) {
+  const { rows } = await pool.query(
+    `SELECT a.id, a.nombre, a.unidad, a.estado, a.unificado_en,
+            COALESCE(json_agg(al.alias ORDER BY al.alias) FILTER (WHERE al.id IS NOT NULL), '[]'::json) AS alias,
+            (SELECT COUNT(*) FROM inspeccion_adicionales ia WHERE ia.adicional_id = a.id AND ia.cantidad > 0) AS usos
+     FROM adicionales_catalogo a
+     LEFT JOIN adicional_alias al ON al.adicional_id = a.id
+     GROUP BY a.id
+     ORDER BY UPPER(a.nombre)`
+  );
+  const lista = rows.map((r) => ({
+    id: r.id,
+    nombre: r.nombre,
+    unidad: r.unidad || "",
+    estado: r.estado,
+    unificado_en: r.unificado_en,
+    alias: r.alias || [],
+    usos: Number(r.usos),
+  }));
+  return todos ? lista : lista.filter((m) => !m.unificado_en && m.estado !== "RETIRADO");
+}
+
+// ¿Ya existe un material con ese nombre (o alias), sin importar mayúsculas, acentos o signos?
+function buscarDuplicado(catalogo, nombre) {
+  const k = normalizarClave(nombre);
+  return catalogo.find((m) => normalizarClave(m.nombre) === k || m.alias.some((a) => normalizarClave(a) === k)) || null;
+}
+
+router.get("/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  try {
+    const todos = req.query.todos === "1" && req.usuario.rol === "admin";
+    res.json({ adicionales: await listarAdicionales({ todos }) });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo cargar el catálogo de adicionales.");
+  }
+});
+
+router.post("/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const cuerpo = req.body || {};
+  const nombre = texto(cuerpo.nombre).replace(/\s+/g, " ");
+  const unidad = texto(cuerpo.unidad).replace(/\s+/g, " ").toUpperCase();
+  if (nombre.length < 3 || nombre.length > 200) return res.status(400).json({ error: "El nombre del material debe tener entre 3 y 200 caracteres." });
+  if (!unidad || unidad.length > 20) return res.status(400).json({ error: "Indica la unidad del material (máximo 20 caracteres)." });
+
+  try {
+    const catalogo = await listarAdicionales({ todos: true });
+    const repetido = buscarDuplicado(catalogo, nombre);
+    if (repetido) {
+      return res.status(409).json({
+        error: `Ese material ya existe: «${repetido.nombre}». Búscalo en la lista y selecciónalo.`,
+        existente: { id: repetido.unificado_en || repetido.id, nombre: repetido.nombre },
+      });
+    }
+    const estado = req.usuario.rol === "admin" ? "ACTIVO" : "PENDIENTE";
+    const { rows } = await pool.query(
+      `INSERT INTO adicionales_catalogo (nombre, unidad, estado, propuesto_por)
+       VALUES ($1, $2, $3, $4) RETURNING id, nombre, unidad, estado`,
+      [nombre, unidad, estado, req.usuario.id]
+    );
+    res.status(201).json({ adicional: Object.assign(rows[0], { alias: [], usos: 0 }) });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Ya existe un material con ese nombre." });
+    falloInterno(res, err, "No se pudo crear el material.");
+  }
+});
+
+// Cambiar nombre, unidad o estado (solo administrador).
+router.patch("/adicionales/:id", requireAuth, requireRol("admin"), async (req, res) => {
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Material inválido." });
+  const cuerpo = req.body || {};
+  const cambios = [];
+  const valores = [];
+  if (cuerpo.nombre !== undefined) {
+    const nombre = texto(cuerpo.nombre).replace(/\s+/g, " ");
+    if (nombre.length < 3 || nombre.length > 200) return res.status(400).json({ error: "El nombre del material debe tener entre 3 y 200 caracteres." });
+    valores.push(nombre); cambios.push(`nombre = $${valores.length}`);
+  }
+  if (cuerpo.unidad !== undefined) {
+    const unidad = texto(cuerpo.unidad).replace(/\s+/g, " ").toUpperCase();
+    if (!unidad || unidad.length > 20) return res.status(400).json({ error: "La unidad no puede estar vacía (máximo 20 caracteres)." });
+    valores.push(unidad); cambios.push(`unidad = $${valores.length}`);
+  }
+  if (cuerpo.estado !== undefined) {
+    if (!ESTADOS_ADICIONAL.includes(cuerpo.estado)) return res.status(400).json({ error: "Estado inválido." });
+    valores.push(cuerpo.estado); cambios.push(`estado = $${valores.length}`);
+  }
+  if (!cambios.length) return res.status(400).json({ error: "No hay nada que cambiar." });
+  try {
+    if (cuerpo.nombre !== undefined) {
+      const catalogo = await listarAdicionales({ todos: true });
+      const otro = buscarDuplicado(catalogo.filter((m) => m.id !== id), texto(cuerpo.nombre));
+      if (otro) return res.status(409).json({ error: `Ya existe un material con ese nombre: «${otro.nombre}».` });
+    }
+    valores.push(id);
+    const { rows } = await pool.query(`UPDATE adicionales_catalogo SET ${cambios.join(", ")} WHERE id = $${valores.length} RETURNING id`, valores);
+    if (!rows.length) return res.status(404).json({ error: "Material no encontrado." });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Ya existe un material con ese nombre." });
+    falloInterno(res, err, "No se pudo actualizar el material.");
+  }
+});
+
+// Unificar: «este material es el mismo que aquel». Las cantidades pasan al oficial
+// (si un plantel tenía los dos, se suman) y el nombre viejo queda como alias.
+router.post("/adicionales/:id/unificar", requireAuth, requireRol("admin"), async (req, res) => {
+  const id = entero(req.params.id);
+  const destino = entero((req.body || {}).destino_id);
+  if (!id || !destino) return res.status(400).json({ error: "Indica el material con el que se unifica." });
+  if (id === destino) return res.status(400).json({ error: "Un material no se puede unificar consigo mismo." });
+
+  let cliente;
+  try {
+    const dos = await pool.query("SELECT id, nombre, unificado_en FROM adicionales_catalogo WHERE id IN ($1, $2)", [id, destino]);
+    const origen = dos.rows.find((r) => r.id === id);
+    const meta = dos.rows.find((r) => r.id === destino);
+    if (!origen || !meta) return res.status(404).json({ error: "Material no encontrado." });
+    if (origen.unificado_en) return res.status(409).json({ error: "Ese material ya fue unificado antes." });
+    if (meta.unificado_en) return res.status(409).json({ error: "El material de destino fue unificado con otro: elige el oficial." });
+
+    cliente = await pool.connect();
+    await cliente.query("BEGIN");
+    // 1) donde un plantel tenía los dos, se suman en el oficial; donde solo tenía el viejo, pasa al oficial.
+    await cliente.query(
+      `INSERT INTO inspeccion_adicionales (inspeccion_id, adicional_id, cantidad, actualizado_por)
+       SELECT inspeccion_id, $2::int, cantidad, $3::int FROM inspeccion_adicionales WHERE adicional_id = $1
+       ON CONFLICT (inspeccion_id, adicional_id) DO UPDATE
+         SET cantidad = CASE WHEN inspeccion_adicionales.cantidad IS NULL AND EXCLUDED.cantidad IS NULL THEN NULL
+                             ELSE COALESCE(inspeccion_adicionales.cantidad, 0) + COALESCE(EXCLUDED.cantidad, 0) END,
+             actualizado_por = EXCLUDED.actualizado_por, actualizado_en = NOW()`,
+      [id, destino, req.usuario.id]
+    );
+    await cliente.query("DELETE FROM inspeccion_adicionales WHERE adicional_id = $1", [id]);
+    // 2) alias: los del viejo pasan al oficial y el nombre viejo también es alias
+    await cliente.query("UPDATE adicional_alias SET adicional_id = $2 WHERE adicional_id = $1", [id, destino]);
+    await cliente.query(
+      `INSERT INTO adicional_alias (adicional_id, alias)
+       SELECT $1::int, $2::text WHERE NOT EXISTS (SELECT 1 FROM adicional_alias WHERE UPPER(alias) = UPPER($2::text))`,
+      [destino, origen.nombre]
+    );
+    // 3) el viejo queda retirado y apuntando al oficial
+    await cliente.query("UPDATE adicionales_catalogo SET unificado_en = $2, estado = 'RETIRADO' WHERE id = $1", [id, destino]);
+    await cliente.query("COMMIT");
+    res.json({ ok: true });
+  } catch (err) {
+    if (cliente) await cliente.query("ROLLBACK").catch(() => {});
+    falloInterno(res, err, "No se pudo unificar el material.");
+  } finally {
+    if (cliente) cliente.release();
+  }
+});
+
+// Cantidades de adicionales de una inspección. { cantidades: { "<id>": "5" | "" }, quitar: [id, ...] }
+// "" deja el material anotado sin cantidad (no suma). "quitar" lo saca de la planilla.
+router.put("/inspeccion/:id/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Inspección inválida." });
+  const cuerpo = req.body || {};
+  const entradas = Object.entries(cuerpo.cantidades || {});
+  const quitar = Array.isArray(cuerpo.quitar) ? cuerpo.quitar.map(entero) : [];
+  if (quitar.some((x) => !x)) return res.status(400).json({ error: "Material inválido en «quitar»." });
+  if (!entradas.length && !quitar.length) return res.status(400).json({ error: "No hay cambios para guardar." });
+  if (entradas.length + quitar.length > 300) return res.status(400).json({ error: "Demasiados cambios en una sola solicitud." });
+
+  const guardar = []; // [adicionalId, textoCanonico|null]
+  try {
+    for (const [clave, valor] of entradas) {
+      const aid = entero(clave);
+      if (!aid) return res.status(400).json({ error: "Material inválido." });
+      guardar.push([aid, cantidadCanonica(valor)]);
+    }
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  let cliente;
+  try {
+    const existe = await pool.query("SELECT 1 FROM inspecciones WHERE id = $1", [id]);
+    if (!existe.rows.length) return res.status(404).json({ error: "Inspección no encontrada." });
+    const cerrado = (await planesActivosDeInspeccion(id)).find((p) => p.estado === "CERRADO");
+    if (cerrado) return res.status(409).json({ error: `El plan «${cerrado.nombre}» está cerrado: reábrelo para modificar los adicionales.` });
+
+    // Los materiales deben existir; si alguno fue unificado, se usa el oficial; los retirados no se pueden agregar.
+    let ids = [...new Set(guardar.map((g) => g[0]))];
+    const destinos = {};
+    if (ids.length) {
+      const marcas = ids.map((_, i) => `$${i + 1}`).join(", ");
+      const { rows } = await pool.query(`SELECT id, estado, unificado_en FROM adicionales_catalogo WHERE id IN (${marcas})`, ids);
+      if (rows.length !== ids.length) return res.status(400).json({ error: "Hay materiales que no existen en el catálogo." });
+      const retirado = rows.find((r) => r.estado === "RETIRADO" && !r.unificado_en);
+      if (retirado) return res.status(400).json({ error: "Hay materiales retirados del catálogo: no se pueden agregar." });
+      rows.forEach((r) => { destinos[r.id] = r.unificado_en || r.id; });
+    }
+
+    cliente = await pool.connect();
+    await cliente.query("BEGIN");
+    if (quitar.length) {
+      const m = quitar.map((_, i) => `$${i + 2}`).join(", ");
+      await cliente.query(`DELETE FROM inspeccion_adicionales WHERE inspeccion_id = $1 AND adicional_id IN (${m})`, [id, ...quitar]);
+    }
+    for (const [aid, c] of guardar) {
+      await cliente.query(
+        `INSERT INTO inspeccion_adicionales (inspeccion_id, adicional_id, cantidad, actualizado_por)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (inspeccion_id, adicional_id)
+         DO UPDATE SET cantidad = EXCLUDED.cantidad, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = NOW()`,
+        [id, destinos[aid], c, req.usuario.id]
+      );
+    }
+    await cliente.query("UPDATE inspecciones SET actualizado_por = $2, actualizado_en = NOW() WHERE id = $1", [id, req.usuario.id]);
+    await cliente.query("COMMIT");
+    res.json({ ok: true, guardados: guardar.length, quitados: quitar.length });
+  } catch (err) {
+    if (cliente) await cliente.query("ROLLBACK").catch(() => {});
+    falloInterno(res, err, "No se pudieron guardar los adicionales.");
+  } finally {
+    if (cliente) cliente.release();
+  }
+});
+
+// Consolidado de adicionales del plan (para presentar a las autoridades).
+// Solo cuentan planteles enlazados y cantidades mayores que cero; los materiales
+// unificados se suman juntos.
+router.get("/planes/:id/consolidado-adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
-
   try {
     const plan = await pool.query("SELECT id, nombre, descripcion, version_catalogo, estado FROM planes_atencion WHERE id = $1", [planId]);
     if (!plan.rows.length) return res.status(404).json({ error: "Plan no encontrado." });
 
     const planteles = await pool.query(
       `SELECT pi.inspeccion_id, pi.codigo_dea, i.membrete
-       FROM plan_inspecciones pi
-       JOIN inspecciones i ON i.id = pi.inspeccion_id
+       FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
        WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
       [planId]
     );
     const columnas = planteles.rows
-      .map((r) => ({ inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea, nombre_plantel: nombreEfectivo(r.membrete, r.codigo_dea) }))
+      .map((r) => {
+        const d = datosEfectivos(r.membrete);
+        return { inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea, nombre_plantel: d.institucion || r.codigo_dea, municipio: d.municipio, parroquia: d.parroquia };
+      })
       .sort((a, b) => a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
 
-    const rubros = await pool.query(
-      `SELECT id, codigo, nro_lista, capitulo, rubro, unidad
-       FROM catalogo_materiales WHERE lista = $1 AND activo = TRUE ORDER BY nro_lista`,
-      [plan.rows[0].version_catalogo]
-    );
-    const cantidades = await pool.query(
-      `SELECT im.inspeccion_id, im.material_id, im.cantidad
-       FROM inspeccion_materiales im
-       JOIN plan_inspecciones pi ON pi.inspeccion_id = im.inspeccion_id
-       WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL AND im.cantidad > 0`,
+    const porPlantel = await pool.query(
+      `SELECT COALESCE(a.unificado_en, a.id) AS adicional_id, ia.inspeccion_id, SUM(ia.cantidad) AS cantidad
+       FROM plan_inspecciones pi
+       JOIN inspeccion_adicionales ia ON ia.inspeccion_id = pi.inspeccion_id
+       JOIN adicionales_catalogo a ON a.id = ia.adicional_id
+       WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL AND ia.cantidad > 0
+       GROUP BY COALESCE(a.unificado_en, a.id), ia.inspeccion_id`,
       [planId]
     );
     const totales = await pool.query(
-      "SELECT material_id, total, planteles_con_cantidad FROM v_consolidado_oficial WHERE plan_id = $1",
+      `SELECT v.adicional_id, v.total, v.planteles_con_cantidad, a.nombre, a.unidad, a.estado
+       FROM v_consolidado_adicionales v JOIN adicionales_catalogo a ON a.id = v.adicional_id
+       WHERE v.plan_id = $1`,
       [planId]
     );
+    const cantidades = {};
+    porPlantel.rows.forEach((r) => { (cantidades[r.adicional_id] = cantidades[r.adicional_id] || {})[r.inspeccion_id] = Number(r.cantidad); });
 
-    const porRubro = {};
-    cantidades.rows.forEach((c) => {
-      (porRubro[c.material_id] = porRubro[c.material_id] || {})[c.inspeccion_id] = Number(c.cantidad);
-    });
-    const sumas = {};
-    totales.rows.forEach((t) => { sumas[t.material_id] = { total: Number(t.total), planteles: Number(t.planteles_con_cantidad) }; });
+    const materiales = totales.rows
+      .map((t) => ({
+        id: t.adicional_id,
+        nombre: t.nombre,
+        unidad: t.unidad || "",
+        estado: t.estado,
+        cantidades: cantidades[t.adicional_id] || {},
+        total: Number(t.total),
+        planteles_con_cantidad: Number(t.planteles_con_cantidad),
+      }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
-    res.json({
-      plan: plan.rows[0],
-      planteles: columnas,
-      rubros: rubros.rows.map((r) => ({
-        id: r.id,
-        codigo: r.codigo,
-        nro: r.nro_lista,
-        capitulo: r.capitulo,
-        rubro: r.rubro,
-        unidad: r.unidad || "",
-        cantidades: porRubro[r.id] || {},
-        total: sumas[r.id] ? sumas[r.id].total : 0,
-        planteles_con_cantidad: sumas[r.id] ? sumas[r.id].planteles : 0,
-      })),
-    });
+    res.json({ plan: plan.rows[0], planteles: columnas, materiales, pendientes: materiales.filter((m) => m.estado === "PENDIENTE").length });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo calcular el consolidado de adicionales.");
+  }
+});
+
+// Arma el consolidado (lo usan la pantalla y la descarga en Excel).
+// Devuelve null si el plan no existe.
+async function armarConsolidado(planId) {
+  const plan = await pool.query("SELECT id, nombre, descripcion, version_catalogo, estado FROM planes_atencion WHERE id = $1", [planId]);
+  if (!plan.rows.length) return null;
+
+  const planteles = await pool.query(
+    `SELECT pi.inspeccion_id, pi.codigo_dea, i.membrete
+     FROM plan_inspecciones pi
+     JOIN inspecciones i ON i.id = pi.inspeccion_id
+     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
+    [planId]
+  );
+  const columnas = planteles.rows
+    .map((r) => {
+      const d = datosEfectivos(r.membrete);
+      return {
+        inspeccion_id: r.inspeccion_id,
+        codigo_dea: r.codigo_dea,
+        nombre_plantel: d.institucion || r.codigo_dea,
+        municipio: d.municipio,
+        parroquia: d.parroquia,
+      };
+    })
+    .sort((a, b) => a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
+
+  const rubros = await pool.query(
+    `SELECT id, codigo, nro_lista, ref_lista1, capitulo, rubro, unidad
+     FROM catalogo_materiales WHERE lista = $1 AND activo = TRUE ORDER BY nro_lista`,
+    [plan.rows[0].version_catalogo]
+  );
+  const cantidades = await pool.query(
+    `SELECT im.inspeccion_id, im.material_id, im.cantidad
+     FROM inspeccion_materiales im
+     JOIN plan_inspecciones pi ON pi.inspeccion_id = im.inspeccion_id
+     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL AND im.cantidad > 0`,
+    [planId]
+  );
+  const totales = await pool.query(
+    "SELECT material_id, total, planteles_con_cantidad FROM v_consolidado_oficial WHERE plan_id = $1",
+    [planId]
+  );
+
+  const porRubro = {};
+  cantidades.rows.forEach((c) => {
+    (porRubro[c.material_id] = porRubro[c.material_id] || {})[c.inspeccion_id] = Number(c.cantidad);
+  });
+  const sumas = {};
+  totales.rows.forEach((t) => { sumas[t.material_id] = { total: Number(t.total), planteles: Number(t.planteles_con_cantidad) }; });
+
+  return {
+    plan: plan.rows[0],
+    planteles: columnas,
+    rubros: rubros.rows.map((r) => ({
+      id: r.id,
+      codigo: r.codigo,
+      nro: r.nro_lista,
+      ref_vieja: r.ref_lista1,
+      capitulo: r.capitulo,
+      rubro: r.rubro,
+      unidad: r.unidad || "",
+      cantidades: porRubro[r.id] || {},
+      total: sumas[r.id] ? sumas[r.id].total : 0,
+      planteles_con_cantidad: sumas[r.id] ? sumas[r.id].planteles : 0,
+    })),
+  };
+}
+
+router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const planId = entero(req.params.id);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+
+  try {
+    const consolidado = await armarConsolidado(planId);
+    if (!consolidado) return res.status(404).json({ error: "Plan no encontrado." });
+    res.json(consolidado);
   } catch (err) {
     falloInterno(res, err, "No se pudo calcular el consolidado.");
   }
