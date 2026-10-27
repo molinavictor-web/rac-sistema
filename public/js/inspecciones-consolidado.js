@@ -53,13 +53,18 @@ function dibujar() {
           <label style="font-size:.82rem; display:flex; gap:6px; align-items:center;"><input type="checkbox" id="soloConCantidad" checked> Solo rubros con cantidad</label>
           <input type="search" id="buscar" placeholder="Buscar un rubro…" style="padding:7px 10px; border:1px solid var(--borde); border-radius:8px; min-width:200px;">
         </div>
-        <span style="color:var(--rac-muted,#718198); font-size:.78rem;">Se calcula al momento; no se guarda aparte.</span>
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <span style="color:var(--rac-muted,#718198); font-size:.78rem;">Se calcula al momento; no se guarda aparte.</span>
+          <button type="button" class="btn btn-primario btn-sm" id="btnExcel">Descargar Excel</button>
+        </div>
       </div>
       <div id="zonaTabla"></div>
     </div>
   `;
   document.getElementById("soloConCantidad").addEventListener("change", pintarTabla);
   document.getElementById("buscar").addEventListener("input", pintarTabla);
+  document.getElementById("btnExcel").addEventListener("click", (e) =>
+    descargarExcel(`/api/inspecciones/planes/${PLAN_ID}/consolidado.xlsx`, "CONSOLIDADO.xlsx", e.currentTarget));
   pintarTabla();
 }
 
@@ -112,6 +117,36 @@ function pintarTabla() {
         <tbody>${filas.join("")}</tbody>
       </table>
     </div>`;
+}
+
+// Descarga un Excel generado por el servidor (hace falta enviar el token, por eso no es un simple enlace).
+async function descargarExcel(ruta, nombreRespaldo, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = "Generando Excel…";
+  try {
+    const resp = await fetch(ruta, { headers: { Authorization: "Bearer " + RAC.getToken() } });
+    if (resp.status === 401) { RAC.cerrarSesion(); return; }
+    if (!resp.ok) {
+      let mensaje = `Error ${resp.status}`;
+      try { mensaje = (await resp.json()).error || mensaje; } catch (_) { /* sin cuerpo */ }
+      throw new Error(mensaje);
+    }
+    const blob = await resp.blob();
+    const m = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition") || "");
+    const enlace = document.createElement("a");
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = m ? m[1] : nombreRespaldo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 4000);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
 }
 
 function escapar(valor) {

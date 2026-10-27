@@ -50,13 +50,18 @@ function dibujar() {
           <a class="btn btn-fantasma btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Ver consolidado oficial</a>
           <input type="search" id="buscar" placeholder="Buscar un material…" style="padding:7px 10px; border:1px solid var(--borde); border-radius:8px; min-width:200px;">
         </div>
-        <button type="button" class="btn btn-primario btn-sm" id="btnImprimir">Imprimir / guardar PDF</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primario btn-sm" id="btnExcel">Descargar Excel</button>
+          <button type="button" class="btn btn-fantasma btn-sm" id="btnImprimir">Imprimir / guardar PDF</button>
+        </div>
       </div>
       ${pendientes ? `<div class="co-aviso no-imprimir"><strong>${pendientes}</strong> material${pendientes === 1 ? "" : "es"} de esta lista ${pendientes === 1 ? "está" : "están"} pendiente${pendientes === 1 ? "" : "s"} de aprobación (marcado${pendientes === 1 ? "" : "s"} en amarillo). Se suman igual; apruébalos o únelos con otro en el catálogo de adicionales para dejar la lista limpia antes de presentarla.</div>` : ""}
       <div id="zonaTabla"></div>
     </div>`;
   document.getElementById("buscar").addEventListener("input", pintarTabla);
   document.getElementById("btnImprimir").addEventListener("click", () => window.print());
+  document.getElementById("btnExcel").addEventListener("click", (e) =>
+    descargarExcel(`/api/inspecciones/planes/${PLAN_ID}/consolidado-adicionales.xlsx`, "ADICIONALES.xlsx", e.currentTarget));
   pintarTabla();
 }
 
@@ -91,6 +96,36 @@ function pintarTabla() {
   zona.innerHTML = `<div class="co-scroll"><table class="co-tabla">
     <thead><tr><th class="rubro">Material</th><th>Unidad</th>${cabeceras}<th class="num">N.º planteles</th><th class="num total">TOTAL</th></tr></thead>
     <tbody>${filas.join("")}</tbody></table></div>`;
+}
+
+// Descarga un Excel generado por el servidor (hace falta enviar el token, por eso no es un simple enlace).
+async function descargarExcel(ruta, nombreRespaldo, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = "Generando Excel…";
+  try {
+    const resp = await fetch(ruta, { headers: { Authorization: "Bearer " + RAC.getToken() } });
+    if (resp.status === 401) { RAC.cerrarSesion(); return; }
+    if (!resp.ok) {
+      let mensaje = `Error ${resp.status}`;
+      try { mensaje = (await resp.json()).error || mensaje; } catch (_) { /* sin cuerpo */ }
+      throw new Error(mensaje);
+    }
+    const blob = await resp.blob();
+    const m = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition") || "");
+    const enlace = document.createElement("a");
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = m ? m[1] : nombreRespaldo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 4000);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
 }
 
 function escapar(valor) {

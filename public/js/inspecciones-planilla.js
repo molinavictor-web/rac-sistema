@@ -165,6 +165,7 @@ function dibujar() {
       <div style="padding:14px 20px 0; display:flex; gap:10px; flex-wrap:wrap;">
         <a class="btn btn-fantasma btn-sm" href="${volver}">← Volver al plan</a>
         ${planId ? `<a class="btn btn-fantasma btn-sm" href="/inspecciones/consolidado.html?plan=${planId}">Ver consolidado del plan</a>` : ""}
+        <button type="button" class="btn btn-fantasma btn-sm" id="btnExcelPlanilla">Descargar Excel</button>
       </div>
       <div class="pl-datos-titulo">
         <h3 style="margin:0;">Datos del plantel</h3>
@@ -257,6 +258,13 @@ function enlazarEventos() {
   });
   cont.querySelectorAll("[data-ing]").forEach((el) => el.addEventListener("input", alCambiarCabecera));
   cont.querySelectorAll("[data-dp]").forEach((el) => el.addEventListener("input", alCambiarCabecera));
+  document.getElementById("btnExcelPlanilla").addEventListener("click", (e) => {
+    if (Object.keys(ACTUAL).length || cabeceraCambio() || adicCambios().total) {
+      mostrarToast("Guarda primero los cambios: el Excel se genera con lo que está guardado.", true);
+      return;
+    }
+    descargarExcel(`/api/inspecciones/inspeccion/${INSPECCION_ID}/planilla.xlsx`, "PLANILLA.xlsx", e.currentTarget);
+  });
   const restablecer = document.getElementById("btnRestablecer");
   if (restablecer) restablecer.addEventListener("click", restablecerDesdeGescolar);
   marcarEditados();
@@ -765,6 +773,36 @@ async function crearAdic() {
 // ---------------------------------------------------------------------------
 // Utilidades
 // ---------------------------------------------------------------------------
+
+// Descarga un Excel generado por el servidor (hace falta enviar el token, por eso no es un simple enlace).
+async function descargarExcel(ruta, nombreRespaldo, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = "Generando Excel…";
+  try {
+    const resp = await fetch(ruta, { headers: { Authorization: "Bearer " + RAC.getToken() } });
+    if (resp.status === 401) { RAC.cerrarSesion(); return; }
+    if (!resp.ok) {
+      let mensaje = `Error ${resp.status}`;
+      try { mensaje = (await resp.json()).error || mensaje; } catch (_) { /* sin cuerpo */ }
+      throw new Error(mensaje);
+    }
+    const blob = await resp.blob();
+    const m = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition") || "");
+    const enlace = document.createElement("a");
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = m ? m[1] : nombreRespaldo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 4000);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
+}
 
 function escapar(valor) {
   if (valor === undefined || valor === null) return "";
