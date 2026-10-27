@@ -20,6 +20,9 @@
 //   PATCH /adicionales/:id   y  POST .../unificar   (admin) aprobar, retirar, renombrar, unificar
 //   PUT   /inspeccion/:id/adicionales               cantidades de adicionales de un plantel
 //   GET   /planes/:id/consolidado-adicionales       consolidado de adicionales del plan
+//   GET   /planes/:id/consolidado.xlsx              descarga Excel del consolidado oficial
+//   GET   /planes/:id/consolidado-adicionales.xlsx  descarga Excel del consolidado de adicionales
+//   GET   /inspeccion/:id/planilla.xlsx             descarga Excel de la planilla individual
 //
 // Regla de fondo: la inspección (con sus cantidades) pertenece al PLANTEL,
 // no al plan. "Desenlazar" solo marca una fecha en plan_inspecciones: no
@@ -591,82 +594,89 @@ function nombreEfectivo(membrete, respaldo) {
   return datosEfectivos(membrete).institucion || respaldo || "";
 }
 
+// Arma la planilla completa de una inspección (la usan la pantalla y la descarga
+// en Excel). Devuelve null si la inspección no existe.
+async function armarPlanilla(id) {
+  const cabecera = await pool.query(
+    `SELECT id, codigo_dea, fecha_inspeccion::text AS fecha_inspeccion, estado, origen,
+            observaciones, membrete, actualizado_en
+     FROM inspecciones WHERE id = $1`,
+    [id]
+  );
+  if (!cabecera.rows.length) return null;
+  const i = cabecera.rows[0];
+
+  const inspectores = await pool.query(
+    "SELECT orden, nombre FROM inspeccion_inspectores WHERE inspeccion_id = $1 ORDER BY orden",
+    [id]
+  );
+  const planes = await planesActivosDeInspeccion(id);
+  const version = planes.length ? planes[0].version_catalogo : "LISTA2";
+
+  const rubros = await pool.query(
+    `SELECT m.id, m.codigo, m.nro_lista, m.capitulo, m.rubro, m.unidad, im.cantidad
+     FROM catalogo_materiales m
+     LEFT JOIN inspeccion_materiales im ON im.material_id = m.id AND im.inspeccion_id = $1
+     WHERE m.lista = $2 AND m.activo = TRUE
+     ORDER BY m.nro_lista`,
+    [id, version]
+  );
+
+  const adic = await pool.query(
+    `SELECT ia.adicional_id, ia.cantidad, COALESCE(t.nombre, a.nombre) AS nombre, COALESCE(t.unidad, a.unidad) AS unidad,
+            COALESCE(t.estado, a.estado) AS estado
+     FROM inspeccion_adicionales ia
+     JOIN adicionales_catalogo a ON a.id = ia.adicional_id
+     LEFT JOIN adicionales_catalogo t ON t.id = a.unificado_en
+     WHERE ia.inspeccion_id = $1`,
+    [id]
+  );
+  const adicionales = adic.rows
+    .map((r) => ({
+      adicional_id: r.adicional_id,
+      nombre: r.nombre,
+      unidad: r.unidad || "",
+      estado: r.estado,
+      cantidad: r.cantidad === null ? null : Number(r.cantidad),
+    }))
+    .sort((x, y) => x.nombre.localeCompare(y.nombre, "es"));
+
+  return {
+    adicionales,
+    inspeccion: {
+      id: i.id,
+      codigo_dea: i.codigo_dea,
+      fecha_inspeccion: i.fecha_inspeccion,
+      estado: i.estado,
+      origen: i.origen,
+      observaciones: i.observaciones || "",
+      membrete: i.membrete || {},
+      datos_plantel: datosEfectivos(i.membrete),
+      datos_gescolar: datosDeGescolar(i.membrete),
+      actualizado_en: i.actualizado_en,
+      inspectores: inspectores.rows.map((r) => r.nombre),
+      planes: planes.map((p) => ({ id: p.id, nombre: p.nombre, estado: p.estado })),
+    },
+    version_catalogo: version,
+    rubros: rubros.rows.map((r) => ({
+      id: r.id,
+      codigo: r.codigo,
+      nro: r.nro_lista,
+      capitulo: r.capitulo,
+      rubro: r.rubro,
+      unidad: r.unidad || "",
+      cantidad: r.cantidad === null ? null : Number(r.cantidad),
+    })),
+  };
+}
+
 router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
-
   try {
-    const cabecera = await pool.query(
-      `SELECT id, codigo_dea, fecha_inspeccion::text AS fecha_inspeccion, estado, origen,
-              observaciones, membrete, actualizado_en
-       FROM inspecciones WHERE id = $1`,
-      [id]
-    );
-    if (!cabecera.rows.length) return res.status(404).json({ error: "Inspección no encontrada." });
-    const i = cabecera.rows[0];
-
-    const inspectores = await pool.query(
-      "SELECT orden, nombre FROM inspeccion_inspectores WHERE inspeccion_id = $1 ORDER BY orden",
-      [id]
-    );
-    const planes = await planesActivosDeInspeccion(id);
-    const version = planes.length ? planes[0].version_catalogo : "LISTA2";
-
-    const rubros = await pool.query(
-      `SELECT m.id, m.codigo, m.nro_lista, m.capitulo, m.rubro, m.unidad, im.cantidad
-       FROM catalogo_materiales m
-       LEFT JOIN inspeccion_materiales im ON im.material_id = m.id AND im.inspeccion_id = $1
-       WHERE m.lista = $2 AND m.activo = TRUE
-       ORDER BY m.nro_lista`,
-      [id, version]
-    );
-
-    const adic = await pool.query(
-      `SELECT ia.adicional_id, ia.cantidad, COALESCE(t.nombre, a.nombre) AS nombre, COALESCE(t.unidad, a.unidad) AS unidad,
-              COALESCE(t.estado, a.estado) AS estado
-       FROM inspeccion_adicionales ia
-       JOIN adicionales_catalogo a ON a.id = ia.adicional_id
-       LEFT JOIN adicionales_catalogo t ON t.id = a.unificado_en
-       WHERE ia.inspeccion_id = $1`,
-      [id]
-    );
-    const adicionales = adic.rows
-      .map((r) => ({
-        adicional_id: r.adicional_id,
-        nombre: r.nombre,
-        unidad: r.unidad || "",
-        estado: r.estado,
-        cantidad: r.cantidad === null ? null : Number(r.cantidad),
-      }))
-      .sort((x, y) => x.nombre.localeCompare(y.nombre, "es"));
-
-    res.json({
-      adicionales,
-      inspeccion: {
-        id: i.id,
-        codigo_dea: i.codigo_dea,
-        fecha_inspeccion: i.fecha_inspeccion,
-        estado: i.estado,
-        origen: i.origen,
-        observaciones: i.observaciones || "",
-        membrete: i.membrete || {},
-        datos_plantel: datosEfectivos(i.membrete),
-        datos_gescolar: datosDeGescolar(i.membrete),
-        actualizado_en: i.actualizado_en,
-        inspectores: inspectores.rows.map((r) => r.nombre),
-        planes: planes.map((p) => ({ id: p.id, nombre: p.nombre, estado: p.estado })),
-      },
-      version_catalogo: version,
-      rubros: rubros.rows.map((r) => ({
-        id: r.id,
-        codigo: r.codigo,
-        nro: r.nro_lista,
-        capitulo: r.capitulo,
-        rubro: r.rubro,
-        unidad: r.unidad || "",
-        cantidad: r.cantidad === null ? null : Number(r.cantidad),
-      })),
-    });
+    const planilla = await armarPlanilla(id);
+    if (!planilla) return res.status(404).json({ error: "Inspección no encontrada." });
+    res.json(planilla);
   } catch (err) {
     falloInterno(res, err, "No se pudo cargar la planilla.");
   }
@@ -1100,57 +1110,63 @@ router.put("/inspeccion/:id/adicionales", requireAuth, requireRol(...ROLES_GESTI
 // Consolidado de adicionales del plan (para presentar a las autoridades).
 // Solo cuentan planteles enlazados y cantidades mayores que cero; los materiales
 // unificados se suman juntos.
+async function armarConsolidadoAdicionales(planId) {
+  const plan = await pool.query("SELECT id, nombre, descripcion, version_catalogo, estado FROM planes_atencion WHERE id = $1", [planId]);
+  if (!plan.rows.length) return null;
+
+  const planteles = await pool.query(
+    `SELECT pi.inspeccion_id, pi.codigo_dea, i.membrete
+     FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
+     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
+    [planId]
+  );
+  const columnas = planteles.rows
+    .map((r) => {
+      const d = datosEfectivos(r.membrete);
+      return { inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea, nombre_plantel: d.institucion || r.codigo_dea, municipio: d.municipio, parroquia: d.parroquia };
+    })
+    .sort((a, b) => a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
+
+  const porPlantel = await pool.query(
+    `SELECT COALESCE(a.unificado_en, a.id) AS adicional_id, ia.inspeccion_id, SUM(ia.cantidad) AS cantidad
+     FROM plan_inspecciones pi
+     JOIN inspeccion_adicionales ia ON ia.inspeccion_id = pi.inspeccion_id
+     JOIN adicionales_catalogo a ON a.id = ia.adicional_id
+     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL AND ia.cantidad > 0
+     GROUP BY COALESCE(a.unificado_en, a.id), ia.inspeccion_id`,
+    [planId]
+  );
+  const totales = await pool.query(
+    `SELECT v.adicional_id, v.total, v.planteles_con_cantidad, a.nombre, a.unidad, a.estado
+     FROM v_consolidado_adicionales v JOIN adicionales_catalogo a ON a.id = v.adicional_id
+     WHERE v.plan_id = $1`,
+    [planId]
+  );
+  const cantidades = {};
+  porPlantel.rows.forEach((r) => { (cantidades[r.adicional_id] = cantidades[r.adicional_id] || {})[r.inspeccion_id] = Number(r.cantidad); });
+
+  const materiales = totales.rows
+    .map((t) => ({
+      id: t.adicional_id,
+      nombre: t.nombre,
+      unidad: t.unidad || "",
+      estado: t.estado,
+      cantidades: cantidades[t.adicional_id] || {},
+      total: Number(t.total),
+      planteles_con_cantidad: Number(t.planteles_con_cantidad),
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  return { plan: plan.rows[0], planteles: columnas, materiales, pendientes: materiales.filter((m) => m.estado === "PENDIENTE").length };
+}
+
 router.get("/planes/:id/consolidado-adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
   try {
-    const plan = await pool.query("SELECT id, nombre, descripcion, version_catalogo, estado FROM planes_atencion WHERE id = $1", [planId]);
-    if (!plan.rows.length) return res.status(404).json({ error: "Plan no encontrado." });
-
-    const planteles = await pool.query(
-      `SELECT pi.inspeccion_id, pi.codigo_dea, i.membrete
-       FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
-       WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
-      [planId]
-    );
-    const columnas = planteles.rows
-      .map((r) => {
-        const d = datosEfectivos(r.membrete);
-        return { inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea, nombre_plantel: d.institucion || r.codigo_dea, municipio: d.municipio, parroquia: d.parroquia };
-      })
-      .sort((a, b) => a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
-
-    const porPlantel = await pool.query(
-      `SELECT COALESCE(a.unificado_en, a.id) AS adicional_id, ia.inspeccion_id, SUM(ia.cantidad) AS cantidad
-       FROM plan_inspecciones pi
-       JOIN inspeccion_adicionales ia ON ia.inspeccion_id = pi.inspeccion_id
-       JOIN adicionales_catalogo a ON a.id = ia.adicional_id
-       WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL AND ia.cantidad > 0
-       GROUP BY COALESCE(a.unificado_en, a.id), ia.inspeccion_id`,
-      [planId]
-    );
-    const totales = await pool.query(
-      `SELECT v.adicional_id, v.total, v.planteles_con_cantidad, a.nombre, a.unidad, a.estado
-       FROM v_consolidado_adicionales v JOIN adicionales_catalogo a ON a.id = v.adicional_id
-       WHERE v.plan_id = $1`,
-      [planId]
-    );
-    const cantidades = {};
-    porPlantel.rows.forEach((r) => { (cantidades[r.adicional_id] = cantidades[r.adicional_id] || {})[r.inspeccion_id] = Number(r.cantidad); });
-
-    const materiales = totales.rows
-      .map((t) => ({
-        id: t.adicional_id,
-        nombre: t.nombre,
-        unidad: t.unidad || "",
-        estado: t.estado,
-        cantidades: cantidades[t.adicional_id] || {},
-        total: Number(t.total),
-        planteles_con_cantidad: Number(t.planteles_con_cantidad),
-      }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-
-    res.json({ plan: plan.rows[0], planteles: columnas, materiales, pendientes: materiales.filter((m) => m.estado === "PENDIENTE").length });
+    const consolidado = await armarConsolidadoAdicionales(planId);
+    if (!consolidado) return res.status(404).json({ error: "Plan no encontrado." });
+    res.json(consolidado);
   } catch (err) {
     falloInterno(res, err, "No se pudo calcular el consolidado de adicionales.");
   }
@@ -1234,6 +1250,67 @@ router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_GESTION),
     res.json(consolidado);
   } catch (err) {
     falloInterno(res, err, "No se pudo calcular el consolidado.");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Descargas en Excel (mismo formato de los archivos oficiales de la oficina)
+// ---------------------------------------------------------------------------
+
+function nombreArchivo(...partes) {
+  return partes
+    .join("_")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 120);
+}
+
+function enviarExcel(res, buffer, nombre) {
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${nombre}.xlsx"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(Buffer.from(buffer));
+}
+
+router.get("/planes/:id/consolidado.xlsx", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const planId = entero(req.params.id);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  try {
+    const consolidado = await armarConsolidado(planId);
+    if (!consolidado) return res.status(404).json({ error: "Plan no encontrado." });
+    const buffer = await require("../services/exportarExcel").consolidadoOficial(consolidado);
+    enviarExcel(res, buffer, nombreArchivo("CONSOLIDADO", consolidado.plan.nombre));
+  } catch (err) {
+    falloInterno(res, err, "No se pudo generar el Excel del consolidado.");
+  }
+});
+
+router.get("/planes/:id/consolidado-adicionales.xlsx", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const planId = entero(req.params.id);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  try {
+    const consolidado = await armarConsolidadoAdicionales(planId);
+    if (!consolidado) return res.status(404).json({ error: "Plan no encontrado." });
+    const buffer = await require("../services/exportarExcel").consolidadoAdicionales(consolidado);
+    enviarExcel(res, buffer, nombreArchivo("ADICIONALES", consolidado.plan.nombre));
+  } catch (err) {
+    falloInterno(res, err, "No se pudo generar el Excel de adicionales.");
+  }
+});
+
+router.get("/inspeccion/:id/planilla.xlsx", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Inspección inválida." });
+  try {
+    const planilla = await armarPlanilla(id);
+    if (!planilla) return res.status(404).json({ error: "Inspección no encontrada." });
+    const buffer = await require("../services/exportarExcel").planilla(planilla);
+    const i = planilla.inspeccion;
+    enviarExcel(res, buffer, nombreArchivo("PLANILLA", i.codigo_dea, i.datos_plantel.institucion));
+  } catch (err) {
+    falloInterno(res, err, "No se pudo generar el Excel de la planilla.");
   }
 });
 
