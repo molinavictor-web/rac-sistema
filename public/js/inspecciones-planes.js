@@ -9,7 +9,6 @@ const usuario = renderShell("inspecciones-planes", "Planes de atención");
 // Perfiles: admin y coordinador gestionan (crear planes, enlazar planteles, asignar ingenieros).
 // El resto (consulta, operador de plantel) ve todo en solo lectura.
 const PUEDE_GESTIONAR = Boolean(usuario) && ["admin", "insp_coordinador"].includes(usuario.rol);
-let INGENIEROS = null; // cuentas de ingeniero activas (se piden al asignar)
 
 let PLANES = [];
 let PLAN_ABIERTO = null; // { plan, planteles }
@@ -231,58 +230,130 @@ function pintarPlanteles() {
 // ---- Ingenieros asignados a cada planilla ----
 
 function ingenierosHtml(p) {
-  const nombres = (p.ingenieros || []).map((i) => escapar(i.nombre));
-  const lista = nombres.length ? nombres.join("<br>") : `<span style="color:var(--muted);">Sin asignar</span>`;
-  const boton = PUEDE_GESTIONAR
-    ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-asignar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">${nombres.length ? "Cambiar" : "Asignar"}</button></div>`
+  const resp = p.responsable
+    ? `<strong>${escapar(p.responsable)}</strong>`
+    : `<span style="color:var(--muted);">Sin responsable</span>`;
+  const cuentas = (p.ingenieros || []).length
+    ? `<div style="color:var(--muted); font-size:.74rem; margin-top:2px;">Acceso: ${(p.ingenieros || []).map((i) => escapar(i.nombre)).join(", ")}</div>`
     : "";
-  return lista + boton;
+  const boton = PUEDE_GESTIONAR
+    ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-asignar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">${p.responsable || (p.ingenieros || []).length ? "Cambiar" : "Asignar"}</button></div>`
+    : "";
+  return resp + cuentas + boton;
 }
 
+// Modal de asignación. Dos partes:
+//  1) Responsable de la inspección: se escoge entre los ingenieros que ya figuran en GESCOLAR (o se
+//     escribe uno nuevo). Al guardar se escribe en la columna RESPONSABLE de GESCOLAR y suma a su
+//     número de inspecciones en el resumen de Ingenieros.
+//  2) Cuentas con acceso (opcional): qué usuarios «Inspecciones · Ingeniero» pueden abrir y llenar la planilla.
 async function abrirAsignacion(inspeccionId, nombrePlantel) {
+  let responsables = [];
+  let cuentas = [];
   try {
-    if (!INGENIEROS) INGENIEROS = (await RAC.get("/api/inspecciones/ingenieros")).ingenieros;
+    responsables = (await RAC.get("/api/inspecciones/responsables")).responsables || [];
   } catch (err) {
     mostrarToast(err.message, true);
     return;
   }
-  const plantel = PLAN_ABIERTO.planteles.find((p) => p.inspeccion_id === inspeccionId);
-  const marcados = new Set(((plantel && plantel.ingenieros) || []).map((i) => i.id));
-  const fondo = document.createElement("div");
-  fondo.className = "modal-fondo visible";
-  const filas = INGENIEROS.length
-    ? INGENIEROS.map((g) => `
-        <label style="display:flex; gap:10px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--borde); cursor:pointer;">
+  try {
+    cuentas = (await RAC.get("/api/inspecciones/ingenieros")).ingenieros || [];
+  } catch (_) { /* las cuentas son opcionales */ }
+
+  const plantel = PLAN_ABIERTO.planteles.find((p) => p.inspeccion_id === inspeccionId) || {};
+  const actual = plantel.responsable || "";
+  const marcados = new Set((plantel.ingenieros || []).map((i) => i.id));
+  const opciones = [`<option value="">— Sin responsable —</option>`]
+    .concat(responsables.map((r) => `<option value="${escapar(r.nombre)}" ${r.nombre === actual ? "selected" : ""}>${escapar(r.nombre)} (${Number(r.total)})</option>`));
+  // Si el responsable actual no está en la lista (no debería pasar), se agrega para no perderlo.
+  if (actual && !responsables.some((r) => r.nombre === actual)) {
+    opciones.push(`<option value="${escapar(actual)}" selected>${escapar(actual)}</option>`);
+  }
+  opciones.push(`<option value="__otro__">Otro nombre…</option>`);
+
+  const filasCuentas = cuentas.length
+    ? cuentas.map((g) => `
+        <label style="display:flex; gap:10px; align-items:center; padding:6px 4px; border-bottom:1px solid var(--borde); cursor:pointer;">
           <input type="checkbox" value="${Number(g.id)}" ${marcados.has(g.id) ? "checked" : ""}>
           <span>${escapar(g.nombre)}<br><small style="color:var(--muted);">${escapar(g.email)}</small></span>
         </label>`).join("")
-    : `<div class="vacio"><strong>Todavía no hay ingenieros</strong>El administrador debe crear las cuentas (rol «Inspecciones · Ingeniero») en Usuarios.</div>`;
+    : `<p style="margin:0; color:var(--muted); font-size:.82rem;">Todavía no hay cuentas de ingeniero. No es necesario para registrar al responsable; solo hacen falta si el ingeniero va a entrar al sistema a llenar la planilla (se crean en Usuarios con el rol «Inspecciones · Ingeniero»).</p>`;
+
+  const fondo = document.createElement("div");
+  fondo.className = "modal-fondo visible";
   fondo.innerHTML = `
-    <div class="modal" style="max-width:460px;">
-      <h2 style="margin-bottom:4px;">Asignar ingenieros</h2>
-      <p style="margin:0 0 12px; color:var(--muted); font-size:.85rem;">${escapar(nombrePlantel)}<br>Solo los ingenieros marcados podrán abrir y llenar esta planilla.</p>
-      <div style="max-height:320px; overflow:auto;">${filas}</div>
+    <div class="modal" style="max-width:480px;">
+      <h2 style="margin-bottom:4px;">Asignar ingeniero</h2>
+      <p style="margin:0 0 12px; color:var(--muted); font-size:.85rem;">${escapar(nombrePlantel)}</p>
+
+      <label for="selResp" style="font-weight:600; font-size:.85rem;">Responsable de la inspección</label>
+      <select id="selResp" style="width:100%; margin-top:4px;">${opciones.join("")}</select>
+      <input type="text" id="inpOtro" maxlength="80" placeholder="Nombre y apellido" style="width:100%; margin-top:6px; display:none;">
+      <p style="margin:6px 0 0; color:var(--muted); font-size:.76rem;">Se guarda en GESCOLAR (columna RESPONSABLE) y se suma a las inspecciones de ese ingeniero.</p>
+      <div id="avisoReemplazo" style="display:none; margin-top:8px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #f6ad55; font-size:.8rem;"></div>
+
+      <div style="margin-top:16px; font-weight:600; font-size:.85rem;">Cuentas con acceso a la planilla <span style="font-weight:400; color:var(--muted);">(opcional)</span></div>
+      <div style="max-height:200px; overflow:auto; margin-top:4px;">${filasCuentas}</div>
+
       <div class="error-msg" id="errorAsignar"></div>
       <div style="display:flex; gap:10px; margin-top:14px;">
-        <button type="button" class="btn btn-primario" id="btnGuardarAsignar" ${INGENIEROS.length ? "" : "disabled"}>Guardar</button>
+        <button type="button" class="btn btn-primario" id="btnGuardarAsignar">Guardar</button>
         <button type="button" class="btn btn-fantasma" id="btnCancelarAsignar">Cancelar</button>
       </div>
     </div>`;
   document.body.appendChild(fondo);
   const cerrar = () => fondo.remove();
+  const sel = fondo.querySelector("#selResp");
+  const otro = fondo.querySelector("#inpOtro");
+  const aviso = fondo.querySelector("#avisoReemplazo");
+
+  const valorElegido = () => (sel.value === "__otro__" ? otro.value.replace(/\s+/g, " ").trim() : sel.value);
+  function refrescarAviso() {
+    otro.style.display = sel.value === "__otro__" ? "block" : "none";
+    const v = valorElegido();
+    if (actual && v !== actual) {
+      aviso.style.display = "block";
+      aviso.innerHTML = v
+        ? `Este plantel ya figura con <strong>${escapar(actual)}</strong> en GESCOLAR. Al guardar se reemplazará por <strong>${escapar(v)}</strong> (a ${escapar(actual)} se le resta esta inspección).`
+        : `Este plantel figura con <strong>${escapar(actual)}</strong>. Al guardar quedará sin responsable.`;
+    } else {
+      aviso.style.display = "none";
+    }
+  }
+  sel.addEventListener("change", () => { refrescarAviso(); if (sel.value === "__otro__") otro.focus(); });
+  otro.addEventListener("input", refrescarAviso);
+
   fondo.querySelector("#btnCancelarAsignar").addEventListener("click", cerrar);
   fondo.addEventListener("click", (e) => { if (e.target === fondo) cerrar(); });
   fondo.querySelector("#btnGuardarAsignar").addEventListener("click", async () => {
+    const errorEl = fondo.querySelector("#errorAsignar");
+    errorEl.classList.remove("visible");
+    const cuerpo = {};
+    const elegido = valorElegido();
+    if (sel.value === "__otro__" && !elegido) {
+      errorEl.textContent = "Escribe el nombre del ingeniero o elige uno de la lista.";
+      errorEl.classList.add("visible");
+      return;
+    }
+    if (elegido !== actual) cuerpo.responsable = elegido || null;
     const ids = Array.from(fondo.querySelectorAll("input[type=checkbox]:checked")).map((c) => Number(c.value));
+    const previos = Array.from(marcados).sort((a, b) => a - b);
+    if (cuentas.length && JSON.stringify(ids.slice().sort((a, b) => a - b)) !== JSON.stringify(previos)) cuerpo.usuarios = ids;
+    if (cuerpo.responsable === undefined && cuerpo.usuarios === undefined) { cerrar(); return; }
+
+    const boton = fondo.querySelector("#btnGuardarAsignar");
+    boton.disabled = true;
+    boton.textContent = "Guardando…";
     try {
-      await RAC.put(`/api/inspecciones/inspeccion/${inspeccionId}/asignaciones`, { usuarios: ids });
-      mostrarToast(ids.length ? "Asignación guardada." : "Planilla sin ingenieros asignados.");
+      await RAC.put(`/api/inspecciones/inspeccion/${inspeccionId}/asignaciones`, cuerpo);
+      mostrarToast("Asignación guardada.");
       cerrar();
       await recargarPlan();
     } catch (err) {
-      const e = fondo.querySelector("#errorAsignar");
-      e.textContent = err.message;
-      e.classList.add("visible");
+      errorEl.textContent = err.message;
+      errorEl.classList.add("visible");
+      boton.disabled = false;
+      boton.textContent = "Guardar";
     }
   });
 }
