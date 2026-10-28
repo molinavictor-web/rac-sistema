@@ -9,6 +9,10 @@ const { pool } = require("../db/pool");
 const router = express.Router(); // rutas montadas en /api/planteles-consulta
 
 const ROLES_CONSULTA_PLANTELES = ["admin", "operador_plantel"];
+// Solo LECTURA de la ficha (buscar, coordenadas, lista y descarga de archivos): también los
+// perfiles del módulo Inspecciones. Todo lo que escribe (subir, coordenadas, refrescar) sigue
+// siendo solo de ROLES_CONSULTA_PLANTELES.
+const ROLES_LECTURA_FICHA = [...ROLES_CONSULTA_PLANTELES, "insp_coordinador", "insp_ingeniero", "insp_consulta"];
 const LIMITE_MB = Number(process.env.MAX_UPLOAD_SIZE_MB || 20);
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -237,7 +241,7 @@ async function cargarCoordenadas() {
 // que están en el MISMO edificio (mismo codigo_infraestructura), con su
 // nombre resuelto contra GESCOLAR, para poder avisar "este edificio también
 // aloja a...".
-router.get("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+router.get("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_LECTURA_FICHA), async (req, res) => {
   const codigoDea = (req.params.codigoDea || "").trim();
   if (!SHEETS_COORDENADAS_ID) {
     return res.json({ encontrado: false, compartidos: [] });
@@ -372,7 +376,7 @@ router.post("/:codigoDea/coordenadas", requireAuth, requireRol(...ROLES_CONSULTA
 
 // Búsqueda: coincidencia parcial, sin distinguir mayúsculas, sobre
 // cualquiera de los CAMPOS_BUSQUEDA.
-router.get("/buscar", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+router.get("/buscar", requireAuth, requireRol(...ROLES_LECTURA_FICHA), async (req, res) => {
   const q = (req.query.q || "").trim().toLowerCase();
   if (q.length < 2) {
     return res.status(400).json({ error: "Escribe al menos 2 caracteres para buscar." });
@@ -452,7 +456,7 @@ async function ubicarOCrearCarpetaDea(codigoDea) {
 }
 
 // Lista los archivos disponibles en Drive para un código DEA.
-router.get("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+router.get("/:codigoDea/archivos", requireAuth, requireRol(...ROLES_LECTURA_FICHA), async (req, res) => {
   const codigoDea = (req.params.codigoDea || "").trim();
   if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
   if (!DRIVE_FOLDER_PLANTELES_ID) {
@@ -603,7 +607,7 @@ const EXPORTACION_GENERICA = { mimeType: "application/pdf", extension: ".pdf" };
 // Descarga (streaming) de un archivo puntual. El código DEA en la ruta es
 // solo para contexto/logs -- la autorización real es el rol (admin u
 // operador_plantel), igual que en /buscar y /archivos.
-router.get("/:codigoDea/archivos/:fileId/descargar", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+router.get("/:codigoDea/archivos/:fileId/descargar", requireAuth, requireRol(...ROLES_LECTURA_FICHA), async (req, res) => {
   const { fileId } = req.params;
   try {
     const meta = await drive.files.get({ fileId, fields: "name, mimeType" });

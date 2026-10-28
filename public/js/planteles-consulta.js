@@ -3,7 +3,13 @@
 // completa de un plantel en un modal a pantalla completa (son 55 columnas),
 // incluyendo los archivos disponibles en Drive para ese código DEA.
 
-const usuario = renderShell("planteles-consulta", "Consultar planteles");
+// Esta misma pantalla se sirve también como /inspecciones/plantel.html (ficha de solo lectura para los
+// perfiles del módulo Inspecciones, abierta con ?cod=<código DEA> desde el resumen de ingenieros).
+const EN_INSPECCIONES = window.location.pathname.startsWith("/inspecciones/");
+const CODIGO_DIRECTO = new URLSearchParams(window.location.search).get("cod");
+const usuario = EN_INSPECCIONES
+  ? renderShell("inspecciones-ingenieros", "Ficha del plantel")
+  : renderShell("planteles-consulta", "Consultar planteles");
 
 // Campos "confirmados" (coinciden EXACTO con CAMPOS_BUSQUEDA del backend) --
 // se usan para las columnas fijas de la tabla y el encabezado de la ficha.
@@ -76,6 +82,21 @@ function dibujarPanel() {
   }
 
   mostrarEstadoInicial();
+  if (CODIGO_DIRECTO) abrirFichaPorCodigo(CODIGO_DIRECTO);
+}
+
+// Abre la ficha de un código DEA concreto (enlace directo). Si el plantel no aparece, deja
+// la pantalla de búsqueda con el código escrito.
+async function abrirFichaPorCodigo(codigo) {
+  try {
+    const resp = await RAC.get(`/api/planteles-consulta/buscar?q=${encodeURIComponent(codigo)}`);
+    const lista = RAC.lista(resp, "planteles");
+    const plantel = lista.find((p) => String(p[CAMPO_CODIGO]).trim().toLowerCase() === codigo.trim().toLowerCase());
+    if (plantel) { abrirFicha(plantel); return; }
+    mostrarToast(`No se encontró el plantel ${codigo} en GESCOLAR.`, true);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  }
 }
 
 function mostrarEstadoInicial() {
@@ -195,6 +216,13 @@ function abrirFicha(plantel) {
 function cerrarFicha() {
   modalFichaFondo.classList.remove("visible");
   document.body.style.overflow = "";
+  // Si se llegó por enlace directo, cerrar la ficha devuelve a donde se estaba (el resumen de ingenieros).
+  if (CODIGO_DIRECTO) {
+    let mismoSitio = false;
+    try { mismoSitio = document.referrer && new URL(document.referrer).origin === window.location.origin; } catch (_) { /* nada */ }
+    if (mismoSitio && window.history.length > 1) window.history.back();
+    else window.location.href = EN_INSPECCIONES ? "/inspecciones/ingenieros.html" : "/planteles-consulta.html";
+  }
 }
 
 document.getElementById("btnCerrarFicha").addEventListener("click", cerrarFicha);

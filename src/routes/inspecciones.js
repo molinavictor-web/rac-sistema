@@ -6,6 +6,7 @@
 //   GET   /ingenieros                               cuentas de ingeniero activas (para asignar)
 //   PUT   /inspeccion/:id/asignaciones              asignar ingenieros a una planilla
 //   GET   /mis-planillas                            las planillas asignadas al ingeniero en sesión
+//   GET   /resumen-ingenieros                       ingenieros (columna RESPONSABLE de GESCOLAR) y planteles inspeccionados
 //   GET   /planes                                   lista de planes
 //   POST  /planes                                   crear plan
 //   PATCH /planes/:id                               editar nombre/descripción/estado
@@ -1348,6 +1349,55 @@ router.put("/inspeccion/:id/asignaciones", requireAuth, requireRol(...ROLES_GEST
     falloInterno(res, err, "No se pudo guardar la asignación.");
   } finally {
     if (cliente) cliente.release();
+  }
+});
+
+// Resumen de ingenieros: lee la columna RESPONSABLE de GESCOLAR y cuenta los planteles
+// inspeccionados por cada uno. Los valores vacíos o "#N/A" significan "sin responsable".
+// Lo pueden ver todos los perfiles del módulo.
+const SIN_RESPONSABLE = /^(#?N\/?A|#REF!?|#VALUE!?|-+|\.+|NO|SI|SIN .*|NINGUNO)$/i;
+
+function limpiarTexto(valor) {
+  let t = String(valor == null ? "" : valor);
+  if (/[ÃÂ]/.test(t)) { try { t = Buffer.from(t, "latin1").toString("utf8"); } catch (_) { /* se deja igual */ } }
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function claveNombre(t) {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+}
+
+router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), async (req, res) => {
+  try {
+    const datos = await gescolar.cargarGescolar();
+    const grupos = new Map();
+    let conResponsable = 0;
+    for (const p of datos) {
+      const nombre = limpiarTexto(p.RESPONSABLE);
+      if (!nombre || SIN_RESPONSABLE.test(nombre)) continue;
+      conResponsable++;
+      const clave = claveNombre(nombre);
+      if (!grupos.has(clave)) grupos.set(clave, { nombre, planteles: [] });
+      grupos.get(clave).planteles.push({
+        codigo_dea: limpiarTexto(p[gescolar.CAMPO_CODIGO]),
+        nombre_plantel: limpiarTexto(p[gescolar.CAMPO_NOMBRE]),
+        municipio: limpiarTexto(p.municipio),
+        parroquia: limpiarTexto(p.parroquia),
+        tarea: limpiarTexto(p.GRUPO_TAREA),
+      });
+    }
+    const ingenieros = [...grupos.values()]
+      .map((g) => ({
+        nombre: g.nombre,
+        total: g.planteles.length,
+        planteles: g.planteles.sort((x, y) =>
+          (x.municipio + x.parroquia + x.nombre_plantel).localeCompare(y.municipio + y.parroquia + y.nombre_plantel, "es")),
+      }))
+      .sort((x, y) => y.total - x.total || x.nombre.localeCompare(y.nombre, "es"));
+    res.json({ total_planteles_gescolar: datos.length, planteles_con_responsable: conResponsable, ingenieros });
+  } catch (err) {
+    console.error("Error armando el resumen de ingenieros:", err);
+    res.status(500).json({ error: "No se pudo leer la hoja de GESCOLAR para armar el resumen." });
   }
 });
 
