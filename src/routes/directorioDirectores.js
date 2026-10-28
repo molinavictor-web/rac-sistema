@@ -8,7 +8,7 @@ const ROLES_DIRECTORIO = ["admin", "operador_plantel", "operador"];
 
 const SHEETS_GESCOLAR_ID = process.env.SHEETS_GESCOLAR_ID;
 const NOMBRE_HOJA_GESCOLAR = "GESCOLAR";
-const RANGO_HOJA_GESCOLAR = `${NOMBRE_HOJA_GESCOLAR}!A:BC`; // 55 columnas (A..BC)
+const RANGO_HOJA_GESCOLAR = NOMBRE_HOJA_GESCOLAR; // hoja completa: incluye las columnas que se agreguen al final
 const DURACION_CACHE_MS = 15 * 60 * 1000; // 15 minutos
 
 // Mismo patrón de autenticación que plantelesConsulta.js -- lectura y
