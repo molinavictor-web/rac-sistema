@@ -3,6 +3,9 @@
 // Etapa 2: planilla de materiales de cada plantel (lista oficial) y consolidado del plan.
 //
 // Rutas montadas en /api/inspecciones:
+//   GET   /ingenieros                               cuentas de ingeniero activas (para asignar)
+//   PUT   /inspeccion/:id/asignaciones              asignar ingenieros a una planilla
+//   GET   /mis-planillas                            las planillas asignadas al ingeniero en sesión
 //   GET   /planes                                   lista de planes
 //   POST  /planes                                   crear plan
 //   PATCH /planes/:id                               editar nombre/descripción/estado
@@ -36,9 +39,17 @@ const gescolar = require("../services/gescolar");
 
 const router = express.Router();
 
-// Quiénes administran planes y enlazan planteles. (Más adelante se sumará
-// el rol "ingeniero" para cargar cantidades.)
-const ROLES_GESTION = ["admin", "operador_plantel"];
+// Perfiles del módulo. El middleware (middleware/auth.js) además encierra a los
+// usuarios insp_* dentro de /api/inspecciones: no pueden usar el resto del sistema.
+//   admin             todo, incluida la aprobación y unificación de adicionales
+//   insp_coordinador  arma planes, enlaza planteles, asigna ingenieros, consolidados y Excel
+//   insp_ingeniero    llena SOLO las planillas que se le asignaron
+//   insp_consulta     solo ve planes y consolidados y descarga Excel
+//   operador_plantel  igual que insp_consulta (solo lectura)
+const ROLES_GESTION = ["admin", "insp_coordinador"];                                           // planes, planteles, asignaciones
+const ROLES_ESCRIBE = ["admin", "insp_coordinador", "insp_ingeniero"];                         // guardar planillas y proponer adicionales
+const ROLES_LECTURA = ["admin", "operador_plantel", "insp_coordinador", "insp_consulta"];      // ver planes y consolidados, descargar Excel
+const ROLES_PLANILLA = [...ROLES_LECTURA, "insp_ingeniero"];                                   // abrir una planilla (el ingeniero, solo las suyas)
 const CODIGO_DEA = /^[A-Za-z0-9]{4,20}$/;
 
 function entero(valor) {
@@ -55,6 +66,24 @@ function falloInterno(res, err, mensaje) {
   return res.status(500).json({ error: mensaje });
 }
 
+// Un ingeniero solo puede abrir y editar las planillas que se le asignaron.
+// Los demás perfiles pasan (sus permisos ya los filtró requireRol).
+async function accesoInspeccion(req, res, next) {
+  if (req.usuario.rol !== "insp_ingeniero") return next();
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Inspección inválida." });
+  try {
+    const { rows } = await pool.query(
+      "SELECT 1 FROM inspeccion_asignaciones WHERE inspeccion_id = $1 AND usuario_id = $2",
+      [id, req.usuario.id]
+    );
+    if (!rows.length) return res.status(403).json({ error: "Esta planilla no está asignada a tu usuario." });
+    return next();
+  } catch (err) {
+    return falloInterno(res, err, "No se pudo verificar el acceso a la planilla.");
+  }
+}
+
 // Devuelve { existe, cerrado } para el plan.
 async function estadoDelPlan(planId) {
   const { rows } = await pool.query("SELECT estado FROM planes_atencion WHERE id = $1", [planId]);
@@ -66,7 +95,7 @@ async function estadoDelPlan(planId) {
 // Planes
 // ---------------------------------------------------------------------------
 
-router.get("/planes", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/planes", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT p.id, p.nombre, p.descripcion, p.version_catalogo, p.estado, p.creado_en,
@@ -166,7 +195,7 @@ router.patch("/planes/:id", requireAuth, requireRol(...ROLES_GESTION), async (re
   }
 });
 
-router.get("/planes/:id", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
 
@@ -186,10 +215,22 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_GESTION), async (req,
       [planId]
     );
 
+    const asignados = {};
+    if (rows.length) {
+      const asig = await pool.query(
+        `SELECT a.inspeccion_id, u.id, u.nombre
+         FROM inspeccion_asignaciones a JOIN usuarios u ON u.id = a.usuario_id
+         WHERE a.inspeccion_id = ANY($1::int[]) ORDER BY u.nombre`,
+        [rows.map((r) => r.inspeccion_id)]
+      );
+      asig.rows.forEach((a) => { (asignados[a.inspeccion_id] = asignados[a.inspeccion_id] || []).push({ id: a.id, nombre: a.nombre }); });
+    }
+
     const planteles = rows
       .map((r) => {
         const m = r.membrete || {};
         return {
+          ingenieros: asignados[r.inspeccion_id] || [],
           inspeccion_id: r.inspeccion_id,
           codigo_dea: r.codigo_dea,
           nombre_plantel: nombreEfectivo(m),
@@ -670,12 +711,14 @@ async function armarPlanilla(id) {
   };
 }
 
-router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_PLANILLA), accesoInspeccion, async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
   try {
     const planilla = await armarPlanilla(id);
     if (!planilla) return res.status(404).json({ error: "Inspección no encontrada." });
+    // La pantalla usa esto para mostrar la planilla en solo lectura a quien no puede editar.
+    planilla.permisos = { editar: ROLES_ESCRIBE.includes(req.usuario.rol) };
     res.json(planilla);
   } catch (err) {
     falloInterno(res, err, "No se pudo cargar la planilla.");
@@ -684,7 +727,7 @@ router.get("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (
 
 // Datos de cabecera: fecha, observaciones, estado e ingenieros (el primero
 // es el responsable principal).
-router.patch("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.patch("/inspeccion/:id", requireAuth, requireRol(...ROLES_ESCRIBE), accesoInspeccion, async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
   const cuerpo = req.body || {};
@@ -805,7 +848,7 @@ router.patch("/inspeccion/:id", requireAuth, requireRol(...ROLES_GESTION), async
 
 // Guarda cantidades. Recibe SOLO las que cambiaron: { cantidades: { "<id del rubro>": "0,5" | "" } }.
 // Vacío = quitar la cantidad. No se redondea nada: se guardan hasta 3 decimales.
-router.put("/inspeccion/:id/materiales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.put("/inspeccion/:id/materiales", requireAuth, requireRol(...ROLES_ESCRIBE), accesoInspeccion, async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
   const entradas = Object.entries((req.body && req.body.cantidades) || {});
@@ -914,7 +957,7 @@ function buscarDuplicado(catalogo, nombre) {
   return catalogo.find((m) => normalizarClave(m.nombre) === k || m.alias.some((a) => normalizarClave(a) === k)) || null;
 }
 
-router.get("/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/adicionales", requireAuth, requireRol(...ROLES_PLANILLA), async (req, res) => {
   try {
     const todos = req.query.todos === "1" && req.usuario.rol === "admin";
     res.json({ adicionales: await listarAdicionales({ todos }) });
@@ -923,7 +966,7 @@ router.get("/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req
   }
 });
 
-router.post("/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.post("/adicionales", requireAuth, requireRol(...ROLES_ESCRIBE), async (req, res) => {
   const cuerpo = req.body || {};
   const nombre = texto(cuerpo.nombre).replace(/\s+/g, " ");
   const unidad = texto(cuerpo.unidad).replace(/\s+/g, " ").toUpperCase();
@@ -1041,7 +1084,7 @@ router.post("/adicionales/:id/unificar", requireAuth, requireRol("admin"), async
 
 // Cantidades de adicionales de una inspección. { cantidades: { "<id>": "5" | "" }, quitar: [id, ...] }
 // "" deja el material anotado sin cantidad (no suma). "quitar" lo saca de la planilla.
-router.put("/inspeccion/:id/adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.put("/inspeccion/:id/adicionales", requireAuth, requireRol(...ROLES_ESCRIBE), accesoInspeccion, async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
   const cuerpo = req.body || {};
@@ -1160,7 +1203,7 @@ async function armarConsolidadoAdicionales(planId) {
   return { plan: plan.rows[0], planteles: columnas, materiales, pendientes: materiales.filter((m) => m.estado === "PENDIENTE").length };
 }
 
-router.get("/planes/:id/consolidado-adicionales", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/planes/:id/consolidado-adicionales", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
   try {
@@ -1240,7 +1283,7 @@ async function armarConsolidado(planId) {
   };
 }
 
-router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
 
@@ -1250,6 +1293,101 @@ router.get("/planes/:id/consolidado", requireAuth, requireRol(...ROLES_GESTION),
     res.json(consolidado);
   } catch (err) {
     falloInterno(res, err, "No se pudo calcular el consolidado.");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ingenieros y asignación de planillas
+// ---------------------------------------------------------------------------
+
+// Cuentas de ingeniero activas (para elegir a quién asignar una planilla).
+router.get("/ingenieros", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, nombre, email FROM usuarios WHERE rol = 'insp_ingeniero' AND activo = TRUE ORDER BY nombre"
+    );
+    res.json({ ingenieros: rows });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo cargar la lista de ingenieros.");
+  }
+});
+
+// Reemplaza los ingenieros asignados a una planilla. { usuarios: [id, ...] } (puede ir vacío).
+router.put("/inspeccion/:id/asignaciones", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Inspección inválida." });
+  const lista = (req.body || {}).usuarios;
+  if (!Array.isArray(lista) || lista.length > 20) return res.status(400).json({ error: "Indica la lista de ingenieros (máximo 20)." });
+  const ids = [...new Set(lista.map(entero))];
+  if (ids.some((x) => !x)) return res.status(400).json({ error: "Hay ingenieros inválidos en la lista." });
+
+  let cliente;
+  try {
+    const existe = await pool.query("SELECT 1 FROM inspecciones WHERE id = $1", [id]);
+    if (!existe.rows.length) return res.status(404).json({ error: "Inspección no encontrada." });
+    if (ids.length) {
+      const validos = await pool.query(
+        "SELECT id FROM usuarios WHERE rol = 'insp_ingeniero' AND activo = TRUE AND id = ANY($1::int[])",
+        [ids]
+      );
+      if (validos.rows.length !== ids.length) return res.status(400).json({ error: "Solo se pueden asignar cuentas de ingeniero activas." });
+    }
+    cliente = await pool.connect();
+    await cliente.query("BEGIN");
+    await cliente.query("DELETE FROM inspeccion_asignaciones WHERE inspeccion_id = $1", [id]);
+    for (const uid of ids) {
+      await cliente.query(
+        "INSERT INTO inspeccion_asignaciones (inspeccion_id, usuario_id, asignado_por) VALUES ($1, $2, $3)",
+        [id, uid, req.usuario.id]
+      );
+    }
+    await cliente.query("COMMIT");
+    res.json({ ok: true, asignados: ids.length });
+  } catch (err) {
+    if (cliente) await cliente.query("ROLLBACK").catch(() => {});
+    falloInterno(res, err, "No se pudo guardar la asignación.");
+  } finally {
+    if (cliente) cliente.release();
+  }
+});
+
+// Las planillas asignadas al ingeniero que tiene la sesión abierta.
+router.get("/mis-planillas", requireAuth, requireRol("insp_ingeniero"), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT i.id, i.codigo_dea, i.estado, i.fecha_inspeccion::text AS fecha_inspeccion, i.membrete,
+              p.id AS plan_id, p.nombre AS plan_nombre, p.estado AS plan_estado,
+              (SELECT COUNT(*) FROM inspeccion_materiales im WHERE im.inspeccion_id = i.id AND im.cantidad > 0) AS rubros_con_cantidad,
+              (SELECT COUNT(*) FROM inspeccion_adicionales ia WHERE ia.inspeccion_id = i.id AND ia.cantidad > 0) AS adicionales_con_cantidad
+       FROM inspeccion_asignaciones a
+       JOIN inspecciones i ON i.id = a.inspeccion_id
+       LEFT JOIN plan_inspecciones pi ON pi.inspeccion_id = i.id AND pi.desenlazado_en IS NULL
+       LEFT JOIN planes_atencion p ON p.id = pi.plan_id
+       WHERE a.usuario_id = $1`,
+      [req.usuario.id]
+    );
+    const planillas = rows
+      .map((r) => {
+        const d = datosEfectivos(r.membrete);
+        return {
+          inspeccion_id: r.id,
+          codigo_dea: r.codigo_dea,
+          nombre_plantel: d.institucion || r.codigo_dea,
+          municipio: d.municipio,
+          parroquia: d.parroquia,
+          estado: r.estado,
+          fecha_inspeccion: r.fecha_inspeccion,
+          plan_id: r.plan_id,
+          plan_nombre: r.plan_nombre,
+          plan_estado: r.plan_estado,
+          rubros_con_cantidad: Number(r.rubros_con_cantidad),
+          adicionales_con_cantidad: Number(r.adicionales_con_cantidad),
+        };
+      })
+      .sort((a, b) => a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
+    res.json({ planillas });
+  } catch (err) {
+    falloInterno(res, err, "No se pudieron cargar tus planillas.");
   }
 });
 
@@ -1274,7 +1412,7 @@ function enviarExcel(res, buffer, nombre) {
   res.send(Buffer.from(buffer));
 }
 
-router.get("/planes/:id/consolidado.xlsx", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/planes/:id/consolidado.xlsx", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
   try {
@@ -1287,7 +1425,7 @@ router.get("/planes/:id/consolidado.xlsx", requireAuth, requireRol(...ROLES_GEST
   }
 });
 
-router.get("/planes/:id/consolidado-adicionales.xlsx", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/planes/:id/consolidado-adicionales.xlsx", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
   try {
@@ -1300,7 +1438,7 @@ router.get("/planes/:id/consolidado-adicionales.xlsx", requireAuth, requireRol(.
   }
 });
 
-router.get("/inspeccion/:id/planilla.xlsx", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/inspeccion/:id/planilla.xlsx", requireAuth, requireRol(...ROLES_PLANILLA), accesoInspeccion, async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
   try {

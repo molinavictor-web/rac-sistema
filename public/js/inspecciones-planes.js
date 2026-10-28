@@ -6,14 +6,20 @@
 // guardada, en espera de una futura rehabilitación.
 
 const usuario = renderShell("inspecciones-planes", "Planes de atención");
-const PUEDE_GESTIONAR = Boolean(usuario) && ["admin", "operador_plantel"].includes(usuario.rol);
+// Perfiles: admin y coordinador gestionan (crear planes, enlazar planteles, asignar ingenieros).
+// El resto (consulta, operador de plantel) ve todo en solo lectura.
+const PUEDE_GESTIONAR = Boolean(usuario) && ["admin", "insp_coordinador"].includes(usuario.rol);
+let INGENIEROS = null; // cuentas de ingeniero activas (se piden al asignar)
 
 let PLANES = [];
 let PLAN_ABIERTO = null; // { plan, planteles }
 let MODO_MODAL = "crear";
 let temporizadorBusqueda = null;
 
-if (usuario) {
+if (usuario && usuario.rol === "insp_ingeniero") {
+  // El ingeniero no maneja planes: su pantalla es «Mis planillas».
+  window.location.replace("/inspecciones/mis-planillas.html");
+} else if (usuario) {
   window.addEventListener("hashchange", enrutar);
   enrutar();
 }
@@ -42,12 +48,12 @@ async function mostrarLista() {
     <div class="panel">
       <div style="padding:16px 20px 0; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
         <div id="resumenPlanes" style="color:var(--muted); font-size:.8rem;"></div>
-        <button type="button" class="btn btn-primario btn-sm" id="btnNuevoPlan">+ Nuevo plan</button>
+        ${PUEDE_GESTIONAR ? `<button type="button" class="btn btn-primario btn-sm" id="btnNuevoPlan">+ Nuevo plan</button>` : `<span style="color:var(--muted); font-size:.8rem;">Acceso de solo lectura</span>`}
       </div>
       <div id="tablaPlanes" style="margin-top:12px;"><div class="cargando">Cargando…</div></div>
     </div>
   `;
-  document.getElementById("btnNuevoPlan").addEventListener("click", () => abrirModalPlan("crear"));
+  if (PUEDE_GESTIONAR) document.getElementById("btnNuevoPlan").addEventListener("click", () => abrirModalPlan("crear"));
 
   try {
     const resp = await RAC.get("/api/inspecciones/planes");
@@ -136,14 +142,14 @@ function dibujarPlan() {
     <div class="panel" style="margin-bottom:16px;">
       <div style="padding:14px 20px; display:flex; gap:10px; flex-wrap:wrap;">
         <button type="button" class="btn btn-fantasma btn-sm" id="btnVolver">← Todos los planes</button>
-        <button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
-        <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>
+        ${PUEDE_GESTIONAR ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
+        <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>` : ""}
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
       </div>
     </div>
 
-    ${abierto ? `
+    ${abierto && PUEDE_GESTIONAR ? `
     <div class="panel" style="margin-bottom:16px;">
       <div style="padding:16px 20px 0;">
         <h3 style="margin:0 0 4px;">Agregar un plantel</h3>
@@ -162,9 +168,11 @@ function dibujarPlan() {
   `;
 
   document.getElementById("btnVolver").addEventListener("click", volverALista);
-  document.getElementById("btnEditarPlan").addEventListener("click", () => abrirModalPlan("editar"));
-  document.getElementById("btnEstadoPlan").addEventListener("click", cambiarEstadoPlan);
-  if (abierto) {
+  if (PUEDE_GESTIONAR) {
+    document.getElementById("btnEditarPlan").addEventListener("click", () => abrirModalPlan("editar"));
+    document.getElementById("btnEstadoPlan").addEventListener("click", cambiarEstadoPlan);
+  }
+  if (abierto && PUEDE_GESTIONAR) {
     const input = document.getElementById("qPlantel");
     input.addEventListener("input", () => {
       clearTimeout(temporizadorBusqueda);
@@ -184,7 +192,7 @@ function pintarPlanteles() {
 
   const cont = document.getElementById("tablaPlanteles");
   if (!planteles.length) {
-    cont.innerHTML = `<div class="vacio"><strong>Este plan todavía no tiene planteles</strong>${abierto ? "Búscalos arriba y agrégalos." : ""}</div>`;
+    cont.innerHTML = `<div class="vacio"><strong>Este plan todavía no tiene planteles</strong>${abierto && PUEDE_GESTIONAR ? "Búscalos arriba y agrégalos." : ""}</div>`;
     return;
   }
 
@@ -193,8 +201,9 @@ function pintarPlanteles() {
       <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
       <td>${escapar(p.nombre_plantel) || "—"}<br><span style="color:var(--muted); font-size:.78rem;">${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</span></td>
       <td>${p.activo ? etiqueta("En el plan", "#2f855a", "#e6f4ea") : etiqueta("Desenlazado · en espera", "#718096", "#edf2f7")}</td>
-      <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}&plan=${Number(plan.id)}">${p.activo ? "Planilla" : "Ver planilla"}</a></td>
-      <td>${abierto ? (p.activo
+      <td style="font-size:.82rem;">${ingenierosHtml(p)}</td>
+      <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}&plan=${Number(plan.id)}">${p.activo && PUEDE_GESTIONAR ? "Planilla" : "Ver planilla"}</a></td>
+      <td>${abierto && PUEDE_GESTIONAR ? (p.activo
         ? `<button type="button" class="btn btn-fantasma btn-sm" data-desenlazar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Desenlazar</button>`
         : `<button type="button" class="btn btn-fantasma btn-sm" data-reenlazar="${Number(p.inspeccion_id)}">Volver a enlazar</button>`) : ""}</td>
     </tr>
@@ -203,16 +212,78 @@ function pintarPlanteles() {
   cont.innerHTML = `
     <div class="tabla-responsive">
       <table>
-        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Materiales</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Ingenieros</th><th>Materiales</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
     </div>
   `;
+  cont.querySelectorAll("[data-asignar]").forEach((b) => {
+    b.addEventListener("click", () => abrirAsignacion(Number(b.dataset.asignar), b.dataset.nombre));
+  });
   cont.querySelectorAll("[data-desenlazar]").forEach((b) => {
     b.addEventListener("click", () => desenlazar(Number(b.dataset.desenlazar), b.dataset.nombre));
   });
   cont.querySelectorAll("[data-reenlazar]").forEach((b) => {
     b.addEventListener("click", () => reenlazar(Number(b.dataset.reenlazar)));
+  });
+}
+
+// ---- Ingenieros asignados a cada planilla ----
+
+function ingenierosHtml(p) {
+  const nombres = (p.ingenieros || []).map((i) => escapar(i.nombre));
+  const lista = nombres.length ? nombres.join("<br>") : `<span style="color:var(--muted);">Sin asignar</span>`;
+  const boton = PUEDE_GESTIONAR
+    ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-asignar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">${nombres.length ? "Cambiar" : "Asignar"}</button></div>`
+    : "";
+  return lista + boton;
+}
+
+async function abrirAsignacion(inspeccionId, nombrePlantel) {
+  try {
+    if (!INGENIEROS) INGENIEROS = (await RAC.get("/api/inspecciones/ingenieros")).ingenieros;
+  } catch (err) {
+    mostrarToast(err.message, true);
+    return;
+  }
+  const plantel = PLAN_ABIERTO.planteles.find((p) => p.inspeccion_id === inspeccionId);
+  const marcados = new Set(((plantel && plantel.ingenieros) || []).map((i) => i.id));
+  const fondo = document.createElement("div");
+  fondo.className = "modal-fondo visible";
+  const filas = INGENIEROS.length
+    ? INGENIEROS.map((g) => `
+        <label style="display:flex; gap:10px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--borde); cursor:pointer;">
+          <input type="checkbox" value="${Number(g.id)}" ${marcados.has(g.id) ? "checked" : ""}>
+          <span>${escapar(g.nombre)}<br><small style="color:var(--muted);">${escapar(g.email)}</small></span>
+        </label>`).join("")
+    : `<div class="vacio"><strong>Todavía no hay ingenieros</strong>El administrador debe crear las cuentas (rol «Inspecciones · Ingeniero») en Usuarios.</div>`;
+  fondo.innerHTML = `
+    <div class="modal" style="max-width:460px;">
+      <h2 style="margin-bottom:4px;">Asignar ingenieros</h2>
+      <p style="margin:0 0 12px; color:var(--muted); font-size:.85rem;">${escapar(nombrePlantel)}<br>Solo los ingenieros marcados podrán abrir y llenar esta planilla.</p>
+      <div style="max-height:320px; overflow:auto;">${filas}</div>
+      <div class="error-msg" id="errorAsignar"></div>
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button type="button" class="btn btn-primario" id="btnGuardarAsignar" ${INGENIEROS.length ? "" : "disabled"}>Guardar</button>
+        <button type="button" class="btn btn-fantasma" id="btnCancelarAsignar">Cancelar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(fondo);
+  const cerrar = () => fondo.remove();
+  fondo.querySelector("#btnCancelarAsignar").addEventListener("click", cerrar);
+  fondo.addEventListener("click", (e) => { if (e.target === fondo) cerrar(); });
+  fondo.querySelector("#btnGuardarAsignar").addEventListener("click", async () => {
+    const ids = Array.from(fondo.querySelectorAll("input[type=checkbox]:checked")).map((c) => Number(c.value));
+    try {
+      await RAC.put(`/api/inspecciones/inspeccion/${inspeccionId}/asignaciones`, { usuarios: ids });
+      mostrarToast(ids.length ? "Asignación guardada." : "Planilla sin ingenieros asignados.");
+      cerrar();
+      await recargarPlan();
+    } catch (err) {
+      const e = fondo.querySelector("#errorAsignar");
+      e.textContent = err.message;
+      e.classList.add("visible");
+    }
   });
 }
 

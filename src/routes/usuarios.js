@@ -7,7 +7,9 @@ const router = express.Router();
 
 // "supervision" = usuarios del grupo de Supervisión: entran solo al panel
 // /supervision (el resto del sistema RAC les queda cerrado).
-const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "operador_plantel", "supervision", "admin"];
+// "insp_coordinador", "insp_ingeniero" e "insp_consulta" = usuarios del módulo
+// Inspecciones: entran solo a /inspecciones (el resto del sistema les queda cerrado).
+const ROLES_VALIDOS = ["encargado_municipio", "operador", "operador_credenciales", "operador_plantel", "supervision", "insp_coordinador", "insp_ingeniero", "insp_consulta", "admin"];
 
 // Crear un usuario nuevo (solo admin)
 router.post("/", requireAuth, requireRol("admin"), async (req, res) => {

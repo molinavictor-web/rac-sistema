@@ -10,8 +10,21 @@ const RAC = (() => {
   // acceso aparte (/supervision/login.html) -- si la sesión expira o
   // no existe, hay que devolver al usuario al login correcto según en
   // qué sección del sitio esté, no siempre al /login.html principal.
+  // El módulo Inspecciones también tiene su propia entrada (/inspecciones/login.html):
+  // se vuelve a ella si el usuario es de ese módulo o entró por ese portal.
+  const ROLES_INSPECCIONES = ["insp_coordinador", "insp_ingeniero", "insp_consulta"];
+  const PORTAL_KEY = "rac_portal";
+
   function loginUrl() {
-    return window.location.pathname.startsWith("/supervision/") ? "/supervision/login.html" : "/login.html";
+    const ruta = window.location.pathname;
+    if (ruta.startsWith("/supervision/")) return "/supervision/login.html";
+    if (ruta.startsWith("/inspecciones/")) {
+      let portal = null;
+      try { portal = sessionStorage.getItem(PORTAL_KEY); } catch (_) { /* sin almacenamiento */ }
+      const u = getUsuario();
+      if (portal === "inspecciones" || (u && ROLES_INSPECCIONES.includes(u.rol))) return "/inspecciones/login.html";
+    }
+    return "/login.html";
   }
 
   function getToken() {
@@ -29,9 +42,11 @@ const RAC = (() => {
   }
 
   function cerrarSesion() {
+    const destino = loginUrl(); // se calcula antes de borrar la sesión
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(USUARIO_KEY);
-    window.location.href = loginUrl();
+    try { sessionStorage.removeItem(PORTAL_KEY); } catch (_) { /* nada */ }
+    window.location.href = destino;
   }
 
   function exigirSesion() {

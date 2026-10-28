@@ -13,6 +13,14 @@ function renderShell(paginaActiva, tituloTopbar) {
     return null;
   }
 
+  // Usuarios del módulo Inspecciones (roles 'insp_*') solo pueden estar en las
+  // pantallas de /inspecciones/. El backend también lo bloquea (middleware/auth.js).
+  const ROLES_SOLO_INSPECCIONES = ["insp_coordinador", "insp_ingeniero", "insp_consulta"];
+  if (ROLES_SOLO_INSPECCIONES.includes(usuario.rol) && !window.location.pathname.startsWith("/inspecciones/")) {
+    window.location.replace(usuario.rol === "insp_ingeniero" ? "/inspecciones/mis-planillas.html" : "/inspecciones/planes.html");
+    return null;
+  }
+
   const ROLES_RAC = ["admin", "operador", "encargado_municipio", "operador_credenciales", "operador_plantel"];
 
   const grupos = [
@@ -49,7 +57,8 @@ function renderShell(paginaActiva, tituloTopbar) {
       { id: "supervision-mi-plantel", href: "/supervision/mi-plantel.html", label: "Mi plantel", roles: ["director"] },
     ]},
     { id: "inspecciones-grupo", titulo: "Inspecciones", enlaces: [
-      { id: "inspecciones-planes", href: "/inspecciones/planes.html", label: "Planes de atención", roles: ["admin", "operador_plantel"] },
+      { id: "inspecciones-planes", href: "/inspecciones/planes.html", label: "Planes de atención", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta"] },
+      { id: "inspecciones-mis-planillas", href: "/inspecciones/mis-planillas.html", label: "Mis planillas", roles: ["insp_ingeniero"] },
       { id: "inspecciones-catalogo-adicionales", href: "/inspecciones/adicionales-catalogo.html", label: "Catálogo de adicionales", roles: ["admin"] },
     ]},
     { id: "administracion", titulo: "Administración", enlaces: [
@@ -64,8 +73,19 @@ function renderShell(paginaActiva, tituloTopbar) {
     operador_credenciales: "Operador de credenciales",
     operador_plantel: "Operador de plantel",
     supervision: "Supervisión",
+    insp_coordinador: "Inspecciones · Coordinador",
+    insp_ingeniero: "Inspecciones · Ingeniero",
+    insp_consulta: "Inspecciones · Consulta",
     director: "Director de plantel",
   }[usuario.rol] || usuario.rol;
+
+  // Rótulos de la barra lateral: dentro de /inspecciones/ se muestra la marca del módulo.
+  const sidInspecciones = window.location.pathname.startsWith("/inspecciones/");
+  const marcaNombre = sidSupervision ? "SID · Supervisión" : sidInspecciones ? "SID · Inspecciones" : "RAC · Sistema";
+  const marcaSub = sidSupervision ? "SID-Educación · Monagas" : sidInspecciones ? "Planes y listados de materiales" : "Registro de Asignación de Cargos";
+  const marcaTira = sidSupervision ? "SID · SUPERVISIÓN" : sidInspecciones ? "SID · INSPECCIONES" : "Monagas · Educación";
+  const marcaTitulo = sidSupervision ? "Supervisión Educativa" : sidInspecciones ? "Inspecciones y rehabilitación" : "Gestión educativa";
+  const marcaMigas = sidSupervision ? "SID-EDUCACIÓN · SUPERVISIÓN" : sidInspecciones ? "SID-EDUCACIÓN · INSPECCIONES" : "MONAGAS · EDUCACIÓN";
 
   const iconos = {
     dashboard: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h7V3H3v10Zm11 8h7V3h-7v18ZM3 21h7v-4H3v4Zm11 0h7v-4h-7v4Z"/></svg>`,
@@ -89,6 +109,9 @@ function renderShell(paginaActiva, tituloTopbar) {
     "supervision-circuitales": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5 3"/></svg>`,
     "supervision-circuitos": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.5 6h7M7.3 8.2l3.5 7.6M16.7 8.2l-3.5 7.6"/></svg>`,
     "supervision-directores": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
+    "inspecciones-planes": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>`,
+    "inspecciones-mis-planillas": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 13l2 2 4-4"/></svg>`,
+    "inspecciones-catalogo-adicionales": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2.5"/></svg>`,
     "supervision-mi-plantel": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/></svg>`,
     usuarios: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3"/><path d="M5 20c1.3-4 3.6-6 7-6s5.7 2 7 6"/></svg>`,
   };
@@ -122,17 +145,17 @@ function renderShell(paginaActiva, tituloTopbar) {
         <div class="sidebar-mobile-head">
           <div class="sidebar-mobile-head-brand">
             <div class="sidebar-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7"/></svg></div>
-            <div><strong>${sidSupervision ? "SID · Educación" : "RAC · Sistema"}</strong><span>${sidSupervision ? "Sistema Integrado Digital" : "Registro de Asignación de Cargos"}</span></div>
+            <div><strong>${sidSupervision || sidInspecciones ? "SID · Educación" : "RAC · Sistema"}</strong><span>${sidSupervision || sidInspecciones ? "Sistema Integrado Digital" : "Registro de Asignación de Cargos"}</span></div>
           </div>
           <button type="button" class="sidebar-mobile-close" id="btnCerrarMenuMovil" aria-label="Cerrar menú">×</button>
         </div>
         <div class="sidebar-brand">
           ${sidSupervision ? `<div class="sid-tech-logo" aria-label="SID"><span class="sid-tech-glyph" aria-hidden="true">◈</span><strong>SID</strong></div>` : ""}
           <div class="sidebar-brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8 7h8M8 10h7"/></svg></div>
-          <div class="sidebar-brand-text"><strong>${sidSupervision ? "SID · Supervisión" : "RAC · Sistema"}</strong><span>${sidSupervision ? "SID-Educación · Monagas" : "Registro de Asignación de Cargos"}</span></div>
+          <div class="sidebar-brand-text"><strong>${marcaNombre}</strong><span>${marcaSub}</span></div>
         </div>
-        <div class="sidebar-marca">${sidSupervision ? "SID · SUPERVISIÓN" : "Monagas · Educación"}</div>
-        <div class="sidebar-titulo">${sidSupervision ? "Supervisión Educativa" : "Gestión educativa"}</div>
+        <div class="sidebar-marca">${marcaTira}</div>
+        <div class="sidebar-titulo">${marcaTitulo}</div>
         <nav>${navHtml}</nav>
         <div class="sidebar-pie">
           <div class="usuario-chip">
@@ -144,7 +167,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       </aside>
       <div class="main-col">
         <header class="topbar">
-          <div class="topbar-title"><div><div class="crumb">${sidSupervision ? "SID-EDUCACIÓN · SUPERVISIÓN" : "MONAGAS · EDUCACIÓN"}</div><div class="title">${tituloTopbar}</div></div></div>
+          <div class="topbar-title"><div><div class="crumb">${marcaMigas}</div><div class="title">${tituloTopbar}</div></div></div>
           ${sidSupervision ? `<div class="sid-tech-topbar-identity" aria-label="SID-Educación"><strong>EDUCACIÓN</strong><span>Sistema Integrado Digital</span></div>` : ""}
           <div class="topbar-user" aria-label="Sesión activa">
             <div class="topbar-user-avatar">${(usuario.nombre || "U").charAt(0).toUpperCase()}</div>

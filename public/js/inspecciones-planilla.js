@@ -39,6 +39,8 @@ let CATALOGO = [];        // catálogo de materiales adicionales (para el autoco
 let ADIC_BASE = {};       // id de adicional -> cantidad guardada (número o null)
 let ADIC = [];            // filas de adicionales que hay en pantalla: {id, nombre, unidad, estado, texto}
 let SOLO_LECTURA = false;
+let SIN_PERMISO = false;   // el perfil del usuario no permite editar (consulta, operador de plantel)
+const ES_INGENIERO = Boolean(usuario) && usuario.rol === "insp_ingeniero";
 let temporizadorBorrador = null;
 let guardando = false;
 
@@ -78,17 +80,18 @@ async function cargar() {
     datos: Object.fromEntries(CLAVES_EDITABLES.map((k) => [k, String((i.datos_plantel || {})[k] || "").trim()])),
   };
   GESCOLAR = i.datos_gescolar || {};
-  SOLO_LECTURA = i.planes.some((p) => p.estado === "CERRADO");
+  SIN_PERMISO = Boolean(DATA.permisos) && DATA.permisos.editar === false;
+  SOLO_LECTURA = SIN_PERMISO || i.planes.some((p) => p.estado === "CERRADO");
   dibujar();
   recuperarBorrador();
   actualizarBarra();
 }
 
 function mostrarError(mensaje) {
-  const volver = PLAN_VOLVER ? `/inspecciones/planes.html#plan-${PLAN_VOLVER}` : "/inspecciones/planes.html";
+  const volver = ES_INGENIERO ? "/inspecciones/mis-planillas.html" : PLAN_VOLVER ? `/inspecciones/planes.html#plan-${PLAN_VOLVER}` : "/inspecciones/planes.html";
   document.getElementById("contenido").innerHTML = `
     <div class="panel"><div class="vacio"><strong>No se pudo abrir la planilla</strong>${escapar(mensaje)}<br><br>
-    <a class="btn btn-fantasma btn-sm" href="${volver}">← Volver a los planes</a></div></div>`;
+    <a class="btn btn-fantasma btn-sm" href="${volver}">${ES_INGENIERO ? "← Mis planillas" : "← Volver a los planes"}</a></div></div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +104,7 @@ function dibujar() {
   const nombre = (i.datos_plantel && i.datos_plantel.institucion) || m.nombre_plantel || i.codigo_dea;
   const planes = i.planes.map((p) => p.nombre);
   const planId = PLAN_VOLVER || (i.planes[0] && i.planes[0].id) || null;
-  const volver = planId ? `/inspecciones/planes.html#plan-${planId}` : "/inspecciones/planes.html";
+  const volver = ES_INGENIERO ? "/inspecciones/mis-planillas.html" : planId ? `/inspecciones/planes.html#plan-${planId}` : "/inspecciones/planes.html";
   const lugar = [CAB_BASE.datos.municipio, CAB_BASE.datos.parroquia].filter(Boolean).join(" · ");
 
   const filasIng = [];
@@ -154,7 +157,9 @@ function dibujar() {
     </section>
 
     <div class="pl-aviso alerta ${SOLO_LECTURA ? "visible" : ""}" id="avisoCerrado">
-      <span>El plan de este plantel está <strong>cerrado</strong>: puedes ver la planilla pero no modificarla. Reabre el plan para editar.</span>
+      <span>${SIN_PERMISO
+        ? "Tu perfil tiene acceso de <strong>solo lectura</strong>: puedes ver la planilla y descargar el Excel, pero no modificarla."
+        : "El plan de este plantel está <strong>cerrado</strong>: puedes ver la planilla pero no modificarla. Reabre el plan para editar."}</span>
     </div>
     <div class="pl-aviso info" id="avisoBorrador">
       <span id="textoBorrador"></span>
@@ -163,8 +168,8 @@ function dibujar() {
 
     <div class="panel" style="margin-bottom:16px;">
       <div style="padding:14px 20px 0; display:flex; gap:10px; flex-wrap:wrap;">
-        <a class="btn btn-fantasma btn-sm" href="${volver}">← Volver al plan</a>
-        ${planId ? `<a class="btn btn-fantasma btn-sm" href="/inspecciones/consolidado.html?plan=${planId}">Ver consolidado del plan</a>` : ""}
+        <a class="btn btn-fantasma btn-sm" href="${volver}">${ES_INGENIERO ? "← Mis planillas" : "← Volver al plan"}</a>
+        ${planId && !ES_INGENIERO ? `<a class="btn btn-fantasma btn-sm" href="/inspecciones/consolidado.html?plan=${planId}">Ver consolidado del plan</a>` : ""}
         <button type="button" class="btn btn-fantasma btn-sm" id="btnExcelPlanilla">Descargar Excel</button>
       </div>
       <div class="pl-datos-titulo">
@@ -406,7 +411,7 @@ function actualizarBarra() {
   const nAdic = adicCambios().total;
   const nCab = cabeceraCambio();
   barra.className = "estado";
-  if (SOLO_LECTURA) { barra.textContent = "Solo lectura (plan cerrado)."; return; }
+  if (SOLO_LECTURA) { barra.textContent = SIN_PERMISO ? "Solo lectura." : "Solo lectura (plan cerrado)."; return; }
   if (hayInvalidos()) {
     barra.classList.add("malo");
     barra.textContent = "Hay cantidades con formato inválido (marcadas en rojo). Usa números positivos con hasta 3 decimales.";
