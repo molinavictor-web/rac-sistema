@@ -92,9 +92,10 @@ async function leerEdificios() {
       nombre: (m.codigo_dea && nombres.get(m.codigo_dea.toLowerCase())) || m.nombre || "",
     }));
     lista.sort((a, b) => (a.codigo_dea === infra ? -1 : b.codigo_dea === infra ? 1 : a.nombre.localeCompare(b.nombre, "es")));
-    resultado.push({ codigo_infraestructura: infra, cantidad: lista.length, miembros: lista });
+    const enGescolar = lista.filter((m) => m.codigo_dea && nombres.has(m.codigo_dea.toLowerCase())).length;
+    resultado.push({ codigo_infraestructura: infra, cantidad: lista.length, miembros: lista, en_gescolar: enGescolar });
   });
-  return { edificios: resultado, hoja_ok: hojaOk };
+  return { edificios: resultado, hoja_ok: hojaOk, total_gescolar: nombres.size };
 }
 
 function edificioDe(edificios, codigoDea) {
@@ -410,7 +411,7 @@ router.delete("/visitas/:id", requireAuth, requireRol(...ROLES_ESCRIBE), cargarV
 
 router.get("/edificios", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   try {
-    const { edificios, hoja_ok } = await leerEdificios();
+    const { edificios, hoja_ok, total_gescolar } = await leerEdificios();
     const todos = req.query.todos === "1";
     const lista = edificios
       .filter((e) => todos || e.cantidad >= 2)
@@ -418,6 +419,13 @@ router.get("/edificios", requireAuth, requireRol(...ROLES_LECTURA), async (req, 
     res.json({
       edificios: lista,
       total_edificios: edificios.length,
+      // Resumen general: cada plantel de GESCOLAR es un nombre; los que comparten edificio se cuentan como UNA infraestructura.
+      resumen: {
+        nombres_planteles: total_gescolar,
+        edificios_compartidos: edificios.filter((e) => e.cantidad >= 2).length,
+        nombres_en_compartidos: edificios.filter((e) => e.cantidad >= 2).reduce((x, e) => x + e.cantidad, 0),
+        infraestructuras: total_gescolar ? total_gescolar - edificios.reduce((x, e) => x + Math.max(0, e.en_gescolar - 1), 0) : null,
+      },
       compartidos: edificios.filter((e) => e.cantidad >= 2).length,
       instituciones_en_compartidos: edificios.filter((e) => e.cantidad >= 2).reduce((s, e) => s + e.cantidad, 0),
       hoja_ok,

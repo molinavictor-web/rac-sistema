@@ -21,10 +21,15 @@ async function cargar() {
   try {
     const r = await RAC.get("/api/inspecciones/instrumento-uno/edificios");
     const lista = r.edificios;
+    const res = r.resumen;
     document.getElementById("edif").innerHTML = `
-      <div class="iu-tarjetas">
-        <div class="stat-card"><div class="num">${n(r.compartidos)}</div><div class="lbl">Edificios compartidos</div></div>
-        <div class="stat-card"><div class="num">${n(r.instituciones_en_compartidos)}</div><div class="lbl">Nombres de institución en ellos</div></div>
+      <div class="panel" style="padding:16px 20px;">
+        <h3 style="margin:0 0 10px; font-family:var(--display); font-size:1rem;">Datos generales</h3>
+        <div class="iu-tarjetas" style="margin:0;">
+          <div class="stat-card"><div class="num">${n(res.nombres_planteles)}</div><div class="lbl">Nombres de planteles (GESCOLAR)</div></div>
+          <div class="stat-card"><div class="num">${n(res.edificios_compartidos)}</div><div class="lbl">Edificios compartidos</div><div class="lbl" style="margin-top:2px;">${n(res.nombres_en_compartidos)} nombres en ellos</div></div>
+          <div class="stat-card"><div class="num">${res.infraestructuras === null ? "—" : n(res.infraestructuras)}</div><div class="lbl">Infraestructuras (edificios)</div><div class="lbl" style="margin-top:2px;">baja a medida que se cargan planteles compartidos</div></div>
+        </div>
       </div>
       ${r.hoja_ok ? "" : `<div class="iu-aviso" style="margin:0 0 12px; padding:9px 12px; border-radius:9px; background:#fff8e1; border:1px solid #f2c94c; font-size:.84rem;">No se pudo leer la hoja «Coordenadas Planteles»; se muestran solo los edificios registrados en el instrumento.</div>`}
       <div class="panel" style="padding:12px 20px;"><input type="text" id="filtro" placeholder="Buscar por código o nombre" style="padding:9px 12px; border:1px solid #c7d2e0; border-radius:9px; min-width:240px;"></div>
