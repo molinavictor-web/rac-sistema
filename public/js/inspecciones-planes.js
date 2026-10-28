@@ -143,7 +143,7 @@ function dibujarPlan() {
         <button type="button" class="btn btn-fantasma btn-sm" id="btnVolver">← Todos los planes</button>
         ${PUEDE_GESTIONAR ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>` : ""}
-        ${usuario && usuario.rol === "admin" ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnRegistrarGescolar" title="Escribe el nombre del plan en la columna PLAN REHABILITACION de GESCOLAR">Registrar plan en GESCOLAR</button>` : ""}
+        ${usuario && usuario.rol === "admin" ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnRegistrarGescolar" title="Escribe el nombre del plan en la columna propia del plan en GESCOLAR («PLAN <nombre>»)">Registrar plan en GESCOLAR</button>` : ""}
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
       </div>
@@ -230,7 +230,7 @@ function pintarPlanteles() {
   });
 }
 
-// ---- Registrar el plan en GESCOLAR (columna PLAN REHABILITACION) ----
+// ---- Registrar el plan en GESCOLAR (su propia columna «PLAN <nombre>») ----
 // Solo administrador. Muestra qué se escribiría en cada plantel y pide confirmar. La columna TIPO ATENCION
 // (historial de la atención anterior) nunca se modifica; se muestra solo como referencia.
 async function abrirRegistroGescolar(plan) {
@@ -256,7 +256,7 @@ async function abrirRegistroGescolar(plan) {
       <h2 style="margin-bottom:4px;">Registrar plan en GESCOLAR</h2>
       <p style="margin:0 0 10px; color:var(--muted); font-size:.85rem;">Se escribirá <strong>«${escapar(vista.valor)}»</strong> en la columna <strong>${escapar(vista.columna)}</strong>, solo en estos ${vista.planteles.length} planteles del plan.${vista.columna_existe ? "" : ` <strong>Esa columna todavía no existe: se creará al final de la hoja.</strong>`}</p>
       <div style="margin-bottom:10px; padding:8px 10px; border-radius:8px; background:#eef6ff; border:1px solid #b6d4f5; font-size:.8rem;">
-        La columna <strong>TIPO ATENCION</strong> no se modifica: conserva la atención anterior de cada plantel como dato histórico${conHistorial.length ? ` (${conHistorial.length} de estos planteles ya tienen un valor)` : ""}.
+        La columna <strong>TIPO ATENCION</strong> no se modifica: conserva la atención anterior de cada plantel como dato histórico${conHistorial.length ? ` (${conHistorial.length} de estos planteles ya tienen un valor)` : ""}. Cada plan tiene su propia columna, así que los otros planes tampoco se tocan, y los planteles que ya tienen valor en esta columna se respetan.
       </div>
       <div class="tabla-responsive" style="max-height:340px; overflow:auto;">
         <table>
@@ -485,13 +485,13 @@ async function agregarPlantel(codigo, qActual) {
 
 async function desenlazar(inspeccionId, nombre) {
   const seguro = window.confirm(
-    `¿Desenlazar «${nombre}» de este plan?\n\nNo se borra nada: sus cantidades quedan guardadas, en espera de una futura rehabilitación.\n\nSi el plantel tiene este plan escrito en la columna PLAN REHABILITACION de GESCOLAR, se quitará de ahí también (TIPO ATENCION no se toca).`
+    `¿Desenlazar «${nombre}» de este plan?\n\nNo se borra nada: sus cantidades quedan guardadas, en espera de una futura rehabilitación.\n\nSi el plantel tiene este plan escrito en su columna de GESCOLAR («PLAN <nombre del plan>»), se quitará de ahí también (TIPO ATENCION y los otros planes no se tocan).`
   );
   if (!seguro) return;
   try {
     const r = await RAC.post(`/api/inspecciones/planes/${PLAN_ABIERTO.plan.id}/planteles/${inspeccionId}/desenlazar`, {});
     mostrarToast(r && r.gescolar === "limpiado"
-      ? "Plantel desenlazado y quitado de PLAN REHABILITACION en GESCOLAR. Su inspección quedó en espera."
+      ? "Plantel desenlazado y quitado de la columna del plan en GESCOLAR. Su inspección quedó en espera."
       : "Plantel desenlazado. Su inspección quedó en espera.");
     await recargarPlan();
     const q = document.getElementById("qPlantel");

@@ -4,8 +4,8 @@
 //
 // Rutas montadas en /api/inspecciones:
 //   GET   /ingenieros                               cuentas de ingeniero activas (para asignar)
-//   GET   /planes/:id/registro-gescolar             vista previa: qué se escribiría en PLAN REHABILITACION de GESCOLAR (solo admin)
-//   POST  /planes/:id/registro-gescolar             escribe el nombre del plan en PLAN REHABILITACION de sus planteles activos (solo admin)
+//   GET   /planes/:id/registro-gescolar             vista previa: qué se escribiría en la columna «PLAN <nombre>» de GESCOLAR (solo admin)
+//   POST  /planes/:id/registro-gescolar             escribe el nombre del plan en su columna «PLAN <nombre>» de GESCOLAR, en sus planteles activos (solo admin)
 //   GET   /responsables                             ingenieros que ya figuran como RESPONSABLE en GESCOLAR (con su conteo)
 //   PUT   /inspeccion/:id/asignaciones              asignar a una planilla: responsable (se escribe en GESCOLAR) y/o cuentas con acceso
 //   GET   /dashboard                                cifras de la pantalla principal (atendidos, con inspección, por tipo y municipio)
@@ -453,8 +453,8 @@ router.post("/planes/:id/planteles", requireAuth, requireRol(...ROLES_GESTION), 
 });
 
 // Desenlaza el plantel del plan. No borra nada: la inspección y sus cantidades quedan en la base
-// de datos, en espera. Además quita el nombre del plan de la columna PLAN REHABILITACION de GESCOLAR
-// (solo si esa celda tiene justo el nombre de este plan; TIPO ATENCION no se toca). Si GESCOLAR no
+// de datos, en espera. Además quita al plantel de la columna «PLAN <nombre>» de GESCOLAR
+// (solo la celda de la columna «PLAN <nombre>» de este plan; TIPO ATENCION y los otros planes no se tocan). Si GESCOLAR no
 // responde, NO se desenlaza (para que la hoja y el sistema no queden distintos): se puede reintentar.
 router.post("/planes/:id/planteles/:inspeccionId/desenlazar", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const planId = entero(req.params.id);
@@ -477,12 +477,12 @@ router.post("/planes/:id/planteles/:inspeccionId/desenlazar", requireAuth, requi
 
     let gs;
     try {
-      gs = await gescolar.limpiarPlanSiCoincide(codigo, nombrePlan);
+      gs = await gescolar.quitarPlanDePlantel(codigo, nombrePlan);
     } catch (err) {
-      console.error("No se pudo actualizar PLAN REHABILITACION en GESCOLAR al desenlazar:", err.message);
+      console.error("No se pudo actualizar la columna del plan en GESCOLAR al desenlazar:", err.message);
       return res.status(502).json({ error: "No se pudo actualizar GESCOLAR (Google Sheets no respondió). El plantel NO se desenlazó; intenta de nuevo en un momento." });
     }
-    if (gs.estado === "limpiado") console.log(`PLAN REHABILITACION de GESCOLAR: ${codigo} "${gs.anterior}" → (vacío) por desenlazar (usuario ${req.usuario.id}).`);
+    if (gs.estado === "limpiado") console.log(`${gs.columna} de GESCOLAR: ${codigo} "${gs.anterior}" → (vacío) por desenlazar (usuario ${req.usuario.id}).`);
 
     const { rows } = await pool.query(
       `UPDATE plan_inspecciones
@@ -1349,12 +1349,13 @@ router.get("/ingenieros", requireAuth, requireRol(...ROLES_GESTION), async (req,
   }
 });
 
-// ---- Registrar el plan en GESCOLAR (columna PLAN REHABILITACION) ----
-// Escribe el NOMBRE del plan (p. ej. «PRE 2026-2027») en la columna PLAN REHABILITACION de los planteles
-// que están activos en el plan, y solo de esos. La columna TIPO ATENCION NO se toca: es el historial de la
-// atención anterior (GOTA DE AMOR, ATENCION INTEGRAL…) y es un dato estadístico. Si PLAN REHABILITACION no
-// existe todavía en la hoja, se crea al final. Es una operación sobre datos oficiales, por eso solo el
-// administrador; la vista previa lo muestra todo antes de confirmar.
+// ---- Registrar el plan en GESCOLAR (columna «PLAN <nombre>») ----
+// Cada plan tiene su PROPIA columna en GESCOLAR («PLAN PRE 2026-2027», «PLAN BRICOMILES 2026»…) y en ella
+// los planteles activos del plan llevan el nombre del plan, y solo esos. Así un plantel puede estar en varios
+// planes sin que uno pise al otro. La columna TIPO ATENCION NO se toca: es el historial de la atención anterior
+// (GOTA DE AMOR, ATENCION INTEGRAL…) y es un dato estadístico. Si la columna del plan no existe todavía, se crea
+// al final. Es una operación sobre datos oficiales, por eso solo el administrador; la vista previa lo muestra
+// todo antes de confirmar.
 async function plantelesActivosDelPlan(planId) {
   const plan = await pool.query("SELECT id, nombre FROM planes_atencion WHERE id = $1", [planId]);
   if (!plan.rows.length) return null;
@@ -1375,22 +1376,23 @@ router.get("/planes/:id/registro-gescolar", requireAuth, requireRol("admin"), as
     const info = await plantelesActivosDelPlan(planId);
     if (!info) return res.status(404).json({ error: "Plan no encontrado." });
     const valor = limpiarTexto(info.plan.nombre);
+    const columna = gescolar.nombreColumnaPlan(valor);
     const datos = await gescolar.cargarGescolar(true);
-    const columnaExiste = datos.length > 0 && Object.prototype.hasOwnProperty.call(datos[0], gescolar.CAMPO_PLAN);
+    const encabezadoReal = datos.length ? Object.keys(datos[0]).find((h) => gescolar.normalizar(h) === gescolar.normalizar(columna)) : undefined;
     const porCodigo = new Map(datos.map((p) => [limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase(), p]));
     const planteles = info.planteles.map((r) => {
       const fila = porCodigo.get(String(r.codigo_dea || "").trim().toLowerCase());
-      const actual = fila ? limpiarTexto(fila[gescolar.CAMPO_PLAN]) : null;
+      const actual = fila && encabezadoReal ? limpiarTexto(fila[encabezadoReal]) : "";
       return {
         codigo_dea: r.codigo_dea,
         nombre_plantel: nombreEfectivo(r.membrete || {}),
         en_gescolar: Boolean(fila),
         tipo_atencion: fila ? limpiarTexto(fila[gescolar.CAMPO_TIPO_ATENCION]) : null, // historial, solo informativo
-        actual,                                                                          // lo que hay hoy en PLAN REHABILITACION
-        cambia: Boolean(fila) && actual !== valor,
+        actual,                                                                          // lo que hay hoy en la columna del plan
+        cambia: Boolean(fila) && !gescolar.tieneMarcaPlan(actual),                       // si ya tiene valor, no se toca
       };
     });
-    res.json({ valor, columna: gescolar.CAMPO_PLAN, columna_existe: columnaExiste, planteles });
+    res.json({ valor, columna: encabezadoReal || columna, columna_existe: Boolean(encabezadoReal), planteles });
   } catch (err) {
     falloInterno(res, err, "No se pudo preparar la vista previa de GESCOLAR.");
   }
@@ -1406,22 +1408,32 @@ router.post("/planes/:id/registro-gescolar", requireAuth, requireRol("admin"), a
     const valor = limpiarTexto(info.plan.nombre);
     if (!valor || valor.length > 80 || /^[=+\-@]/.test(valor)) return res.status(400).json({ error: "El nombre del plan no es válido para escribirlo en GESCOLAR." });
     if (!info.planteles.length) return res.status(400).json({ error: "El plan no tiene planteles activos." });
+    const columna = gescolar.nombreColumnaPlan(valor);
     let resultado;
     try {
-      resultado = await gescolar.escribirCampoLote(
-        gescolar.CAMPO_PLAN,
-        info.planteles.map((r) => ({ codigo: r.codigo_dea, valor }))
-      );
+      // Solo se escriben los planteles que todavía no tienen valor en la columna (los que ya lo tienen se respetan).
+      const datos = await gescolar.cargarGescolar(true);
+      const encabezadoReal = datos.length ? Object.keys(datos[0]).find((h) => gescolar.normalizar(h) === gescolar.normalizar(columna)) : undefined;
+      const porCodigo = new Map(datos.map((p) => [limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase(), p]));
+      const pendientes = info.planteles.filter((r) => {
+        const fila = porCodigo.get(String(r.codigo_dea || "").trim().toLowerCase());
+        if (!fila) return true; // no está en GESCOLAR: sale como «no encontrado»
+        return !(encabezadoReal && gescolar.tieneMarcaPlan(fila[encabezadoReal]));
+      });
+      resultado = pendientes.length
+        ? await gescolar.escribirCampoLote(columna, pendientes.map((r) => ({ codigo: r.codigo_dea, valor })))
+        : { escritos: [], no_encontrados: [], columna_creada: false };
     } catch (err) {
-      console.error("Error escribiendo PLAN REHABILITACION en GESCOLAR:", err);
+      console.error("Error escribiendo la columna del plan en GESCOLAR:", err);
       return res.status(502).json({ error: "No se pudo escribir en GESCOLAR. Verifica que la hoja esté compartida como Editor con la cuenta de servicio." });
     }
-    console.log(`PLAN REHABILITACION de GESCOLAR actualizado por usuario ${req.usuario.id} con «${valor}»` +
+    console.log(`${columna} de GESCOLAR actualizado por usuario ${req.usuario.id} con «${valor}»` +
       `${resultado.columna_creada ? " (columna creada)" : ""}:`,
       JSON.stringify(resultado.escritos.filter((e) => e.anterior !== e.valor)));
     res.json({
       ok: true,
       valor,
+      columna,
       columna_creada: resultado.columna_creada,
       escritos: resultado.escritos.length,
       con_cambio: resultado.escritos.filter((e) => e.anterior !== e.valor).length,
@@ -1585,7 +1597,7 @@ router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), as
 });
 
 // Pantalla principal: cifras de todo GESCOLAR (atendidos, con inspección) y del módulo.
-//  - Atendido  = tiene TIPO ATENCION (GOTA DE AMOR, ATENCION INTEGRAL, BRICOMILES…) o PLAN REHABILITACION.
+//  - Atendido  = tiene TIPO ATENCION (GOTA DE AMOR, ATENCION INTEGRAL, BRICOMILES…) o valor en alguna columna «PLAN <nombre>».
 //  - Con inspección = tiene un RESPONSABLE válido en GESCOLAR (ni vacío ni #N/A).
 const SIN_VALOR = /^(#?N\/?A|#REF!?|#VALUE!?|-+|\.+|NO|SI|NINGUNO|SIN .*)$/i;
 function valorUtil(v) {
@@ -1609,21 +1621,21 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
     const total = datos.length;
     let atendidos = 0, conInspeccion = 0, atendidosConInspeccion = 0;
     const tipos = new Map();
-    const planes = new Map();
     const municipios = new Map();
-    let columnaPlan = false;
+    // Un plan = una columna «PLAN <nombre>» de GESCOLAR (p. ej. «PLAN PRE 2026-2027»).
+    const columnasPlan = datos.length ? Object.keys(datos[0]).filter((h) => gescolar.esColumnaPlan(h)) : [];
+    const planes = columnasPlan.map((h) => ({ columna: h, nombre: gescolar.planDeColumna(h), cantidad: 0 }));
 
     for (const p of datos) {
-      if (Object.prototype.hasOwnProperty.call(p, gescolar.CAMPO_PLAN)) columnaPlan = true;
       const tipo = valorUtil(p[gescolar.CAMPO_TIPO_ATENCION]);
-      const plan = valorUtil(p[gescolar.CAMPO_PLAN]);
+      let enAlgunPlan = false;
+      planes.forEach((pl) => { if (gescolar.tieneMarcaPlan(p[pl.columna])) { pl.cantidad++; enAlgunPlan = true; } });
       const insp = !!valorUtil(p[gescolar.CAMPO_RESPONSABLE]);
-      const atendido = !!(tipo || plan);
+      const atendido = !!(tipo || enAlgunPlan);
       if (atendido) atendidos++;
       if (insp) conInspeccion++;
       if (atendido && insp) atendidosConInspeccion++;
       if (tipo) { const k = claveNombre(tipo); const o = tipos.get(k) || { nombre: tipo, cantidad: 0 }; o.cantidad++; tipos.set(k, o); }
-      if (plan) { const k = claveNombre(plan); const o = planes.get(k) || { nombre: plan, cantidad: 0 }; o.cantidad++; planes.set(k, o); }
       const mun = limpiarTexto(p.municipio) || "Sin municipio";
       const m = municipios.get(mun) || { municipio: mun, total: 0, atendidos: 0, con_inspeccion: 0 };
       m.total++; if (atendido) m.atendidos++; if (insp) m.con_inspeccion++;
@@ -1632,7 +1644,7 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
 
     const porTipo = [
       ...[...tipos.values()].map((o) => ({ ...o, origen: "tipo" })),
-      ...[...planes.values()].map((o) => ({ ...o, origen: "plan" })),
+      ...planes.filter((pl) => pl.cantidad > 0).map((pl) => ({ nombre: pl.nombre, cantidad: pl.cantidad, origen: "plan" })),
     ]
       .map((o) => ({ ...o, porcentaje: porcentaje(o.cantidad, total) }))
       .sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"));
@@ -1654,7 +1666,7 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       atendidos_sin_inspeccion: atendidos - atendidosConInspeccion,
       por_tipo: porTipo,
       por_municipio: [...municipios.values()].sort((a, b) => a.municipio.localeCompare(b.municipio, "es")),
-      columna_plan_existe: columnaPlan,
+      columnas_plan: columnasPlan.length,
       modulo,
     });
   } catch (err) {
