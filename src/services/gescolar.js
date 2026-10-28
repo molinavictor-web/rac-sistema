@@ -11,7 +11,9 @@
 const { google } = require("googleapis");
 
 const SHEETS_GESCOLAR_ID = process.env.SHEETS_GESCOLAR_ID;
-const RANGO_HOJA_GESCOLAR = "GESCOLAR!A:BC"; // 55 columnas (A..BC)
+// Se lee la hoja COMPLETA (solo el nombre de la hoja, sin rango de columnas): así también llegan las
+// columnas que se agreguen al final (p. ej. PLAN REHABILITACION) sin tener que cambiar el rango.
+const RANGO_HOJA_GESCOLAR = "GESCOLAR";
 const DURACION_CACHE_MS = 15 * 60 * 1000; // 15 minutos
 
 // Encabezados reales de la hoja (confirmados en los otros módulos).
@@ -137,8 +139,40 @@ async function asignarResponsable(codigoDea, nombre) {
 }
 
 // Columnas que este módulo tiene permitido escribir en lote (ninguna otra).
+// TIPO ATENCION se LEE (es el historial de la atención anterior: GOTA DE AMOR, etc.) pero NO se escribe.
 const CAMPO_TIPO_ATENCION = "TIPO ATENCION";
-const CAMPOS_ESCRIBIBLES = [CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION];
+// Columna propia del plan de rehabilitación vigente. Si no existe en la hoja, se crea al final.
+const CAMPO_PLAN = "PLAN REHABILITACION";
+const CAMPOS_ESCRIBIBLES = [CAMPO_RESPONSABLE, CAMPO_PLAN];
+
+// Garantiza que la columna exista: si falta, agrega una columna al final de la hoja (ampliando la
+// cuadrícula si hace falta) y escribe su encabezado. Devuelve el índice 0-based de la columna.
+async function asegurarColumna(nombre, encabezado) {
+  const idx = encabezado.findIndex((c) => String(c).trim() === nombre);
+  if (idx !== -1) return { idx, creada: false };
+  const nuevo = encabezado.length;
+  const cli = obtenerCliente();
+  const meta = await cli.spreadsheets.get({
+    spreadsheetId: SHEETS_GESCOLAR_ID,
+    fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))",
+  });
+  const hoja = (meta.data.sheets || []).map((s) => s.properties).find((p) => p.title === "GESCOLAR");
+  if (!hoja) throw new Error("No se encontró la hoja GESCOLAR.");
+  const columnas = hoja.gridProperties && hoja.gridProperties.columnCount ? hoja.gridProperties.columnCount : 0;
+  if (columnas < nuevo + 1) {
+    await cli.spreadsheets.batchUpdate({
+      spreadsheetId: SHEETS_GESCOLAR_ID,
+      requestBody: { requests: [{ appendDimension: { sheetId: hoja.sheetId, dimension: "COLUMNS", length: nuevo + 1 - columnas } }] },
+    });
+  }
+  await cli.spreadsheets.values.update({
+    spreadsheetId: SHEETS_GESCOLAR_ID,
+    range: `GESCOLAR!${indiceALetra(nuevo)}1`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[nombre]] },
+  });
+  return { idx: nuevo, creada: true };
+}
 
 // Escribe el mismo campo en varios planteles de una sola vez: cambios = [{ codigo, valor }].
 // Relee la hoja justo antes (fila real), escribe SOLO esas celdas, como texto plano (RAW), en un único
@@ -150,9 +184,13 @@ async function escribirCampoLote(campo, cambios) {
   const [encabezado, ...filas] = resp.data.values || [];
   if (!encabezado) throw new Error("La hoja GESCOLAR está vacía.");
   const idxCodigo = encabezado.findIndex((c) => String(c).trim() === CAMPO_CODIGO);
-  const idxCampo = encabezado.findIndex((c) => String(c).trim() === campo);
   if (idxCodigo === -1) throw new Error(`No se encontró la columna ${CAMPO_CODIGO} en GESCOLAR.`);
-  if (idxCampo === -1) throw new Error(`No se encontró la columna ${campo} en GESCOLAR.`);
+  let idxCampo = encabezado.findIndex((c) => String(c).trim() === campo);
+  let columnaCreada = false;
+  if (idxCampo === -1) {
+    if (campo !== CAMPO_PLAN) throw new Error(`No se encontró la columna ${campo} en GESCOLAR.`);
+    ({ idx: idxCampo, creada: columnaCreada } = await asegurarColumna(campo, encabezado));
+  }
   const letra = indiceALetra(idxCampo);
   const data = [];
   const escritos = [];
@@ -171,7 +209,7 @@ async function escribirCampoLote(campo, cambios) {
     });
     cache.cargadoEn = 0;
   }
-  return { escritos, no_encontrados: noEncontrados };
+  return { escritos, no_encontrados: noEncontrados, columna_creada: columnaCreada };
 }
 
-module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION };
+module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION, CAMPO_PLAN };
