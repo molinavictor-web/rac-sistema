@@ -97,7 +97,7 @@ function pintar(d) {
 
     <div class="panel" style="margin-top:16px;"><div class="dash-bloque">
       <h3>Dentro del módulo de Inspecciones</h3>
-      <p class="dash-nota">${d.columna_plan_existe ? "" : "La columna PLAN REHABILITACION todavía no existe en GESCOLAR: se crea la primera vez que se registra un plan. "}Planes y planillas de materiales cargadas en el sistema.</p>
+      <p class="dash-nota">${d.columnas_plan ? "" : "Todavía no hay columnas de plan en GESCOLAR («PLAN <nombre>»): se crean al registrar un plan. "}Planes y planillas de materiales cargadas en el sistema.</p>
       <div class="stats-grid">
         ${tarjeta("", n(d.modulo.planes), "Planes de atención", "")}
         ${tarjeta("", n(d.modulo.en_planes), "Planteles en planes", "")}

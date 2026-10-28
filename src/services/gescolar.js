@@ -12,7 +12,7 @@ const { google } = require("googleapis");
 
 const SHEETS_GESCOLAR_ID = process.env.SHEETS_GESCOLAR_ID;
 // Se lee la hoja COMPLETA (solo el nombre de la hoja, sin rango de columnas): así también llegan las
-// columnas que se agreguen al final (p. ej. PLAN REHABILITACION) sin tener que cambiar el rango.
+// columnas que se agreguen al final (p. ej. «PLAN <nombre del plan>») sin tener que cambiar el rango.
 const RANGO_HOJA_GESCOLAR = "GESCOLAR";
 const DURACION_CACHE_MS = 15 * 60 * 1000; // 15 minutos
 
@@ -138,17 +138,44 @@ async function asignarResponsable(codigoDea, nombre) {
   return { anterior, fila: indiceFila + 2 };
 }
 
-// Columnas que este módulo tiene permitido escribir en lote (ninguna otra).
+// Columnas que este módulo tiene permitido escribir en lote: RESPONSABLE y las columnas de plan.
 // TIPO ATENCION se LEE (es el historial de la atención anterior: GOTA DE AMOR, etc.) pero NO se escribe.
 const CAMPO_TIPO_ATENCION = "TIPO ATENCION";
-// Columna propia del plan de rehabilitación vigente. Si no existe en la hoja, se crea al final.
-const CAMPO_PLAN = "PLAN REHABILITACION";
-const CAMPOS_ESCRIBIBLES = [CAMPO_RESPONSABLE, CAMPO_PLAN];
+
+// Cada plan de atención tiene SU PROPIA columna en GESCOLAR, llamada «PLAN <nombre del plan>»
+// (p. ej. «PLAN PRE 2026-2027»), y en ella cada plantel del plan lleva el nombre del plan.
+// Un plantel puede estar en varios planes sin que uno pise al otro. Si la columna no existe, se crea al final.
+const PREFIJO_PLAN = "PLAN ";
+const COLUMNA_PLAN_ANTIGUA = "PLAN REHABILITACION"; // versión anterior (una sola columna): ya no se usa
+
+// Para comparar encabezados sin que importen mayúsculas, tildes ni espacios repetidos.
+function normalizar(texto) {
+  return String(texto == null ? "" : texto).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+function nombreColumnaPlan(nombrePlan) {
+  return PREFIJO_PLAN + String(nombrePlan == null ? "" : nombrePlan).replace(/\s+/g, " ").trim();
+}
+function esColumnaPlan(encabezado) {
+  const n = normalizar(encabezado);
+  return n.startsWith(PREFIJO_PLAN) && n.length > PREFIJO_PLAN.length && n !== COLUMNA_PLAN_ANTIGUA;
+}
+// «PLAN PRE 2026-2027» → «PRE 2026-2027»
+function planDeColumna(encabezado) {
+  return String(encabezado).replace(/\s+/g, " ").trim().slice(PREFIJO_PLAN.length).trim();
+}
+// ¿La celda de plan tiene valor? (cualquier texto, salvo vacío, NO, #N/A, guiones)
+function tieneMarcaPlan(valor) {
+  const t = String(valor == null ? "" : valor).trim();
+  return t !== "" && !/^(NO|#N\/?A|-+|\.+)$/i.test(t);
+}
+function esCampoEscribible(campo) {
+  return campo === CAMPO_RESPONSABLE || esColumnaPlan(campo);
+}
 
 // Garantiza que la columna exista: si falta, agrega una columna al final de la hoja (ampliando la
 // cuadrícula si hace falta) y escribe su encabezado. Devuelve el índice 0-based de la columna.
 async function asegurarColumna(nombre, encabezado) {
-  const idx = encabezado.findIndex((c) => String(c).trim() === nombre);
+  const idx = encabezado.findIndex((c) => normalizar(c) === normalizar(nombre));
   if (idx !== -1) return { idx, creada: false };
   const nuevo = encabezado.length;
   const cli = obtenerCliente();
@@ -178,17 +205,17 @@ async function asegurarColumna(nombre, encabezado) {
 // Relee la hoja justo antes (fila real), escribe SOLO esas celdas, como texto plano (RAW), en un único
 // batchUpdate. Devuelve { escritos: [{codigo, anterior, valor}], no_encontrados: [codigo] }.
 async function escribirCampoLote(campo, cambios) {
-  if (!CAMPOS_ESCRIBIBLES.includes(campo)) throw new Error(`El campo ${campo} no se puede escribir desde este módulo.`);
+  if (!esCampoEscribible(campo)) throw new Error(`El campo ${campo} no se puede escribir desde este módulo.`);
   if (!SHEETS_GESCOLAR_ID) throw new Error("Falta configurar SHEETS_GESCOLAR_ID en el servidor.");
   const resp = await obtenerCliente().spreadsheets.values.get({ spreadsheetId: SHEETS_GESCOLAR_ID, range: RANGO_HOJA_GESCOLAR });
   const [encabezado, ...filas] = resp.data.values || [];
   if (!encabezado) throw new Error("La hoja GESCOLAR está vacía.");
   const idxCodigo = encabezado.findIndex((c) => String(c).trim() === CAMPO_CODIGO);
   if (idxCodigo === -1) throw new Error(`No se encontró la columna ${CAMPO_CODIGO} en GESCOLAR.`);
-  let idxCampo = encabezado.findIndex((c) => String(c).trim() === campo);
+  let idxCampo = encabezado.findIndex((c) => normalizar(c) === normalizar(campo));
   let columnaCreada = false;
   if (idxCampo === -1) {
-    if (campo !== CAMPO_PLAN) throw new Error(`No se encontró la columna ${campo} en GESCOLAR.`);
+    if (!esColumnaPlan(campo)) throw new Error(`No se encontró la columna ${campo} en GESCOLAR.`);
     ({ idx: idxCampo, creada: columnaCreada } = await asegurarColumna(campo, encabezado));
   }
   const letra = indiceALetra(idxCampo);
@@ -212,24 +239,24 @@ async function escribirCampoLote(campo, cambios) {
   return { escritos, no_encontrados: noEncontrados, columna_creada: columnaCreada };
 }
 
-// Borra el valor de PLAN REHABILITACION de UN plantel, pero SOLO si la celda tiene justo el nombre del plan
-// indicado (así nunca se borra el valor de otro plan). Relee la hoja para ubicar la fila real y escribe solo esa celda.
-// Devuelve { estado }: "limpiado" | "otro_valor" | "ya_vacio" | "sin_columna" | "no_encontrado".
-async function limpiarPlanSiCoincide(codigoDea, nombrePlan) {
+// Quita un plantel de la columna de un plan: borra SOLO esa celda («PLAN <nombre>» de ese plantel).
+// Relee la hoja para ubicar la fila real. No toca ninguna otra columna (ni TIPO ATENCION ni otros planes).
+// Devuelve { estado }: "limpiado" | "ya_vacio" | "sin_columna" | "no_encontrado".
+async function quitarPlanDePlantel(codigoDea, nombrePlan) {
   if (!SHEETS_GESCOLAR_ID) throw new Error("Falta configurar SHEETS_GESCOLAR_ID en el servidor.");
   const resp = await obtenerCliente().spreadsheets.values.get({ spreadsheetId: SHEETS_GESCOLAR_ID, range: RANGO_HOJA_GESCOLAR });
   const [encabezado, ...filas] = resp.data.values || [];
   if (!encabezado) throw new Error("La hoja GESCOLAR está vacía.");
   const idxCodigo = encabezado.findIndex((c) => String(c).trim() === CAMPO_CODIGO);
   if (idxCodigo === -1) throw new Error(`No se encontró la columna ${CAMPO_CODIGO} en GESCOLAR.`);
-  const idxPlan = encabezado.findIndex((c) => String(c).trim() === CAMPO_PLAN);
-  if (idxPlan === -1) return { estado: "sin_columna" };
+  const columna = nombreColumnaPlan(nombrePlan);
+  const idxPlan = encabezado.findIndex((c) => normalizar(c) === normalizar(columna));
+  if (idxPlan === -1) return { estado: "sin_columna", columna };
   const buscado = minusculas(codigoDea).trim();
   const i = filas.findIndex((f) => minusculas(f[idxCodigo]).trim() === buscado);
-  if (i === -1) return { estado: "no_encontrado" };
+  if (i === -1) return { estado: "no_encontrado", columna };
   const actual = filas[i][idxPlan] !== undefined ? String(filas[i][idxPlan]).trim() : "";
-  if (!actual) return { estado: "ya_vacio" };
-  if (actual !== String(nombrePlan).trim()) return { estado: "otro_valor", valor: actual };
+  if (!actual) return { estado: "ya_vacio", columna };
   await obtenerCliente().spreadsheets.values.update({
     spreadsheetId: SHEETS_GESCOLAR_ID,
     range: `GESCOLAR!${indiceALetra(idxPlan)}${i + 2}`,
@@ -237,7 +264,7 @@ async function limpiarPlanSiCoincide(codigoDea, nombrePlan) {
     requestBody: { values: [[""]] },
   });
   cache.cargadoEn = 0;
-  return { estado: "limpiado", anterior: actual };
+  return { estado: "limpiado", anterior: actual, columna };
 }
 
-module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, limpiarPlanSiCoincide, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION, CAMPO_PLAN };
+module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, quitarPlanDePlantel, nombreColumnaPlan, esColumnaPlan, planDeColumna, tieneMarcaPlan, normalizar, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION };
