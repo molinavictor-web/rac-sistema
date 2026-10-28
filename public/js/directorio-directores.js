@@ -4,7 +4,10 @@
 // origen que "Consultar planteles"), a través del backend
 // /api/directorio-directores/*.
 
-const usuario = renderShell("directorio-directores", "Directorio de directores");
+// Esta misma pantalla se sirve también como /inspecciones/directorio.html (solo consulta para los perfiles de Inspecciones).
+const usuario = window.location.pathname.startsWith("/inspecciones/")
+  ? renderShell("inspecciones-directorio", "Directorio de directores")
+  : renderShell("directorio-directores", "Directorio de directores");
 
 let temporizadorBusqueda = null;
 let plantelEnEdicion = null;

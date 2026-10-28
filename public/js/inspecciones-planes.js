@@ -485,12 +485,14 @@ async function agregarPlantel(codigo, qActual) {
 
 async function desenlazar(inspeccionId, nombre) {
   const seguro = window.confirm(
-    `¿Desenlazar «${nombre}» de este plan?\n\nNo se borra nada: sus cantidades quedan guardadas, en espera de una futura rehabilitación.`
+    `¿Desenlazar «${nombre}» de este plan?\n\nNo se borra nada: sus cantidades quedan guardadas, en espera de una futura rehabilitación.\n\nSi el plantel tiene este plan escrito en la columna PLAN REHABILITACION de GESCOLAR, se quitará de ahí también (TIPO ATENCION no se toca).`
   );
   if (!seguro) return;
   try {
-    await RAC.post(`/api/inspecciones/planes/${PLAN_ABIERTO.plan.id}/planteles/${inspeccionId}/desenlazar`, {});
-    mostrarToast("Plantel desenlazado. Su inspección quedó en espera.");
+    const r = await RAC.post(`/api/inspecciones/planes/${PLAN_ABIERTO.plan.id}/planteles/${inspeccionId}/desenlazar`, {});
+    mostrarToast(r && r.gescolar === "limpiado"
+      ? "Plantel desenlazado y quitado de PLAN REHABILITACION en GESCOLAR. Su inspección quedó en espera."
+      : "Plantel desenlazado. Su inspección quedó en espera.");
     await recargarPlan();
     const q = document.getElementById("qPlantel");
     if (q && q.value.trim().length >= 2) buscarPlanteles(q.value.trim());

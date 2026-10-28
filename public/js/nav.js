@@ -17,7 +17,7 @@ function renderShell(paginaActiva, tituloTopbar) {
   // pantallas de /inspecciones/. El backend también lo bloquea (middleware/auth.js).
   const ROLES_SOLO_INSPECCIONES = ["insp_coordinador", "insp_ingeniero", "insp_consulta"];
   if (ROLES_SOLO_INSPECCIONES.includes(usuario.rol) && !window.location.pathname.startsWith("/inspecciones/")) {
-    window.location.replace(usuario.rol === "insp_ingeniero" ? "/inspecciones/mis-planillas.html" : "/inspecciones/planes.html");
+    window.location.replace(usuario.rol === "insp_ingeniero" ? "/inspecciones/mis-planillas.html" : "/inspecciones/dashboard.html");
     return null;
   }
 
@@ -57,9 +57,12 @@ function renderShell(paginaActiva, tituloTopbar) {
       { id: "supervision-mi-plantel", href: "/supervision/mi-plantel.html", label: "Mi plantel", roles: ["director"] },
     ]},
     { id: "inspecciones-grupo", titulo: "Inspecciones", enlaces: [
+      { id: "inspecciones-dashboard", href: "/inspecciones/dashboard.html", label: "Resumen", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-planes", href: "/inspecciones/planes.html", label: "Planes de atención", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta"] },
       { id: "inspecciones-mis-planillas", href: "/inspecciones/mis-planillas.html", label: "Mis planillas", roles: ["insp_ingeniero"] },
       { id: "inspecciones-ingenieros", href: "/inspecciones/ingenieros.html", label: "Ingenieros", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
+      { id: "inspecciones-planteles", href: "/inspecciones/consultar-planteles.html", label: "Consultar planteles", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
+      { id: "inspecciones-directorio", href: "/inspecciones/directorio.html", label: "Directorio de directores", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-catalogo-adicionales", href: "/inspecciones/adicionales-catalogo.html", label: "Catálogo de adicionales", roles: ["admin"] },
     ]},
     { id: "administracion", titulo: "Administración", enlaces: [
@@ -110,6 +113,9 @@ function renderShell(paginaActiva, tituloTopbar) {
     "supervision-circuitales": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5 3"/></svg>`,
     "supervision-circuitos": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.5 6h7M7.3 8.2l3.5 7.6M16.7 8.2l-3.5 7.6"/></svg>`,
     "supervision-directores": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
+    "inspecciones-dashboard": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h7V3H3v10Zm11 8h7V3h-7v18ZM3 21h7v-4H3v4Zm11 0h7v-4h-7v4Z"/></svg>`,
+    "inspecciones-planteles": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/><circle cx="17.5" cy="17.5" r="3.2"/><path d="m21 21-1.6-1.6"/></svg>`,
+    "inspecciones-directorio": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
     "inspecciones-planes": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>`,
     "inspecciones-ingenieros": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 5.5a3 3 0 010 5.8M18 14.8c1.9.7 3 2.4 3 5.2"/></svg>`,
     "inspecciones-mis-planillas": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 13l2 2 4-4"/></svg>`,

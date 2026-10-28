@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Resumen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .dash-barra{height:14px; border-radius:99px; background:#e6ecf4; overflow:hidden; display:flex;}
+  .dash-barra > span{display:block; height:100%;}
+  .dash-barra .ok{background:var(--rac-green, #18a66a);}
+  .dash-barra .azul{background:var(--rac-blue, #1677e8);}
+  .dash-bloque{padding:16px 20px;}
+  .dash-bloque h3{margin:0 0 4px; font-family:var(--display); font-size:1rem;}
+  .dash-nota{color:var(--muted, #718198); font-size:.8rem; margin:0 0 10px;}
+  .dash-fila-barra{display:grid; grid-template-columns:minmax(120px,220px) 1fr auto; gap:12px; align-items:center; padding:6px 0;}
+  .dash-fila-barra .nombre{font-size:.88rem; overflow-wrap:anywhere;}
+  .dash-fila-barra .valor{font-size:.82rem; color:var(--muted, #718198); white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .dash-etiqueta{display:inline-block; font-size:.68rem; padding:1px 7px; border-radius:99px; background:#eaf4ff; color:#0e65c7; margin-left:6px; vertical-align:middle;}
+  .dash-etiqueta.plan{background:#fff4e5; color:#b45f06;}
+  .dash-dos{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  .dash-pie{display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:.8rem; color:var(--muted, #718198); margin-top:6px;}
+  .dash-tabla{width:100%; border-collapse:collapse; font-size:.86rem;}
+  .dash-tabla th, .dash-tabla td{padding:8px 12px; text-align:left; border-bottom:1px solid #e8edf3;}
+  .dash-tabla th{font-size:.74rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted, #718198);}
+  .dash-tabla td.num, .dash-tabla th.num{text-align:right; font-variant-numeric:tabular-nums;}
+  @media(max-width:860px){ .dash-dos{grid-template-columns:1fr;} .dash-fila-barra{grid-template-columns:1fr; gap:4px;} }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-dashboard.js"></script>
+</body>
+</html>

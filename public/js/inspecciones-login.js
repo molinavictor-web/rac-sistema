@@ -24,7 +24,7 @@ document.getElementById("formLogin").addEventListener("submit", async (e) => {
     }
     RAC.guardarSesion(resp.token, resp.usuario);
     try { sessionStorage.setItem("rac_portal", "inspecciones"); } catch (_) { /* sin almacenamiento */ }
-    window.location.href = resp.usuario.rol === "insp_ingeniero" ? "/inspecciones/mis-planillas.html" : "/inspecciones/planes.html";
+    window.location.href = resp.usuario.rol === "insp_ingeniero" ? "/inspecciones/mis-planillas.html" : "/inspecciones/dashboard.html";
   } catch (err) {
     error.textContent = err.message === "Failed to fetch"
       ? "No se pudo conectar con el servidor."
