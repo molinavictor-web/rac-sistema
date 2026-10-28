@@ -7,9 +7,14 @@
 // perfiles del módulo Inspecciones, abierta con ?cod=<código DEA> desde el resumen de ingenieros).
 const EN_INSPECCIONES = window.location.pathname.startsWith("/inspecciones/");
 const CODIGO_DIRECTO = new URLSearchParams(window.location.search).get("cod");
-const usuario = EN_INSPECCIONES
-  ? renderShell("inspecciones-ingenieros", "Ficha del plantel")
-  : renderShell("planteles-consulta", "Consultar planteles");
+// /inspecciones/consultar-planteles.html = buscador completo (solo lectura para los perfiles de Inspecciones);
+// /inspecciones/plantel.html = ficha abierta con ?cod= desde el resumen de ingenieros.
+const EN_BUSCADOR_INSPECCIONES = window.location.pathname.endsWith("/consultar-planteles.html");
+const usuario = EN_BUSCADOR_INSPECCIONES
+  ? renderShell("inspecciones-planteles", "Consultar planteles")
+  : EN_INSPECCIONES
+    ? renderShell("inspecciones-ingenieros", "Ficha del plantel")
+    : renderShell("planteles-consulta", "Consultar planteles");
 
 // Campos "confirmados" (coinciden EXACTO con CAMPOS_BUSQUEDA del backend) --
 // se usan para las columnas fijas de la tabla y el encabezado de la ficha.
@@ -221,7 +226,7 @@ function cerrarFicha() {
     let mismoSitio = false;
     try { mismoSitio = document.referrer && new URL(document.referrer).origin === window.location.origin; } catch (_) { /* nada */ }
     if (mismoSitio && window.history.length > 1) window.history.back();
-    else window.location.href = EN_INSPECCIONES ? "/inspecciones/ingenieros.html" : "/planteles-consulta.html";
+    else window.location.href = EN_BUSCADOR_INSPECCIONES ? "/inspecciones/consultar-planteles.html" : EN_INSPECCIONES ? "/inspecciones/ingenieros.html" : "/planteles-consulta.html";
   }
 }
 

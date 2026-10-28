@@ -5,6 +5,8 @@ const { requireAuth, requireRol } = require("../middleware/auth");
 const router = express.Router(); // rutas montadas en /api/directorio-directores
 
 const ROLES_DIRECTORIO = ["admin", "operador_plantel", "operador"];
+// Los perfiles del módulo Inspecciones solo pueden CONSULTAR el directorio (nunca editarlo).
+const ROLES_LECTURA_DIRECTORIO = [...ROLES_DIRECTORIO, "insp_coordinador", "insp_ingeniero", "insp_consulta"];
 
 const SHEETS_GESCOLAR_ID = process.env.SHEETS_GESCOLAR_ID;
 const NOMBRE_HOJA_GESCOLAR = "GESCOLAR";
@@ -75,7 +77,7 @@ function filaAObjeto(encabezado, fila) {
 
 // GET /buscar?q=... -- coincidencia parcial (sin distinguir mayúsculas)
 // sobre nombre del plantel, código DEA o nombre del director.
-router.get("/buscar", requireAuth, requireRol(...ROLES_DIRECTORIO), async (req, res) => {
+router.get("/buscar", requireAuth, requireRol(...ROLES_LECTURA_DIRECTORIO), async (req, res) => {
   const q = (req.query.q || "").trim().toLowerCase();
   if (q.length < 2) {
     return res.status(400).json({ error: "Escribe al menos 2 caracteres para buscar." });
@@ -118,7 +120,7 @@ router.get("/buscar", requireAuth, requireRol(...ROLES_DIRECTORIO), async (req, 
 
 // GET /:codigoDea -- datos completos del director de un plantel puntual
 // (incluye los campos editables completos, para precargar el formulario).
-router.get("/:codigoDea", requireAuth, requireRol(...ROLES_DIRECTORIO), async (req, res) => {
+router.get("/:codigoDea", requireAuth, requireRol(...ROLES_LECTURA_DIRECTORIO), async (req, res) => {
   const codigoDea = (req.params.codigoDea || "").trim();
   if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
 

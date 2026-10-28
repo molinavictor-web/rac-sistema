@@ -212,4 +212,32 @@ async function escribirCampoLote(campo, cambios) {
   return { escritos, no_encontrados: noEncontrados, columna_creada: columnaCreada };
 }
 
-module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION, CAMPO_PLAN };
+// Borra el valor de PLAN REHABILITACION de UN plantel, pero SOLO si la celda tiene justo el nombre del plan
+// indicado (así nunca se borra el valor de otro plan). Relee la hoja para ubicar la fila real y escribe solo esa celda.
+// Devuelve { estado }: "limpiado" | "otro_valor" | "ya_vacio" | "sin_columna" | "no_encontrado".
+async function limpiarPlanSiCoincide(codigoDea, nombrePlan) {
+  if (!SHEETS_GESCOLAR_ID) throw new Error("Falta configurar SHEETS_GESCOLAR_ID en el servidor.");
+  const resp = await obtenerCliente().spreadsheets.values.get({ spreadsheetId: SHEETS_GESCOLAR_ID, range: RANGO_HOJA_GESCOLAR });
+  const [encabezado, ...filas] = resp.data.values || [];
+  if (!encabezado) throw new Error("La hoja GESCOLAR está vacía.");
+  const idxCodigo = encabezado.findIndex((c) => String(c).trim() === CAMPO_CODIGO);
+  if (idxCodigo === -1) throw new Error(`No se encontró la columna ${CAMPO_CODIGO} en GESCOLAR.`);
+  const idxPlan = encabezado.findIndex((c) => String(c).trim() === CAMPO_PLAN);
+  if (idxPlan === -1) return { estado: "sin_columna" };
+  const buscado = minusculas(codigoDea).trim();
+  const i = filas.findIndex((f) => minusculas(f[idxCodigo]).trim() === buscado);
+  if (i === -1) return { estado: "no_encontrado" };
+  const actual = filas[i][idxPlan] !== undefined ? String(filas[i][idxPlan]).trim() : "";
+  if (!actual) return { estado: "ya_vacio" };
+  if (actual !== String(nombrePlan).trim()) return { estado: "otro_valor", valor: actual };
+  await obtenerCliente().spreadsheets.values.update({
+    spreadsheetId: SHEETS_GESCOLAR_ID,
+    range: `GESCOLAR!${indiceALetra(idxPlan)}${i + 2}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[""]] },
+  });
+  cache.cargadoEn = 0;
+  return { estado: "limpiado", anterior: actual };
+}
+
+module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, limpiarPlanSiCoincide, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION, CAMPO_PLAN };

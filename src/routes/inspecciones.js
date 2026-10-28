@@ -8,6 +8,7 @@
 //   POST  /planes/:id/registro-gescolar             escribe el nombre del plan en PLAN REHABILITACION de sus planteles activos (solo admin)
 //   GET   /responsables                             ingenieros que ya figuran como RESPONSABLE en GESCOLAR (con su conteo)
 //   PUT   /inspeccion/:id/asignaciones              asignar a una planilla: responsable (se escribe en GESCOLAR) y/o cuentas con acceso
+//   GET   /dashboard                                cifras de la pantalla principal (atendidos, con inspección, por tipo y municipio)
 //   GET   /mis-planillas                            las planillas asignadas al ingeniero en sesión
 //   GET   /resumen-ingenieros                       ingenieros (columna RESPONSABLE de GESCOLAR) y planteles inspeccionados
 //   GET   /planes                                   lista de planes
@@ -451,8 +452,10 @@ router.post("/planes/:id/planteles", requireAuth, requireRol(...ROLES_GESTION), 
   }
 });
 
-// Desenlaza el plantel del plan. No borra nada: la inspección y sus
-// cantidades quedan en la base de datos, en espera.
+// Desenlaza el plantel del plan. No borra nada: la inspección y sus cantidades quedan en la base
+// de datos, en espera. Además quita el nombre del plan de la columna PLAN REHABILITACION de GESCOLAR
+// (solo si esa celda tiene justo el nombre de este plan; TIPO ATENCION no se toca). Si GESCOLAR no
+// responde, NO se desenlaza (para que la hoja y el sistema no queden distintos): se puede reintentar.
 router.post("/planes/:id/planteles/:inspeccionId/desenlazar", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const planId = entero(req.params.id);
   const inspeccionId = entero(req.params.inspeccionId);
@@ -463,6 +466,24 @@ router.post("/planes/:id/planteles/:inspeccionId/desenlazar", requireAuth, requi
     if (!estado.existe) return res.status(404).json({ error: "Plan no encontrado." });
     if (estado.cerrado) return res.status(409).json({ error: "El plan está cerrado: reábrelo para cambiar sus planteles." });
 
+    const previo = await pool.query(
+      `SELECT pi.codigo_dea, p.nombre
+       FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id
+       WHERE pi.plan_id = $1 AND pi.inspeccion_id = $2 AND pi.desenlazado_en IS NULL`,
+      [planId, inspeccionId]
+    );
+    if (!previo.rows.length) return res.status(404).json({ error: "Ese plantel no está enlazado a este plan." });
+    const { codigo_dea: codigo, nombre: nombrePlan } = previo.rows[0];
+
+    let gs;
+    try {
+      gs = await gescolar.limpiarPlanSiCoincide(codigo, nombrePlan);
+    } catch (err) {
+      console.error("No se pudo actualizar PLAN REHABILITACION en GESCOLAR al desenlazar:", err.message);
+      return res.status(502).json({ error: "No se pudo actualizar GESCOLAR (Google Sheets no respondió). El plantel NO se desenlazó; intenta de nuevo en un momento." });
+    }
+    if (gs.estado === "limpiado") console.log(`PLAN REHABILITACION de GESCOLAR: ${codigo} "${gs.anterior}" → (vacío) por desenlazar (usuario ${req.usuario.id}).`);
+
     const { rows } = await pool.query(
       `UPDATE plan_inspecciones
        SET desenlazado_en = NOW(), desenlazado_por = $3
@@ -471,7 +492,7 @@ router.post("/planes/:id/planteles/:inspeccionId/desenlazar", requireAuth, requi
       [planId, inspeccionId, req.usuario.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Ese plantel no está enlazado a este plan." });
-    res.json({ ok: true, codigo_dea: rows[0].codigo_dea });
+    res.json({ ok: true, codigo_dea: rows[0].codigo_dea, gescolar: gs.estado });
   } catch (err) {
     falloInterno(res, err, "No se pudo desenlazar el plantel.");
   }
@@ -1560,6 +1581,84 @@ router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), as
   } catch (err) {
     console.error("Error armando el resumen de ingenieros:", err);
     res.status(500).json({ error: "No se pudo leer la hoja de GESCOLAR para armar el resumen." });
+  }
+});
+
+// Pantalla principal: cifras de todo GESCOLAR (atendidos, con inspección) y del módulo.
+//  - Atendido  = tiene TIPO ATENCION (GOTA DE AMOR, ATENCION INTEGRAL, BRICOMILES…) o PLAN REHABILITACION.
+//  - Con inspección = tiene un RESPONSABLE válido en GESCOLAR (ni vacío ni #N/A).
+const SIN_VALOR = /^(#?N\/?A|#REF!?|#VALUE!?|-+|\.+|NO|SI|NINGUNO|SIN .*)$/i;
+function valorUtil(v) {
+  const t = limpiarTexto(v);
+  return t && !SIN_VALOR.test(t) ? t : "";
+}
+function porcentaje(parte, total) {
+  return total ? Math.round((parte / total) * 1000) / 10 : 0;
+}
+
+router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req, res) => {
+  try {
+    let datos;
+    try {
+      datos = await gescolar.cargarGescolar();
+    } catch (err) {
+      console.error("Dashboard: no se pudo leer GESCOLAR:", err.message);
+      return res.status(502).json({ error: "No se pudo leer GESCOLAR (Google Sheets no respondió). Intenta de nuevo en un momento." });
+    }
+
+    const total = datos.length;
+    let atendidos = 0, conInspeccion = 0, atendidosConInspeccion = 0;
+    const tipos = new Map();
+    const planes = new Map();
+    const municipios = new Map();
+    let columnaPlan = false;
+
+    for (const p of datos) {
+      if (Object.prototype.hasOwnProperty.call(p, gescolar.CAMPO_PLAN)) columnaPlan = true;
+      const tipo = valorUtil(p[gescolar.CAMPO_TIPO_ATENCION]);
+      const plan = valorUtil(p[gescolar.CAMPO_PLAN]);
+      const insp = !!valorUtil(p[gescolar.CAMPO_RESPONSABLE]);
+      const atendido = !!(tipo || plan);
+      if (atendido) atendidos++;
+      if (insp) conInspeccion++;
+      if (atendido && insp) atendidosConInspeccion++;
+      if (tipo) { const k = claveNombre(tipo); const o = tipos.get(k) || { nombre: tipo, cantidad: 0 }; o.cantidad++; tipos.set(k, o); }
+      if (plan) { const k = claveNombre(plan); const o = planes.get(k) || { nombre: plan, cantidad: 0 }; o.cantidad++; planes.set(k, o); }
+      const mun = limpiarTexto(p.municipio) || "Sin municipio";
+      const m = municipios.get(mun) || { municipio: mun, total: 0, atendidos: 0, con_inspeccion: 0 };
+      m.total++; if (atendido) m.atendidos++; if (insp) m.con_inspeccion++;
+      municipios.set(mun, m);
+    }
+
+    const porTipo = [
+      ...[...tipos.values()].map((o) => ({ ...o, origen: "tipo" })),
+      ...[...planes.values()].map((o) => ({ ...o, origen: "plan" })),
+    ]
+      .map((o) => ({ ...o, porcentaje: porcentaje(o.cantidad, total) }))
+      .sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"));
+
+    const modulo = (await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM planes_atencion)::int AS planes,
+         (SELECT COUNT(*) FROM inspecciones)::int AS planillas,
+         (SELECT COUNT(*) FROM inspecciones WHERE estado = 'CARGADA')::int AS cargadas,
+         (SELECT COUNT(*) FROM inspecciones WHERE estado = 'BORRADOR')::int AS borradores,
+         (SELECT COUNT(*) FROM plan_inspecciones WHERE desenlazado_en IS NULL)::int AS en_planes`
+    )).rows[0];
+
+    res.json({
+      total,
+      atendidos: { cantidad: atendidos, faltan: total - atendidos, porcentaje: porcentaje(atendidos, total) },
+      con_inspeccion: { cantidad: conInspeccion, faltan: total - conInspeccion, porcentaje: porcentaje(conInspeccion, total) },
+      atendidos_con_inspeccion: atendidosConInspeccion,
+      atendidos_sin_inspeccion: atendidos - atendidosConInspeccion,
+      por_tipo: porTipo,
+      por_municipio: [...municipios.values()].sort((a, b) => a.municipio.localeCompare(b.municipio, "es")),
+      columna_plan_existe: columnaPlan,
+      modulo,
+    });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo armar el dashboard.");
   }
 });
 

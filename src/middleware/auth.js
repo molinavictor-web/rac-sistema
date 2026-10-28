@@ -13,8 +13,8 @@ const RUTAS_PERMITIDAS_SUPERVISION = /^\/api\/(supervision|auth)(\/|\?|$)/;
 //   insp_consulta:    solo ve consolidados y descarga Excel (autoridades)
 const ROLES_SOLO_INSPECCIONES = ["insp_coordinador", "insp_ingeniero", "insp_consulta"];
 const RUTAS_PERMITIDAS_INSPECCIONES = /^\/api\/(inspecciones|auth)(\/|\?|$)/;
-// Además, solo para LEER (GET) la ficha de un plantel desde el resumen de ingenieros.
-const RUTA_FICHA_SOLO_LECTURA = /^\/api\/planteles-consulta\/(buscar|[^/?]+\/(archivos|coordenadas))(\/|\?|$)/;
+// Además, solo para LEER (GET): la ficha de un plantel (Consultar planteles) y el Directorio de directores.
+const RUTA_FICHA_SOLO_LECTURA = /^\/api\/(planteles-consulta\/(buscar|[^/?]+\/(archivos|coordenadas))|directorio-directores\/(buscar|[^/?]+))(\/|\?|$)/;
 
 /**
  * Verifica el token JWT y adjunta el usuario decodificado a req.usuario.
