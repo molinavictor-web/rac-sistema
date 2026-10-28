@@ -136,4 +136,42 @@ async function asignarResponsable(codigoDea, nombre) {
   return { anterior, fila: indiceFila + 2 };
 }
 
-module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE };
+// Columnas que este módulo tiene permitido escribir en lote (ninguna otra).
+const CAMPO_TIPO_ATENCION = "TIPO ATENCION";
+const CAMPOS_ESCRIBIBLES = [CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION];
+
+// Escribe el mismo campo en varios planteles de una sola vez: cambios = [{ codigo, valor }].
+// Relee la hoja justo antes (fila real), escribe SOLO esas celdas, como texto plano (RAW), en un único
+// batchUpdate. Devuelve { escritos: [{codigo, anterior, valor}], no_encontrados: [codigo] }.
+async function escribirCampoLote(campo, cambios) {
+  if (!CAMPOS_ESCRIBIBLES.includes(campo)) throw new Error(`El campo ${campo} no se puede escribir desde este módulo.`);
+  if (!SHEETS_GESCOLAR_ID) throw new Error("Falta configurar SHEETS_GESCOLAR_ID en el servidor.");
+  const resp = await obtenerCliente().spreadsheets.values.get({ spreadsheetId: SHEETS_GESCOLAR_ID, range: RANGO_HOJA_GESCOLAR });
+  const [encabezado, ...filas] = resp.data.values || [];
+  if (!encabezado) throw new Error("La hoja GESCOLAR está vacía.");
+  const idxCodigo = encabezado.findIndex((c) => String(c).trim() === CAMPO_CODIGO);
+  const idxCampo = encabezado.findIndex((c) => String(c).trim() === campo);
+  if (idxCodigo === -1) throw new Error(`No se encontró la columna ${CAMPO_CODIGO} en GESCOLAR.`);
+  if (idxCampo === -1) throw new Error(`No se encontró la columna ${campo} en GESCOLAR.`);
+  const letra = indiceALetra(idxCampo);
+  const data = [];
+  const escritos = [];
+  const noEncontrados = [];
+  for (const { codigo, valor } of cambios) {
+    const buscado = minusculas(codigo).trim();
+    const i = filas.findIndex((f) => minusculas(f[idxCodigo]).trim() === buscado);
+    if (i === -1) { noEncontrados.push(codigo); continue; }
+    escritos.push({ codigo, anterior: filas[i][idxCampo] !== undefined ? String(filas[i][idxCampo]) : "", valor: String(valor == null ? "" : valor) });
+    data.push({ range: `GESCOLAR!${letra}${i + 2}`, values: [[String(valor == null ? "" : valor)]] });
+  }
+  if (data.length) {
+    await obtenerCliente().spreadsheets.values.batchUpdate({
+      spreadsheetId: SHEETS_GESCOLAR_ID,
+      requestBody: { valueInputOption: "RAW", data },
+    });
+    cache.cargadoEn = 0;
+  }
+  return { escritos, no_encontrados: noEncontrados };
+}
+
+module.exports = { cargarGescolar, buscarPlanteles, obtenerPlantel, asignarResponsable, escribirCampoLote, CAMPO_CODIGO, CAMPO_NOMBRE, CAMPO_RESPONSABLE, CAMPO_TIPO_ATENCION };

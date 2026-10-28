@@ -143,6 +143,7 @@ function dibujarPlan() {
         <button type="button" class="btn btn-fantasma btn-sm" id="btnVolver">← Todos los planes</button>
         ${PUEDE_GESTIONAR ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>` : ""}
+        ${usuario && usuario.rol === "admin" ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnRegistrarGescolar" title="Escribe el nombre del plan en TIPO ATENCION de GESCOLAR">Registrar plan en GESCOLAR</button>` : ""}
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
       </div>
@@ -167,6 +168,8 @@ function dibujarPlan() {
   `;
 
   document.getElementById("btnVolver").addEventListener("click", volverALista);
+  const btnReg = document.getElementById("btnRegistrarGescolar");
+  if (btnReg) btnReg.addEventListener("click", () => abrirRegistroGescolar(plan));
   if (PUEDE_GESTIONAR) {
     document.getElementById("btnEditarPlan").addEventListener("click", () => abrirModalPlan("editar"));
     document.getElementById("btnEstadoPlan").addEventListener("click", cambiarEstadoPlan);
@@ -224,6 +227,65 @@ function pintarPlanteles() {
   });
   cont.querySelectorAll("[data-reenlazar]").forEach((b) => {
     b.addEventListener("click", () => reenlazar(Number(b.dataset.reenlazar)));
+  });
+}
+
+// ---- Registrar el plan en GESCOLAR (columna TIPO ATENCION) ----
+// Solo administrador. Primero muestra qué se escribiría en cada plantel (con el valor actual) y pide confirmar.
+async function abrirRegistroGescolar(plan) {
+  let vista;
+  try {
+    vista = await RAC.get(`/api/inspecciones/planes/${plan.id}/tipo-atencion`);
+  } catch (err) {
+    mostrarToast(err.message, true);
+    return;
+  }
+  const hayCambios = vista.planteles.filter((p) => p.cambia);
+  const conOtroValor = hayCambios.filter((p) => p.actual);
+  const filas = vista.planteles.map((p) => `<tr>
+      <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
+      <td>${escapar(p.nombre_plantel) || "—"}</td>
+      <td>${!p.en_gescolar ? `<span style="color:#b3261e;">No está en GESCOLAR</span>` : p.actual ? escapar(p.actual) : `<span style="color:var(--muted);">(vacío)</span>`}</td>
+      <td>${!p.en_gescolar ? "—" : p.cambia ? `<strong>${escapar(vista.valor)}</strong>` : `<span style="color:var(--muted);">Ya lo tiene</span>`}</td>
+    </tr>`).join("");
+  const fondo = document.createElement("div");
+  fondo.className = "modal-fondo visible";
+  fondo.innerHTML = `
+    <div class="modal" style="max-width:760px;">
+      <h2 style="margin-bottom:4px;">Registrar plan en GESCOLAR</h2>
+      <p style="margin:0 0 10px; color:var(--muted); font-size:.85rem;">Se escribirá <strong>«${escapar(vista.valor)}»</strong> en la columna <strong>TIPO ATENCION</strong> de GESCOLAR, solo en estos ${vista.planteles.length} planteles del plan. Nada más se modifica.</p>
+      ${conOtroValor.length ? `<div style="margin-bottom:10px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #f6ad55; font-size:.8rem;"><strong>Ojo:</strong> ${conOtroValor.length} plantel${conOtroValor.length === 1 ? "" : "es"} ya tiene${conOtroValor.length === 1 ? "" : "n"} otro valor en TIPO ATENCION y será reemplazado.</div>` : ""}
+      <div class="tabla-responsive" style="max-height:340px; overflow:auto;">
+        <table>
+          <thead><tr><th>Código</th><th>Plantel</th><th>Valor actual</th><th>Quedará</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+      <div class="error-msg" id="errorRegistro"></div>
+      <div style="display:flex; gap:10px; margin-top:14px; align-items:center;">
+        <button type="button" class="btn btn-primario" id="btnConfirmarRegistro" ${hayCambios.length ? "" : "disabled"}>${hayCambios.length ? `Escribir en GESCOLAR (${hayCambios.length})` : "Todo está al día"}</button>
+        <button type="button" class="btn btn-fantasma" id="btnCancelarRegistro">Cancelar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(fondo);
+  const cerrar = () => fondo.remove();
+  fondo.querySelector("#btnCancelarRegistro").addEventListener("click", cerrar);
+  fondo.addEventListener("click", (e) => { if (e.target === fondo) cerrar(); });
+  fondo.querySelector("#btnConfirmarRegistro").addEventListener("click", async () => {
+    const boton = fondo.querySelector("#btnConfirmarRegistro");
+    boton.disabled = true;
+    boton.textContent = "Escribiendo…";
+    try {
+      const r = await RAC.post(`/api/inspecciones/planes/${plan.id}/tipo-atencion`, { confirmar: true });
+      mostrarToast(`GESCOLAR actualizado: «${r.valor}» en ${r.con_cambio} plantel${r.con_cambio === 1 ? "" : "es"}.`);
+      cerrar();
+    } catch (err) {
+      const e = fondo.querySelector("#errorRegistro");
+      e.textContent = err.message;
+      e.classList.add("visible");
+      boton.disabled = false;
+      boton.textContent = `Escribir en GESCOLAR (${hayCambios.length})`;
+    }
   });
 }
 
