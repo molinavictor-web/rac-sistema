@@ -106,6 +106,7 @@ const usuario = renderShell("usuarios", "Usuarios");
               <button class="btn btn-fantasma btn-sm" data-id="${u.id}" data-activo="${u.activo}">
                 ${u.activo ? "Desactivar" : "Reactivar"}
               </button>
+              ${u.rol === "director" || (usuario && String(u.id) === String(usuario.id)) ? "" : `<button class="btn btn-sm" data-eliminar-id="${u.id}" style="background:#b3261e; color:#fff;">Eliminar</button>`}
             </td>
           </tr>
         `).join("");
@@ -118,6 +119,12 @@ const usuario = renderShell("usuarios", "Usuarios");
         cont.querySelectorAll("[data-id]").forEach((btn) => {
           btn.addEventListener("click", () => cambiarActivo(btn.dataset.id, btn.dataset.activo === "true"));
         });
+        cont.querySelectorAll("[data-eliminar-id]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const u = usuariosCache.find((item) => String(item.id) === btn.dataset.eliminarId);
+            if (u) eliminarUsuario(u);
+          });
+        });
         cont.querySelectorAll("[data-editar-id]").forEach((btn) => {
           btn.addEventListener("click", () => {
             const u = usuariosCache.find((item) => String(item.id) === btn.dataset.editarId);
@@ -126,6 +133,17 @@ const usuario = renderShell("usuarios", "Usuarios");
         });
       } catch (err) {
         cont.innerHTML = `<div class="vacio"><strong>No se pudo cargar la lista</strong>${err.message}</div>`;
+      }
+    }
+
+    async function eliminarUsuario(u) {
+      if (!window.confirm(`¿Eliminar a ${u.nombre} (${u.email})?\n\nYa no podrá entrar al sistema y dejará de aparecer en esta lista. Si tenía planillas asignadas en Inspecciones, quedarán sin asignar.`)) return;
+      try {
+        await RAC.del(`/api/usuarios/${u.id}`);
+        mostrarToast("Usuario eliminado.");
+        cargarUsuarios();
+      } catch (err) {
+        mostrarToast(err.message, true);
       }
     }
 
