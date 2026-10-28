@@ -18,12 +18,8 @@ const RAC = (() => {
   function loginUrl() {
     const ruta = window.location.pathname;
     if (ruta.startsWith("/supervision/")) return "/supervision/login.html";
-    if (ruta.startsWith("/inspecciones/")) {
-      let portal = null;
-      try { portal = sessionStorage.getItem(PORTAL_KEY); } catch (_) { /* sin almacenamiento */ }
-      const u = getUsuario();
-      if (portal === "inspecciones" || (u && ROLES_INSPECCIONES.includes(u.rol))) return "/inspecciones/login.html";
-    }
+    // Todo lo que está bajo /inspecciones/ vuelve a su propia entrada (el login acepta también al administrador).
+    if (ruta.startsWith("/inspecciones/")) return "/inspecciones/login.html";
     return "/login.html";
   }
 
@@ -67,7 +63,9 @@ const RAC = (() => {
 
     const resp = await fetch(ruta, Object.assign({}, opciones, { headers }));
 
-    if (resp.status === 401) {
+    // Un 401 en el propio login significa "credenciales inválidas", no sesión vencida:
+    // se deja pasar para que la pantalla muestre el mensaje en vez de redirigir.
+    if (resp.status === 401 && !String(ruta).startsWith("/api/auth/login")) {
       cerrarSesion();
       throw new Error("Sesión expirada.");
     }
