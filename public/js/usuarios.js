@@ -147,6 +147,9 @@ const usuario = renderShell("usuarios", "Usuarios");
         operador_credenciales: "Operador de credenciales",
         operador_plantel: "Operador de plantel",
         supervision: "Supervisión",
+        insp_coordinador: "Inspecciones · Coordinador",
+        insp_ingeniero: "Inspecciones · Ingeniero",
+        insp_consulta: "Inspecciones · Consulta",
         director: "Director de plantel",
       };
       return mapa[rol] || rol;

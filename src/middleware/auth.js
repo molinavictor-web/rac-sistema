@@ -6,6 +6,14 @@ const jwt = require("jsonwebtoken");
 const ROLES_SOLO_SUPERVISION = ["supervision", "director"];
 const RUTAS_PERMITIDAS_SUPERVISION = /^\/api\/(supervision|auth)(\/|\?|$)/;
 
+// Roles del módulo Inspecciones: SOLO pueden usar /api/inspecciones (su panel)
+// y /api/auth (sesión). Igual que Supervisión, el resto del sistema les responde 403.
+//   insp_coordinador: arma planes, enlaza planteles, asigna ingenieros, consolidados y Excel
+//   insp_ingeniero:   llena las planillas que se le asignan
+//   insp_consulta:    solo ve consolidados y descarga Excel (autoridades)
+const ROLES_SOLO_INSPECCIONES = ["insp_coordinador", "insp_ingeniero", "insp_consulta"];
+const RUTAS_PERMITIDAS_INSPECCIONES = /^\/api\/(inspecciones|auth)(\/|\?|$)/;
+
 /**
  * Verifica el token JWT y adjunta el usuario decodificado a req.usuario.
  * El token debe incluir { id, rol, municipio_id, codigo_plantel }.
@@ -24,6 +32,10 @@ function requireAuth(req, res, next) {
 
   if (ROLES_SOLO_SUPERVISION.includes(req.usuario.rol) && !RUTAS_PERMITIDAS_SUPERVISION.test(req.originalUrl)) {
     return res.status(403).json({ error: "Tu usuario solo tiene acceso al panel de Supervisión." });
+  }
+
+  if (ROLES_SOLO_INSPECCIONES.includes(req.usuario.rol) && !RUTAS_PERMITIDAS_INSPECCIONES.test(req.originalUrl)) {
+    return res.status(403).json({ error: "Tu usuario solo tiene acceso al módulo de Inspecciones." });
   }
 
   next();
