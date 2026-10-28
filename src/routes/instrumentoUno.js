@@ -133,6 +133,9 @@ function puedeEditar(rol, usuarioId, v) {
   return rol === "insp_ingeniero" && v.creado_por === usuarioId && v.estado === "BORRADOR";
 }
 
+// Eliminar: el ingeniero borra sus propios borradores; el coordinador y el admin, cualquier visita.
+const puedeEliminar = puedeEditar;
+
 // ---------------------------------------------------------------------------
 // Esquema y consulta de plantel
 // ---------------------------------------------------------------------------
@@ -192,7 +195,9 @@ router.get("/visitas", requireAuth, requireRol(...ROLES_LECTURA), async (req, re
        ORDER BY v.actualizado_en DESC, v.id DESC LIMIT 300`,
       params
     );
-    res.json({ visitas: rows });
+    res.json({
+      visitas: rows.map((v) => ({ ...v, puede_eliminar: puedeEliminar(req.usuario.rol, req.usuario.id, v) })),
+    });
   } catch (err) {
     falloInterno(res, err, "No se pudo cargar la lista de visitas.");
   }
@@ -245,6 +250,7 @@ router.get("/visitas/:id", requireAuth, requireRol(...ROLES_LECTURA), cargarVisi
         datos: v.datos, gescolar: v.gescolar, codigo_infraestructura: v.codigo_infraestructura,
         infra_sincronizada: v.infra_sincronizada, enviado_en: v.enviado_en, actualizado_en: v.actualizado_en,
         ingeniero: v.ingeniero, puede_editar: puedeEditar(req.usuario.rol, req.usuario.id, v),
+        puede_eliminar: puedeEliminar(req.usuario.rol, req.usuario.id, v),
       },
       edificio,
       hoja_ok: hojaOk,
@@ -373,6 +379,28 @@ router.put("/visitas/:id", requireAuth, requireRol(...ROLES_ESCRIBE), cargarVisi
     });
   } catch (err) {
     falloInterno(res, err, "No se pudo guardar la visita.");
+  }
+});
+
+router.delete("/visitas/:id", requireAuth, requireRol(...ROLES_ESCRIBE), cargarVisita, async (req, res) => {
+  const v = req.visita;
+  if (!puedeEliminar(req.usuario.rol, req.usuario.id, v)) {
+    return res.status(403).json({ error: v.estado === "ENVIADA" ? "Una visita enviada solo la puede eliminar el coordinador o el administrador." : "No puedes eliminar esta visita." });
+  }
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    // Los nombres que esta visita aportó al edificio se quitan junto con ella.
+    await cliente.query("DELETE FROM iu_edificio_miembros WHERE visita_id = $1", [v.id]);
+    await cliente.query("DELETE FROM iu_visitas WHERE id = $1", [v.id]);
+    await cliente.query("COMMIT");
+    console.log(`Instrumento Uno: visita ${v.id} (${v.codigo_dea}, ${v.estado}) eliminada por usuario ${req.usuario.id}.`);
+    res.json({ ok: true });
+  } catch (err) {
+    await cliente.query("ROLLBACK").catch(() => {});
+    falloInterno(res, err, "No se pudo eliminar la visita.");
+  } finally {
+    cliente.release();
   }
 });
 

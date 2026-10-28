@@ -152,6 +152,7 @@ function pintar() {
       </div>
       <div class="der">
         <a class="btn btn-fantasma" href="/inspecciones/instrumento-uno.html">Salir</a>
+        ${V.puede_eliminar ? `<button type="button" class="btn btn-fantasma" id="btnEliminar" style="color:#b3261e;">Eliminar</button>` : ""}
         ${editable && V.estado === "BORRADOR" ? `<button type="button" class="btn btn-fantasma" id="btnBorrador">Guardar borrador</button>` : ""}
         ${editable && paso === ESQ.secciones.length - 1 ? `<button type="button" class="btn btn-primario" id="btnEnviar">${V.estado === "ENVIADA" ? "Guardar cambios (reenviar)" : "Enviar visita"}</button>` : ""}
       </div>
@@ -294,6 +295,7 @@ function enganchar() {
   if (q("btnAnterior")) q("btnAnterior").addEventListener("click", () => irA(paso - 1));
   if (q("btnSiguiente")) q("btnSiguiente").addEventListener("click", () => irA(paso + 1));
   if (q("btnBorrador")) q("btnBorrador").addEventListener("click", () => guardar(false));
+  if (q("btnEliminar")) q("btnEliminar").addEventListener("click", eliminarVisita);
   if (q("btnEnviar")) q("btnEnviar").addEventListener("click", () => guardar(true));
   if (q("btnDescartarBorrador")) q("btnDescartarBorrador").addEventListener("click", () => {
     borrarBorradorLocal(); hayBorradorRecuperado = false;
@@ -452,4 +454,17 @@ function pintarResultado(contenido) {
       </div>
     </div>`;
   document.getElementById("btnVolverVisita").addEventListener("click", () => { resultado = null; paso = 0; pintar(); });
+}
+
+async function eliminarVisita() {
+  const msg = `¿Eliminar esta visita (${nombreVisita()})? Esta acción no se puede deshacer.` +
+    (V.estado === "ENVIADA" ? "\n\nEstá ENVIADA: lo que ya se escribió en la hoja «Coordenadas Planteles» no se borra." : "");
+  if (!window.confirm(msg)) return;
+  try {
+    await api("DELETE", `${BASE}/visitas/${VISITA_ID}`);
+    borrarBorradorLocal();
+    window.location.href = "/inspecciones/instrumento-uno.html";
+  } catch (err) {
+    mostrarToast(err.message, true);
+  }
 }

@@ -86,9 +86,27 @@ async function cargarLista() {
         <td>${escapar(v.fecha_visita ? fechaCorta(v.fecha_visita + "T12:00:00") : "")}</td>
         <td>${escapar(v.ingeniero || "")}</td>
         <td>${escapar(v.codigo_infraestructura || "")}${v.codigo_infraestructura && !v.infra_sincronizada ? ` <small title="Aún no escrito en la hoja Coordenadas Planteles">⚠</small>` : ""}</td>
-        <td><a class="btn btn-fantasma btn-sm" href="/inspecciones/instrumento-uno-visita.html?id=${v.id}">${v.estado === "BORRADOR" ? "Continuar" : "Abrir"}</a></td>
+        <td style="white-space:nowrap;"><a class="btn btn-fantasma btn-sm" href="/inspecciones/instrumento-uno-visita.html?id=${v.id}">${v.estado === "BORRADOR" ? "Continuar" : "Abrir"}</a>${v.puede_eliminar ? ` <button type="button" class="btn btn-fantasma btn-sm" data-eliminar="${v.id}" data-nombre="${escapar(v.nombre_plantel || v.codigo_dea)}" data-estado="${v.estado}" style="color:#b3261e;">Eliminar</button>` : ""}</td>
       </tr>`).join("")}</tbody></table></div>`;
+    cont.querySelectorAll("[data-eliminar]").forEach((b) => b.addEventListener("click", () => eliminar(b)));
   } catch (ex) {
     cont.innerHTML = `<div class="vacio"><strong>No se pudo cargar la lista</strong>${escapar(ex.message)}</div>`;
+  }
+}
+
+async function eliminar(b) {
+  const enviada = b.dataset.estado === "ENVIADA";
+  const msg = `¿Eliminar la visita de «${b.dataset.nombre}»? Esta acción no se puede deshacer.` +
+    (enviada ? "\n\nEstá ENVIADA: se quitará del sistema, pero lo que ya se escribió en la hoja «Coordenadas Planteles» no se borra." : "");
+  if (!window.confirm(msg)) return;
+  b.disabled = true;
+  try {
+    await RAC.del(`${BASE}/visitas/${b.dataset.eliminar}`);
+    try { Object.keys(localStorage).filter((k) => k.endsWith("_" + b.dataset.eliminar) && k.startsWith("iu_borrador_")).forEach((k) => localStorage.removeItem(k)); } catch (_) { /* nada */ }
+    mostrarToast("Visita eliminada.");
+    cargarLista();
+  } catch (ex) {
+    b.disabled = false;
+    mostrarToast(ex.message, true);
   }
 }
