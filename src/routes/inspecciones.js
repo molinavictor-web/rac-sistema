@@ -4,6 +4,8 @@
 //
 // Rutas montadas en /api/inspecciones:
 //   GET   /ingenieros                               cuentas de ingeniero activas (para asignar)
+//   GET   /planes/:id/tipo-atencion                 vista previa: qué se escribiría en TIPO ATENCION de GESCOLAR (solo admin)
+//   POST  /planes/:id/tipo-atencion                 escribe el nombre del plan en TIPO ATENCION de sus planteles activos (solo admin)
 //   GET   /responsables                             ingenieros que ya figuran como RESPONSABLE en GESCOLAR (con su conteo)
 //   PUT   /inspeccion/:id/asignaciones              asignar a una planilla: responsable (se escribe en GESCOLAR) y/o cuentas con acceso
 //   GET   /mis-planillas                            las planillas asignadas al ingeniero en sesión
@@ -1323,6 +1325,84 @@ router.get("/ingenieros", requireAuth, requireRol(...ROLES_GESTION), async (req,
     res.json({ ingenieros: rows });
   } catch (err) {
     falloInterno(res, err, "No se pudo cargar la lista de ingenieros.");
+  }
+});
+
+// ---- Registrar el plan en GESCOLAR (columna TIPO ATENCION) ----
+// Escribe el NOMBRE del plan (p. ej. «PRE 2026-2027») en TIPO ATENCION de los planteles que están
+// activos en el plan, y solo de esos. Es una operación sobre datos oficiales, por eso solo el administrador;
+// la vista previa muestra el valor actual de cada plantel antes de confirmar.
+async function plantelesActivosDelPlan(planId) {
+  const plan = await pool.query("SELECT id, nombre FROM planes_atencion WHERE id = $1", [planId]);
+  if (!plan.rows.length) return null;
+  const { rows } = await pool.query(
+    `SELECT pi.codigo_dea, i.membrete
+     FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
+     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL
+     ORDER BY pi.codigo_dea`,
+    [planId]
+  );
+  return { plan: plan.rows[0], planteles: rows };
+}
+
+router.get("/planes/:id/tipo-atencion", requireAuth, requireRol("admin"), async (req, res) => {
+  const planId = entero(req.params.id);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  try {
+    const info = await plantelesActivosDelPlan(planId);
+    if (!info) return res.status(404).json({ error: "Plan no encontrado." });
+    const valor = limpiarTexto(info.plan.nombre);
+    const datos = await gescolar.cargarGescolar(true);
+    const porCodigo = new Map(datos.map((p) => [limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase(), p]));
+    const planteles = info.planteles.map((r) => {
+      const fila = porCodigo.get(String(r.codigo_dea || "").trim().toLowerCase());
+      const actual = fila ? limpiarTexto(fila[gescolar.CAMPO_TIPO_ATENCION]) : null;
+      return {
+        codigo_dea: r.codigo_dea,
+        nombre_plantel: nombreEfectivo(r.membrete || {}),
+        en_gescolar: Boolean(fila),
+        actual,
+        cambia: Boolean(fila) && actual !== valor,
+      };
+    });
+    res.json({ valor, planteles });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo preparar la vista previa de GESCOLAR.");
+  }
+});
+
+router.post("/planes/:id/tipo-atencion", requireAuth, requireRol("admin"), async (req, res) => {
+  const planId = entero(req.params.id);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  if (!req.body || req.body.confirmar !== true) return res.status(400).json({ error: "Falta confirmar la operación." });
+  try {
+    const info = await plantelesActivosDelPlan(planId);
+    if (!info) return res.status(404).json({ error: "Plan no encontrado." });
+    const valor = limpiarTexto(info.plan.nombre);
+    if (!valor || valor.length > 80 || /^[=+\-@]/.test(valor)) return res.status(400).json({ error: "El nombre del plan no es válido para escribirlo en GESCOLAR." });
+    if (!info.planteles.length) return res.status(400).json({ error: "El plan no tiene planteles activos." });
+    let resultado;
+    try {
+      resultado = await gescolar.escribirCampoLote(
+        gescolar.CAMPO_TIPO_ATENCION,
+        info.planteles.map((r) => ({ codigo: r.codigo_dea, valor }))
+      );
+    } catch (err) {
+      console.error("Error escribiendo TIPO ATENCION en GESCOLAR:", err);
+      return res.status(502).json({ error: "No se pudo escribir en GESCOLAR. Verifica que la hoja esté compartida como Editor con la cuenta de servicio. No se cambió nada." });
+    }
+    // Queda en el registro del servidor qué había antes, por si hace falta devolver algún valor.
+    console.log(`TIPO ATENCION de GESCOLAR actualizado por usuario ${req.usuario.id} con «${valor}»:`,
+      JSON.stringify(resultado.escritos.filter((e) => e.anterior !== e.valor)));
+    res.json({
+      ok: true,
+      valor,
+      escritos: resultado.escritos.length,
+      con_cambio: resultado.escritos.filter((e) => e.anterior !== e.valor).length,
+      no_encontrados: resultado.no_encontrados,
+    });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo actualizar GESCOLAR.");
   }
 });
 
