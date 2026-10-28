@@ -109,6 +109,7 @@ function guardarBorradorLocal() {
   }, 300);
 }
 function borrarBorradorLocal() {
+  clearTimeout(temporizador); // un guardado pendiente no debe revivir el borrador ya enviado al servidor
   try { localStorage.removeItem(CLAVE_BORRADOR()); } catch (_) { /* nada */ }
 }
 
@@ -208,7 +209,7 @@ function campoHtml(c) {
 function grupoHtml(g) {
   if (g.id === "secciones") return `<div class="iu-grupo"><h3>${escapar(g.titulo)}</h3><p class="iu-ayuda">${escapar(g.ayuda || "")}</p><div id="grp-secciones"></div></div>`;
   return `<div class="iu-grupo"><h3>${escapar(g.titulo)}</h3><p class="iu-ayuda">${escapar(g.ayuda || "")}</p>
-    <div class="iu-rejilla">${g.campos.map(campoHtml).join("")}</div>
+    <div class="iu-rejilla ${g.id.startsWith("legal") ? "ancha" : ""}">${g.campos.map(campoHtml).join("")}</div>
     ${g.id === "matricula" ? `<div class="iu-total">Total de matrícula: <strong id="totalMatricula">0</strong></div>` : ""}</div>`;
 }
 
@@ -278,6 +279,12 @@ function actualizarDependencias() {
       av.style.display = sumaMal ? "" : "none";
       av.textContent = sumaMal ? "Las aulas operativas y NO operativas no suman el total de aulas. Revísalo." : "";
     }
+  }
+  if (sec.id === "legal") {
+    seccionesCampos()[paso].filter((c) => c.visibleSi).forEach((c) => {
+      const f = document.getElementById(`fld-${c.clave}`);
+      if (f) f.style.display = c.visibleSi.valores.includes(datos[c.visibleSi.clave]) ? "" : "none";
+    });
   }
   if (sec.id === "edificio") {
     const wrap = document.getElementById("iuListaWrap");

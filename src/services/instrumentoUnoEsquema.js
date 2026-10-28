@@ -33,6 +33,30 @@ const ESTADO_ESPACIO = [
 ];
 const SI_NO = [{ valor: "SI", etiqueta: "Sí" }, { valor: "NO", etiqueta: "No" }];
 
+const DOC_TIENE = [
+  { valor: "SI", etiqueta: "Sí tiene documento" },
+  { valor: "EN_TRAMITE", etiqueta: "En trámite" },
+  { valor: "NO", etiqueta: "No tiene documento" },
+];
+const DOC_TIPO = [
+  { valor: "TITULO_PROPIEDAD", etiqueta: "Título de propiedad" },
+  { valor: "COMODATO", etiqueta: "Comodato" },
+  { valor: "ALQUILER", etiqueta: "Alquiler" },
+  { valor: "DONACION", etiqueta: "Donación" },
+  { valor: "OTRO", etiqueta: "Otro" },
+];
+function grupoLegal(id, titulo, ayuda, prefijo) {
+  const doc = `${prefijo}_documento`;
+  return {
+    id, titulo, ayuda,
+    campos: [
+      { clave: doc, etiqueta: "¿Tiene documentación legal?", tipo: "select", obligatorio: true, opciones: DOC_TIENE },
+      { clave: `${prefijo}_tipo`, etiqueta: "Tipo de documento", tipo: "select", opciones: DOC_TIPO, visibleSi: { clave: doc, valores: ["SI", "EN_TRAMITE"] }, ayuda: "Obligatorio si ya tiene el documento; si está en trámite, indica cuál se tramita (opcional)." },
+      { clave: `${prefijo}_detalle`, etiqueta: "Propietario / quien otorga el documento", tipo: "texto", visibleSi: { clave: doc, valores: ["SI", "EN_TRAMITE"] }, ayuda: "Opcional. Ej.: Gobernación, alcaldía, iglesia, particular, comunidad." },
+    ],
+  };
+}
+
 const PATRON_CEDULA = "^\\d{6,9}$";
 // 11 dígitos: fijos 02xx (p. ej. 0291 de Monagas) y móviles 0412, 0414, 0416, 0424, 0426.
 const PATRON_TELEFONO = "^0(2\\d{2}|4(12|14|16|24|26))\\d{7}$";
@@ -124,7 +148,21 @@ const SECCIONES = [
     ],
     lista: { clave: "otras_instituciones", etiqueta: "Otras instituciones del edificio", max: 10 },
   },
+  {
+    id: "legal",
+    titulo: "Situación legal",
+    ayuda: "Documentación que respalda el edificio y el terreno (título de propiedad, comodato, alquiler o donación). Si en el edificio funcionan varias instituciones, es la del edificio.",
+    campos: [],
+    grupos: [
+      grupoLegal("legal_edificio", "Edificio", "", "legal_edificio"),
+      grupoLegal("legal_terreno", "Terreno", "", "legal_terreno"),
+    ],
+  },
 ];
+SECCIONES[SECCIONES.length - 1].grupos.push({
+  id: "legal_obs", titulo: "Observaciones", ayuda: "",
+  campos: [{ clave: "legal_observaciones", etiqueta: "Observaciones sobre la situación legal", tipo: "parrafo" }],
+});
 
 function todosLosCampos() {
   const r = [];
@@ -272,6 +310,10 @@ function validar(entrada, { enviar = false } = {}) {
     otras.push({ codigo_dea: codigo, nombre });
   });
   if (datos.comparte_edificio === "NO") otras = [];
+  // sin documento no hay tipo ni propietario que guardar
+  ["legal_edificio", "legal_terreno"].forEach((p) => {
+    if (datos[`${p}_documento`] !== "SI" && datos[`${p}_documento`] !== "EN_TRAMITE") { delete datos[`${p}_tipo`]; delete datos[`${p}_detalle`]; }
+  });
   datos.otras_instituciones = otras;
 
   if (enviar) {
@@ -288,6 +330,9 @@ function validar(entrada, { enviar = false } = {}) {
     if ((Number(datos.canchas_operativas) || 0) + (Number(datos.canchas_no_operativas) || 0) > 0 && !datos.cancha_techada && !errores.cancha_techada) {
       errores.cancha_techada = "Indica si la cancha es techada.";
     }
+    ["legal_edificio", "legal_terreno"].forEach((p) => {
+      if (datos[`${p}_documento`] === "SI" && !datos[`${p}_tipo`] && !errores[`${p}_tipo`]) errores[`${p}_tipo`] = "Indica qué tipo de documento tiene.";
+    });
     if (datos.comparte_edificio === "SI" && !otras.length && !errores.otras_instituciones) {
       errores.otras_instituciones = "Agrega la otra institución que funciona en el edificio (con su código DEA, o solo el nombre si no tiene).";
     }
