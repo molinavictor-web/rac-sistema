@@ -51,9 +51,8 @@ function pintar(d) {
   const filasTipo = d.por_tipo.length
     ? d.por_tipo.map((t) => `
         <div class="dash-fila-barra">
-          <div class="nombre">${escapar(t.nombre)}<span class="dash-etiqueta ${t.origen === "plan" ? "plan" : ""}">${t.origen === "plan" ? "plan actual" : "tipo de atención"}</span></div>
+          <div class="nombre">${escapar(t.nombre)}<span class="dash-etiqueta ${t.origen === "plan" ? "plan" : ""}">${t.origen === "plan" ? "plan actual" : "tipo de atención"}</span><div class="dash-cant"><strong>${n(t.cantidad)}</strong> plantel${t.cantidad === 1 ? "" : "es"} · ${pct(t.porcentaje)}</div></div>
           <div class="dash-barra"><span class="${t.origen === "plan" ? "azul" : "ok"}" style="width:${Math.min(100, t.porcentaje)}%"></span></div>
-          <div class="valor">${n(t.cantidad)} · ${pct(t.porcentaje)}</div>
         </div>`).join("")
     : `<div class="vacio"><strong>Sin datos de atención</strong>Aún no hay planteles con tipo de atención o plan en GESCOLAR.</div>`;
 
