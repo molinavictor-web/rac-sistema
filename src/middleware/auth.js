@@ -13,6 +13,8 @@ const RUTAS_PERMITIDAS_SUPERVISION = /^\/api\/(supervision|auth)(\/|\?|$)/;
 //   insp_consulta:    solo ve consolidados y descarga Excel (autoridades)
 const ROLES_SOLO_INSPECCIONES = ["insp_coordinador", "insp_ingeniero", "insp_consulta"];
 const RUTAS_PERMITIDAS_INSPECCIONES = /^\/api\/(inspecciones|auth)(\/|\?|$)/;
+// Además, solo para LEER (GET) la ficha de un plantel desde el resumen de ingenieros.
+const RUTA_FICHA_SOLO_LECTURA = /^\/api\/planteles-consulta\/(buscar|[^/?]+\/(archivos|coordenadas))(\/|\?|$)/;
 
 /**
  * Verifica el token JWT y adjunta el usuario decodificado a req.usuario.
@@ -34,7 +36,11 @@ function requireAuth(req, res, next) {
     return res.status(403).json({ error: "Tu usuario solo tiene acceso al panel de Supervisión." });
   }
 
-  if (ROLES_SOLO_INSPECCIONES.includes(req.usuario.rol) && !RUTAS_PERMITIDAS_INSPECCIONES.test(req.originalUrl)) {
+  if (
+    ROLES_SOLO_INSPECCIONES.includes(req.usuario.rol) &&
+    !RUTAS_PERMITIDAS_INSPECCIONES.test(req.originalUrl) &&
+    !(req.method === "GET" && RUTA_FICHA_SOLO_LECTURA.test(req.originalUrl))
+  ) {
     return res.status(403).json({ error: "Tu usuario solo tiene acceso al módulo de Inspecciones." });
   }
 
