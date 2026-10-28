@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Instrumento Uno CDCE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .iu-pasos{display:flex; gap:6px; flex-wrap:wrap; margin:0 0 14px;}
+  .iu-paso{flex:1 1 120px; padding:9px 10px; border:1px solid #d7dfea; border-radius:10px; background:#fff; font-size:.82rem; text-align:left; cursor:pointer; color:#10233e;}
+  .iu-paso b{display:block; font-family:var(--display); font-size:.74rem; letter-spacing:.04em; color:#718198; text-transform:uppercase;}
+  .iu-paso.activo{border-color:#1677e8; background:#eaf4ff;}
+  .iu-paso.error{border-color:#df3944; background:#fff0f1;}
+  .iu-paso.ok b::after{content:" ✓"; color:#18a66a;}
+  .iu-bloque{padding:18px 20px;}
+  .iu-bloque h2{margin:0 0 4px; font-family:var(--display); font-size:1.1rem;}
+  .iu-ayuda{color:#718198; font-size:.82rem; margin:0 0 14px;}
+  .iu-campo{margin:0 0 16px;}
+  .iu-campo > label{display:block; font-weight:600; font-size:.9rem; margin-bottom:5px;}
+  .iu-campo .req{color:#df3944;}
+  .iu-campo input[type=text], .iu-campo input[type=number], .iu-campo input[type=email], .iu-campo input[type=date], .iu-campo select, .iu-campo textarea{width:100%; max-width:520px; padding:11px 12px; border:1px solid #c7d2e0; border-radius:9px; font:inherit; font-size:1rem; background:#fff;}
+  .iu-campo textarea{min-height:76px; max-width:100%;}
+  .iu-campo.con-error input, .iu-campo.con-error select, .iu-campo.con-error textarea{border-color:#df3944;}
+  .iu-msg-error{color:#b3261e; font-size:.8rem; margin-top:4px;}
+  .iu-nota{color:#718198; font-size:.78rem; margin-top:4px;}
+  .iu-edit{display:inline-block; font-size:.68rem; padding:1px 7px; border-radius:99px; background:#fff4e5; color:#b45f06; margin-left:6px; font-weight:500;}
+  .iu-restablecer{font-size:.72rem; margin-left:6px; background:none; border:none; color:#1677e8; cursor:pointer; padding:0; text-decoration:underline;}
+  .iu-rejilla{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px;}
+  .iu-rejilla .iu-campo{margin:0;}
+  .iu-rejilla input{max-width:100%;}
+  .iu-grupo{margin:18px 0 6px; padding-top:14px; border-top:1px solid #e8edf3;}
+  .iu-grupo h3{margin:0 0 2px; font-size:.98rem; font-family:var(--display);}
+  .iu-multi label{display:inline-flex; align-items:center; gap:7px; margin:0 14px 8px 0; font-weight:400; font-size:.95rem;}
+  .iu-multi input{width:20px; height:20px;}
+  .iu-total{margin-top:10px; font-size:.9rem;}
+  .iu-aviso{margin:10px 0; padding:9px 12px; border-radius:9px; background:#fff8e1; border:1px solid #f2c94c; font-size:.84rem;}
+  .iu-inst{display:grid; grid-template-columns:minmax(130px,200px) 1fr auto; gap:8px; align-items:start; margin-bottom:10px; padding:10px; border:1px solid #e0e7f0; border-radius:10px; background:#fafcff;}
+  .iu-inst input{width:100%; padding:10px 11px; border:1px solid #c7d2e0; border-radius:9px; font:inherit; font-size:.95rem; background:#fff; box-sizing:border-box;}
+  .iu-barra a.btn, .iu-nueva a.btn{text-decoration:none; display:inline-flex; align-items:center;}
+  .iu-inst .nombre{font-size:.88rem; padding-top:8px; overflow-wrap:anywhere;}
+  .iu-barra{position:sticky; bottom:0; z-index:5; background:rgba(255,255,255,.96); border-top:1px solid #dfe7f0; padding:10px 14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between;}
+  .iu-barra .izq, .iu-barra .der{display:flex; gap:8px; flex-wrap:wrap;}
+  .iu-resultado{padding:20px; border:2px solid #18a66a; border-radius:14px; background:#eaf9f2; margin-top:12px;}
+  .iu-resultado code{font-size:1.05rem; font-weight:700;}
+  .iu-edificio-lista{margin:8px 0 0; padding-left:20px; font-size:.9rem;}
+  .iu-borrador{margin:0 0 12px; padding:9px 12px; border-radius:9px; background:#eaf4ff; border:1px solid #b6d4f5; font-size:.84rem; display:flex; gap:10px; justify-content:space-between; flex-wrap:wrap; align-items:center;}
+  @media(max-width:640px){ .iu-barra{padding:8px 10px; gap:6px;} .iu-barra .btn{padding:8px 11px; font-size:.84rem;} .iu-barra .izq, .iu-barra .der{flex:1 1 100%; justify-content:space-between;} .iu-inst{grid-template-columns:1fr;} .iu-bloque{padding:14px 12px;} }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/instrumento-uno-visita.js"></script>
+</body>
+</html>
