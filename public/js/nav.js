@@ -58,6 +58,8 @@ function renderShell(paginaActiva, tituloTopbar) {
     ]},
     { id: "inspecciones-grupo", titulo: "Inspecciones", enlaces: [
       { id: "inspecciones-dashboard", href: "/inspecciones/dashboard.html", label: "Resumen", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
+      { id: "inspecciones-iu", href: "/inspecciones/instrumento-uno.html", label: "Instrumento Uno CDCE", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
+      { id: "inspecciones-edificios", href: "/inspecciones/instrumento-uno-edificios.html", label: "Edificios compartidos", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-planes", href: "/inspecciones/planes.html", label: "Planes de atención", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta"] },
       { id: "inspecciones-mis-planillas", href: "/inspecciones/mis-planillas.html", label: "Mis planillas", roles: ["insp_ingeniero"] },
       { id: "inspecciones-ingenieros", href: "/inspecciones/ingenieros.html", label: "Ingenieros", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
@@ -116,6 +118,8 @@ function renderShell(paginaActiva, tituloTopbar) {
     "inspecciones-dashboard": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h7V3H3v10Zm11 8h7V3h-7v18ZM3 21h7v-4H3v4Zm11 0h7v-4h-7v4Z"/></svg>`,
     "inspecciones-planteles": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 10 9-6 9 6M5 10v10h14V10M9 20v-6h6v6"/><circle cx="17.5" cy="17.5" r="3.2"/><path d="m21 21-1.6-1.6"/></svg>`,
     "inspecciones-directorio": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 17c.6-2 1.6-3 3-3s2.4 1 3 3M15 9h3M15 13h3"/></svg>`,
+    "inspecciones-iu": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>`,
+    "inspecciones-edificios": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V8l8-5 8 5v13M9 21v-6h6v6M8 11h1M15 11h1"/></svg>`,
     "inspecciones-planes": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>`,
     "inspecciones-ingenieros": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 5.5a3 3 0 010 5.8M18 14.8c1.9.7 3 2.4 3 5.2"/></svg>`,
     "inspecciones-mis-planillas": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 13l2 2 4-4"/></svg>`,
