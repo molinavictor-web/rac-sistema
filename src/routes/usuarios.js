@@ -52,7 +52,9 @@ router.get("/", requireAuth, requireRol("admin"), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, nombre, email, rol, municipio_id, activo, creado_en
-       FROM usuarios ORDER BY creado_en DESC`
+       FROM usuarios
+       WHERE email NOT LIKE 'eliminado-%'
+       ORDER BY creado_en DESC`
     );
     res.json({ usuarios: rows });
   } catch (err) {
@@ -138,6 +140,62 @@ router.patch("/:id/activo", requireAuth, requireRol("admin"), async (req, res) =
   } catch (err) {
     console.error("Error actualizando usuario:", err);
     res.status(500).json({ error: "Error interno al actualizar el usuario." });
+  }
+});
+
+// Eliminar un usuario (solo admin). Es una eliminación "suave", igual que la de Supervisión con los
+// directores: la cuenta queda inactiva y su correo pasa a 'eliminado-<id>-<correo>', así deja de
+// aparecer en la lista, ya no puede entrar y el correo queda libre para otra cuenta. Se conserva la
+// fila para no romper el historial (quién guardó cada planilla, auditoría).
+router.delete("/:id", requireAuth, requireRol("admin"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "Id de usuario inválido." });
+  }
+  if (id === Number(req.usuario.id)) {
+    return res.status(400).json({ error: "No puedes eliminar tu propia cuenta." });
+  }
+
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    const { rows } = await cliente.query("SELECT id, nombre, rol, activo FROM usuarios WHERE id = $1 FOR UPDATE", [id]);
+    const u = rows[0];
+    if (!u) {
+      await cliente.query("ROLLBACK");
+      return res.status(404).json({ error: "Usuario no encontrado." });
+    }
+    if (u.rol === "director") {
+      await cliente.query("ROLLBACK");
+      return res.status(400).json({ error: "Los directores se administran desde el panel de Supervisión (Directores)." });
+    }
+    if (u.rol === "admin" && u.activo) {
+      const otros = await cliente.query("SELECT COUNT(*)::int AS n FROM usuarios WHERE rol = 'admin' AND activo = TRUE AND id <> $1", [id]);
+      if (otros.rows[0].n === 0) {
+        await cliente.query("ROLLBACK");
+        return res.status(400).json({ error: "No se puede eliminar al único administrador activo." });
+      }
+    }
+    await cliente.query(
+      `UPDATE usuarios
+       SET activo = FALSE,
+           email = CASE WHEN email LIKE 'eliminado-%' THEN email ELSE 'eliminado-' || id || '-' || email END
+       WHERE id = $1`,
+      [id]
+    );
+    // Si el módulo Inspecciones ya está instalado, se le quitan las planillas asignadas.
+    const existe = await cliente.query("SELECT to_regclass('public.inspeccion_asignaciones') AS t");
+    if (existe.rows[0].t) {
+      await cliente.query("DELETE FROM inspeccion_asignaciones WHERE usuario_id = $1", [id]);
+    }
+    await cliente.query("COMMIT");
+    res.json({ ok: true, id, nombre: u.nombre });
+  } catch (err) {
+    try { await cliente.query("ROLLBACK"); } catch (_) { /* nada */ }
+    console.error("Error eliminando usuario:", err);
+    res.status(500).json({ error: "Error interno al eliminar el usuario." });
+  } finally {
+    cliente.release();
   }
 });
 
