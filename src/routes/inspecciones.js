@@ -4,7 +4,8 @@
 //
 // Rutas montadas en /api/inspecciones:
 //   GET   /ingenieros                               cuentas de ingeniero activas (para asignar)
-//   PUT   /inspeccion/:id/asignaciones              asignar ingenieros a una planilla
+//   GET   /responsables                             ingenieros que ya figuran como RESPONSABLE en GESCOLAR (con su conteo)
+//   PUT   /inspeccion/:id/asignaciones              asignar a una planilla: responsable (se escribe en GESCOLAR) y/o cuentas con acceso
 //   GET   /mis-planillas                            las planillas asignadas al ingeniero en sesión
 //   GET   /resumen-ingenieros                       ingenieros (columna RESPONSABLE de GESCOLAR) y planteles inspeccionados
 //   GET   /planes                                   lista de planes
@@ -227,10 +228,22 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req,
       asig.rows.forEach((a) => { (asignados[a.inspeccion_id] = asignados[a.inspeccion_id] || []).push({ id: a.id, nombre: a.nombre }); });
     }
 
+    // Responsable según GESCOLAR (dato vivo; si la hoja no responde, simplemente no se muestra).
+    const responsables = {};
+    try {
+      (await gescolar.cargarGescolar()).forEach((p) => {
+        const nombre = limpiarTexto(p.RESPONSABLE);
+        if (nombre && !SIN_RESPONSABLE.test(nombre)) responsables[limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase()] = nombre;
+      });
+    } catch (err) {
+      console.error("No se pudo leer RESPONSABLE de GESCOLAR para el plan:", err.message);
+    }
+
     const planteles = rows
       .map((r) => {
         const m = r.membrete || {};
         return {
+          responsable: responsables[String(r.codigo_dea || "").trim().toLowerCase()] || null,
           ingenieros: asignados[r.inspeccion_id] || [],
           inspeccion_id: r.inspeccion_id,
           codigo_dea: r.codigo_dea,
@@ -1313,18 +1326,51 @@ router.get("/ingenieros", requireAuth, requireRol(...ROLES_GESTION), async (req,
   }
 });
 
-// Reemplaza los ingenieros asignados a una planilla. { usuarios: [id, ...] } (puede ir vacío).
+// Los ingenieros que ya figuran como RESPONSABLE en GESCOLAR, con cuántos planteles tiene cada uno.
+router.get("/responsables", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  try {
+    const { grupos } = agruparResponsables(await gescolar.cargarGescolar());
+    res.json({ responsables: grupos.map((g) => ({ nombre: g.nombre, total: g.planteles.length })) });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo leer la lista de ingenieros de GESCOLAR.");
+  }
+});
+
+// Nombre permitido para el responsable: letras (con acentos), números, espacios, punto, apóstrofo y guion.
+const NOMBRE_RESPONSABLE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .'\-]{2,79}$/;
+
+// Asigna a una planilla:
+//   responsable: "NOMBRE" | null   → se escribe en la columna RESPONSABLE de GESCOLAR (null = sin responsable).
+//                                    Si el nombre ya existe en GESCOLAR se usa tal cual está escrito allá.
+//   usuarios: [id, ...]            → cuentas de ingeniero con acceso a llenar la planilla (puede ir vacío).
+// Cada parte es opcional, pero debe venir al menos una. Primero se escribe en GESCOLAR; si falla, no se
+// cambia nada más.
 router.put("/inspeccion/:id/asignaciones", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Inspección inválida." });
-  const lista = (req.body || {}).usuarios;
-  if (!Array.isArray(lista) || lista.length > 20) return res.status(400).json({ error: "Indica la lista de ingenieros (máximo 20)." });
-  const ids = [...new Set(lista.map(entero))];
-  if (ids.some((x) => !x)) return res.status(400).json({ error: "Hay ingenieros inválidos en la lista." });
+  const cuerpo = req.body || {};
+  const traeUsuarios = cuerpo.usuarios !== undefined;
+  const traeResponsable = cuerpo.responsable !== undefined;
+  if (!traeUsuarios && !traeResponsable) return res.status(400).json({ error: "No se indicó qué asignar." });
+
+  let ids = [];
+  if (traeUsuarios) {
+    const lista = cuerpo.usuarios;
+    if (!Array.isArray(lista) || lista.length > 20) return res.status(400).json({ error: "Indica la lista de ingenieros (máximo 20)." });
+    ids = [...new Set(lista.map(entero))];
+    if (ids.some((x) => !x)) return res.status(400).json({ error: "Hay ingenieros inválidos en la lista." });
+  }
+  let nombreResp = null;
+  if (traeResponsable && cuerpo.responsable !== null && String(cuerpo.responsable).trim() !== "") {
+    nombreResp = limpiarTexto(cuerpo.responsable);
+    if (!NOMBRE_RESPONSABLE.test(nombreResp)) {
+      return res.status(400).json({ error: "El nombre del responsable debe tener entre 3 y 80 caracteres (letras, números, espacios, punto, apóstrofo o guion)." });
+    }
+  }
 
   let cliente;
   try {
-    const existe = await pool.query("SELECT 1 FROM inspecciones WHERE id = $1", [id]);
+    const existe = await pool.query("SELECT codigo_dea FROM inspecciones WHERE id = $1", [id]);
     if (!existe.rows.length) return res.status(404).json({ error: "Inspección no encontrada." });
     if (ids.length) {
       const validos = await pool.query(
@@ -1333,17 +1379,41 @@ router.put("/inspeccion/:id/asignaciones", requireAuth, requireRol(...ROLES_GEST
       );
       if (validos.rows.length !== ids.length) return res.status(400).json({ error: "Solo se pueden asignar cuentas de ingeniero activas." });
     }
-    cliente = await pool.connect();
-    await cliente.query("BEGIN");
-    await cliente.query("DELETE FROM inspeccion_asignaciones WHERE inspeccion_id = $1", [id]);
-    for (const uid of ids) {
-      await cliente.query(
-        "INSERT INTO inspeccion_asignaciones (inspeccion_id, usuario_id, asignado_por) VALUES ($1, $2, $3)",
-        [id, uid, req.usuario.id]
-      );
+
+    let responsable;
+    if (traeResponsable) {
+      if (nombreResp) {
+        // Si ya existe en GESCOLAR con otra escritura (mayúsculas, acentos, espacios), se respeta la de allá.
+        const { grupos } = agruparResponsables(await gescolar.cargarGescolar());
+        const igual = grupos.find((g) => claveNombre(g.nombre) === claveNombre(nombreResp));
+        nombreResp = igual ? igual.nombre : nombreResp.toUpperCase();
+      }
+      try {
+        await gescolar.asignarResponsable(existe.rows[0].codigo_dea, nombreResp || "");
+      } catch (err) {
+        console.error("Error escribiendo RESPONSABLE en GESCOLAR:", err);
+        return res.status(err.noEncontrado ? 404 : 502).json({
+          error: err.noEncontrado
+            ? err.message
+            : "No se pudo escribir en GESCOLAR. Verifica que la hoja esté compartida como Editor con la cuenta de servicio. No se cambió nada.",
+        });
+      }
+      responsable = nombreResp;
     }
-    await cliente.query("COMMIT");
-    res.json({ ok: true, asignados: ids.length });
+
+    if (traeUsuarios) {
+      cliente = await pool.connect();
+      await cliente.query("BEGIN");
+      await cliente.query("DELETE FROM inspeccion_asignaciones WHERE inspeccion_id = $1", [id]);
+      for (const uid of ids) {
+        await cliente.query(
+          "INSERT INTO inspeccion_asignaciones (inspeccion_id, usuario_id, asignado_por) VALUES ($1, $2, $3)",
+          [id, uid, req.usuario.id]
+        );
+      }
+      await cliente.query("COMMIT");
+    }
+    res.json({ ok: true, asignados: ids.length, ...(traeResponsable ? { responsable } : {}) });
   } catch (err) {
     if (cliente) await cliente.query("ROLLBACK").catch(() => {});
     falloInterno(res, err, "No se pudo guardar la asignación.");
@@ -1367,34 +1437,41 @@ function claveNombre(t) {
   return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 }
 
+// Agrupa los planteles de GESCOLAR por ingeniero (columna RESPONSABLE), unificando variantes de
+// mayúsculas, acentos y espacios. Ignora vacíos y "#N/A".
+function agruparResponsables(datos) {
+  const grupos = new Map();
+  let conResponsable = 0;
+  for (const p of datos) {
+    const nombre = limpiarTexto(p.RESPONSABLE);
+    if (!nombre || SIN_RESPONSABLE.test(nombre)) continue;
+    conResponsable++;
+    const clave = claveNombre(nombre);
+    if (!grupos.has(clave)) grupos.set(clave, { nombre, planteles: [] });
+    grupos.get(clave).planteles.push({
+      codigo_dea: limpiarTexto(p[gescolar.CAMPO_CODIGO]),
+      nombre_plantel: limpiarTexto(p[gescolar.CAMPO_NOMBRE]),
+      municipio: limpiarTexto(p.municipio),
+      parroquia: limpiarTexto(p.parroquia),
+      tarea: limpiarTexto(p.GRUPO_TAREA),
+    });
+  }
+  const lista = [...grupos.values()]
+    .map((g) => ({
+      nombre: g.nombre,
+      total: g.planteles.length,
+      planteles: g.planteles.sort((x, y) =>
+        (x.municipio + x.parroquia + x.nombre_plantel).localeCompare(y.municipio + y.parroquia + y.nombre_plantel, "es")),
+    }))
+    .sort((x, y) => y.total - x.total || x.nombre.localeCompare(y.nombre, "es"));
+  return { grupos: lista, conResponsable };
+}
+
 router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), async (req, res) => {
   try {
     const datos = await gescolar.cargarGescolar();
-    const grupos = new Map();
-    let conResponsable = 0;
-    for (const p of datos) {
-      const nombre = limpiarTexto(p.RESPONSABLE);
-      if (!nombre || SIN_RESPONSABLE.test(nombre)) continue;
-      conResponsable++;
-      const clave = claveNombre(nombre);
-      if (!grupos.has(clave)) grupos.set(clave, { nombre, planteles: [] });
-      grupos.get(clave).planteles.push({
-        codigo_dea: limpiarTexto(p[gescolar.CAMPO_CODIGO]),
-        nombre_plantel: limpiarTexto(p[gescolar.CAMPO_NOMBRE]),
-        municipio: limpiarTexto(p.municipio),
-        parroquia: limpiarTexto(p.parroquia),
-        tarea: limpiarTexto(p.GRUPO_TAREA),
-      });
-    }
-    const ingenieros = [...grupos.values()]
-      .map((g) => ({
-        nombre: g.nombre,
-        total: g.planteles.length,
-        planteles: g.planteles.sort((x, y) =>
-          (x.municipio + x.parroquia + x.nombre_plantel).localeCompare(y.municipio + y.parroquia + y.nombre_plantel, "es")),
-      }))
-      .sort((x, y) => y.total - x.total || x.nombre.localeCompare(y.nombre, "es"));
-    res.json({ total_planteles_gescolar: datos.length, planteles_con_responsable: conResponsable, ingenieros });
+    const { grupos, conResponsable } = agruparResponsables(datos);
+    res.json({ total_planteles_gescolar: datos.length, planteles_con_responsable: conResponsable, ingenieros: grupos });
   } catch (err) {
     console.error("Error armando el resumen de ingenieros:", err);
     res.status(500).json({ error: "No se pudo leer la hoja de GESCOLAR para armar el resumen." });
