@@ -141,7 +141,7 @@ function pintar() {
       <h2>${escapar(sec.titulo)}</h2>
       <p class="iu-ayuda">${escapar(sec.ayuda || "")}</p>
       ${paso === 0 ? campoFecha() : ""}
-      <div id="iuCampos">${sec.campos.map(campoHtml).join("")}</div>
+      <div id="iuCampos" class="iu-dos">${sec.campos.map(campoHtml).join("")}</div>
       ${(sec.grupos || []).map(grupoHtml).join("")}
       ${sec.id === "infraestructura" ? `<div class="iu-aviso" id="avisoAulas" style="display:none;"></div>` : ""}
       ${sec.lista ? listaHtml() : ""}
@@ -198,7 +198,7 @@ function entradaHtml(c) {
 
 function campoHtml(c) {
   const err = errores[c.clave];
-  return `<div class="iu-campo ${err ? "con-error" : ""}" id="fld-${c.clave}">
+  return `<div class="iu-campo ${err ? "con-error" : ""} ${c.tipo === "parrafo" ? "iu-ancho" : ""}" id="fld-${c.clave}">
     <label for="f_${c.clave}">${escapar(c.etiqueta)}${c.obligatorio ? ` <span class="req">*</span>` : ""}<span data-slot="${c.clave}">${insigniaEditado(c)}</span></label>
     ${entradaHtml(c)}
     ${c.ayuda ? `<div class="iu-nota">${escapar(c.ayuda)}</div>` : ""}
