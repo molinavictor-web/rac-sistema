@@ -145,6 +145,30 @@ router.get("/esquema", requireAuth, requireRol(...ROLES_LECTURA), (req, res) => 
   res.json({ secciones: esquema.SECCIONES, niveles: esquema.NIVELES });
 });
 
+// Búsqueda por nombre o código (sin acentos ni mayúsculas) para elegir otra institución del edificio.
+router.get("/buscar", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  const q = esquema.normalizar(req.query.q || "");
+  if (q.length < 3) return res.json({ planteles: [] });
+  const excluir = esquemaLimpiar(req.query.excluir).toLowerCase();
+  try {
+    const datos = await gescolar.cargarGescolar();
+    const out = [];
+    for (const p of datos) {
+      const codigo = esquemaLimpiar(p[gescolar.CAMPO_CODIGO]);
+      if (!codigo || codigo.toLowerCase() === excluir) continue;
+      const nombre = nombreDeFila(p);
+      if (esquema.normalizar(nombre).includes(q) || esquema.normalizar(codigo).includes(q)) {
+        out.push({ codigo_dea: codigo, nombre_plantel: nombre, municipio: esquemaLimpiar(p.municipio), parroquia: esquemaLimpiar(p.parroquia) });
+        if (out.length >= 8) break;
+      }
+    }
+    res.json({ planteles: out });
+  } catch (err) {
+    console.error("Instrumento Uno: error buscando en GESCOLAR:", err);
+    res.status(502).json({ error: "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento." });
+  }
+});
+
 router.get("/plantel/:codigo", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const codigo = esquemaLimpiar(req.params.codigo);
   if (!codigo) return res.status(400).json({ error: "Falta el código DEA." });
