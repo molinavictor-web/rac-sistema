@@ -67,6 +67,22 @@ function pintar(d) {
         <td class="num">${pct(m.total ? (m.con_inspeccion / m.total) * 100 : 0)}</td>
       </tr>`).join("");
 
+  const filaBarra = (nombre, tot, cargadas) => {
+    const porc = tot ? (cargadas / tot) * 100 : 0;
+    return `
+        <div class="dash-fila-barra">
+          <div class="nombre">${escapar(nombre)}<div class="dash-cant"><strong>${n(tot)}</strong> plantel${tot === 1 ? "" : "es"} · <strong>${n(cargadas)}</strong> cargado${cargadas === 1 ? "" : "s"} · faltan <strong>${n(tot - cargadas)}</strong></div></div>
+          <div class="dash-avance"><div class="dash-barra"><span class="ok" style="width:${Math.min(100, porc)}%"></span></div><span class="dash-porc">${pct(porc)}</span></div>
+        </div>`;
+  };
+  const filasMunBarra = d.por_municipio.map((m) => filaBarra(m.municipio, m.total, m.instrumento || 0)).join("");
+  const iu = d.instrumento || { cantidad: 0, faltan: d.total, porcentaje: 0 };
+  const parr = d.parroquias_maturin || [];
+  const filasParr = parr.length
+    ? parr.map((o) => filaBarra(o.parroquia, o.total, o.instrumento)).join("")
+    : `<div class="vacio"><strong>Sin datos</strong>No hay planteles del municipio Maturín en GESCOLAR.</div>`;
+  const totParr = parr.reduce((x, o) => x + o.total, 0), cargParr = parr.reduce((x, o) => x + o.instrumento, 0);
+
   document.getElementById("dash").innerHTML = `
     <div class="stats-grid">
       ${tarjeta("", n(d.total), "Planteles en GESCOLAR", "")}
@@ -86,6 +102,19 @@ function pintar(d) {
       ${filasTipo}
       <div class="dash-pie"><span>Atendidos con inspección: <strong>${n(d.atendidos_con_inspeccion)}</strong></span><span>Atendidos sin inspección: <strong>${n(d.atendidos_sin_inspeccion)}</strong></span></div>
     </div></div>
+
+    <div class="dash-dos" style="margin-top:16px;">
+      <div class="panel"><div class="dash-bloque">
+        <h3>Planteles por municipio</h3>
+        <p class="dash-nota">Total de planteles de GESCOLAR y cuántos ya están cargados con el Instrumento Uno CDCE (visitas enviadas). Avance general: <strong>${n(iu.cantidad)}</strong> de ${n(d.total)} (${pct(iu.porcentaje)}).</p>
+        ${filasMunBarra}
+      </div></div>
+      <div class="panel"><div class="dash-bloque">
+        <h3>Parroquias del municipio Maturín</h3>
+        <p class="dash-nota">Planteles por parroquia y avance del Instrumento Uno CDCE. Maturín: <strong>${n(cargParr)}</strong> de ${n(totParr)} cargados (${pct(totParr ? (cargParr / totParr) * 100 : 0)}).</p>
+        ${filasParr}
+      </div></div>
+    </div>
 
     <div class="panel" style="margin-top:16px;"><div class="dash-bloque">
       <h3>Por municipio</h3>

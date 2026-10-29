@@ -541,7 +541,10 @@ function dibujarArchivosFicha(codigoDea, resp) {
           <div style="font-size:.86rem; font-weight:600; color:var(--navy-900); overflow-wrap:anywhere;">${escapar(a.nombre)}</div>
           <div style="font-size:.72rem; color:var(--muted);">${formatoTamano(a.tamano)} · Actualizado: ${formatoFechaHora(a.modificado)}</div>
         </div>
-        <button class="btn btn-fantasma btn-sm" data-descargar="${i}" style="flex:0 0 auto;">Descargar</button>
+        <div style="flex:0 0 auto; display:flex; gap:6px;">
+          <button class="btn btn-fantasma btn-sm" data-descargar="${i}">Descargar</button>
+          ${puedeRefrescar ? `<button class="btn btn-fantasma btn-sm" data-eliminar-archivo="${i}" style="color:#b3261e;">Eliminar</button>` : ""}
+        </div>
       </div>
     `).join("")}</div>`;
   }
@@ -552,6 +555,13 @@ function dibujarArchivosFicha(codigoDea, resp) {
     caja.querySelectorAll("[data-descargar]").forEach((btn) => {
       const archivo = archivos[Number(btn.dataset.descargar)];
       btn.addEventListener("click", () => descargarArchivoDrive(codigoDea, archivo, btn));
+    });
+  }
+
+  if (puedeRefrescar && !sinCarpeta && archivos.length) {
+    caja.querySelectorAll("[data-eliminar-archivo]").forEach((btn) => {
+      const archivo = archivos[Number(btn.dataset.eliminarArchivo)];
+      btn.addEventListener("click", () => eliminarArchivoDrive(codigoDea, archivo, btn));
     });
   }
 
@@ -595,6 +605,20 @@ async function subirArchivosDrive(codigoDea, fileList) {
     mostrarToast(err.message, true);
   } finally {
     if (input) input.value = "";
+  }
+}
+
+// Elimina un archivo de la carpeta del plantel (va a la papelera de Drive, se puede recuperar desde allí).
+async function eliminarArchivoDrive(codigoDea, archivo, boton) {
+  if (!window.confirm(`¿Eliminar «${archivo.nombre}» de la carpeta de este plantel?\n\nSe envía a la papelera de Drive, desde donde se puede recuperar.`)) return;
+  boton.disabled = true;
+  try {
+    await RAC.del(`/api/planteles-consulta/${encodeURIComponent(codigoDea)}/archivos/${encodeURIComponent(archivo.id)}`);
+    mostrarToast("Archivo eliminado.");
+    cargarArchivosFicha(codigoDea);
+  } catch (err) {
+    boton.disabled = false;
+    mostrarToast(err.message, true);
   }
 }
 

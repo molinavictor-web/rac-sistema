@@ -586,6 +586,35 @@ router.post("/:codigoDea/foto-fachada", requireAuth, requireRol(...ROLES_CONSULT
 });
 
 
+// Elimina un archivo de la carpeta del plantel. NO es definitivo: pasa a la papelera de Drive
+// (se puede recuperar desde allí). Solo borra archivos que estén DENTRO de la carpeta del código DEA
+// de la ruta, para que un id ajeno no pueda borrar archivos de otra parte de Drive.
+router.delete("/:codigoDea/archivos/:fileId", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  const codigoDea = (req.params.codigoDea || "").trim();
+  const { fileId } = req.params;
+  if (!codigoDea || !fileId) return res.status(400).json({ error: "Falta el código DEA o el archivo." });
+  if (!driveEscritura) return res.status(500).json({ error: "Faltan configurar GOOGLE_OAUTH_CLIENT_ID/SECRET en Render." });
+  const listo = await asegurarCredencialesEscritura();
+  if (!listo) return res.status(409).json({ error: "Falta conectar Google Drive. Usa el botón 'Reconectar Google Drive' y vuelve a intentar." });
+  try {
+    const carpetaId = await ubicarCarpetaDea(codigoDea);
+    if (!carpetaId) return res.status(404).json({ error: "Este plantel no tiene carpeta en Drive." });
+    const meta = await drive.files.get({ fileId, fields: "id, name, parents, mimeType, trashed" });
+    const f = meta.data;
+    if (f.trashed) return res.status(404).json({ error: "El archivo ya no existe." });
+    if (f.mimeType === "application/vnd.google-apps.folder" || !(f.parents || []).includes(carpetaId)) {
+      return res.status(403).json({ error: "Ese archivo no pertenece a la carpeta de este plantel." });
+    }
+    await driveEscritura.files.update({ fileId, requestBody: { trashed: true }, fields: "id" });
+    console.log(`Archivo «${f.name}» de ${codigoDea} enviado a la papelera de Drive por usuario ${req.usuario.id}.`);
+    res.json({ ok: true, nombre: f.name });
+  } catch (err) {
+    if (err && err.code === 404) return res.status(404).json({ error: "El archivo ya no existe en Drive." });
+    console.error("Error eliminando archivo de Drive:", detalleErrorGoogle(err), err);
+    res.status(500).json({ error: mensajeErrorEscrituraDrive(err, "No se pudo eliminar el archivo.") });
+  }
+});
+
 // Tipos nativos de Google (Docs/Sheets/Slides/Dibujos) no se pueden
 // descargar tal cual -- hay que exportarlos a un formato de archivo real.
 const EXPORTACION_GOOGLE_APPS = {

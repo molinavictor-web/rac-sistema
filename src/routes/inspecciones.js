@@ -1618,6 +1618,17 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       return res.status(502).json({ error: "No se pudo leer GESCOLAR (Google Sheets no respondió). Intenta de nuevo en un momento." });
     }
 
+    // Planteles cargados por el Instrumento Uno CDCE: los que tienen al menos una visita ENVIADA.
+    let conInstrumento = new Set();
+    try {
+      const r = await pool.query("SELECT DISTINCT LOWER(codigo_dea) AS c FROM iu_visitas WHERE estado = 'ENVIADA'");
+      conInstrumento = new Set(r.rows.map((x) => x.c));
+    } catch (err) {
+      console.error("Dashboard: no se pudieron leer las visitas del Instrumento Uno:", err.message);
+    }
+    const parroquiasMaturin = new Map();
+    let instrumentoTotal = 0;
+
     const total = datos.length;
     let atendidos = 0, conInspeccion = 0, atendidosConInspeccion = 0;
     const tipos = new Map();
@@ -1637,9 +1648,18 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       if (atendido && insp) atendidosConInspeccion++;
       if (tipo) { const k = claveNombre(tipo); const o = tipos.get(k) || { nombre: tipo, cantidad: 0 }; o.cantidad++; tipos.set(k, o); }
       const mun = limpiarTexto(p.municipio) || "Sin municipio";
-      const m = municipios.get(mun) || { municipio: mun, total: 0, atendidos: 0, con_inspeccion: 0 };
-      m.total++; if (atendido) m.atendidos++; if (insp) m.con_inspeccion++;
-      municipios.set(mun, m);
+      // se agrupa sin importar acentos ni mayúsculas (MATURIN = Maturín); se muestra el nombre tal como aparece primero
+      const m = municipios.get(claveNombre(mun)) || { municipio: mun, total: 0, atendidos: 0, con_inspeccion: 0, instrumento: 0 };
+      const conIU = conInstrumento.has(limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase());
+      m.total++; if (atendido) m.atendidos++; if (insp) m.con_inspeccion++; if (conIU) m.instrumento++;
+      municipios.set(claveNombre(mun), m);
+      if (conIU) instrumentoTotal++;
+      if (claveNombre(mun) === claveNombre("Maturín")) {
+        const par = limpiarTexto(p.parroquia) || "Sin parroquia";
+        const o = parroquiasMaturin.get(claveNombre(par)) || { parroquia: par, total: 0, instrumento: 0 };
+        o.total++; if (conIU) o.instrumento++;
+        parroquiasMaturin.set(claveNombre(par), o);
+      }
     }
 
     const porTipo = [
@@ -1666,6 +1686,10 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       atendidos_sin_inspeccion: atendidos - atendidosConInspeccion,
       por_tipo: porTipo,
       por_municipio: [...municipios.values()].sort((a, b) => a.municipio.localeCompare(b.municipio, "es")),
+      instrumento: { cantidad: instrumentoTotal, faltan: total - instrumentoTotal, porcentaje: porcentaje(instrumentoTotal, total) },
+      parroquias_maturin: [...parroquiasMaturin.values()]
+        .map((o) => ({ ...o, faltan: o.total - o.instrumento, porcentaje: porcentaje(o.instrumento, o.total) }))
+        .sort((a, b) => a.parroquia.localeCompare(b.parroquia, "es")),
       columnas_plan: columnasPlan.length,
       modulo,
     });
