@@ -243,6 +243,7 @@ function pintarLista() {
     return `<div class="iu-inst" data-fila="${i}">
       <div><input type="text" placeholder="Código DEA" data-inst-codigo="${i}" value="${escapar(o.codigo_dea || "")}" ${editable ? "" : "disabled"}>${editable ? `<button type="button" class="btn btn-fantasma btn-sm" data-buscar="${i}" style="margin-top:6px;">Buscar</button>` : ""}</div>
       <div><input type="text" placeholder="Nombre de la institución" data-inst-nombre="${i}" value="${escapar(o.nombre || "")}" ${editable ? "" : "disabled"}>
+        <div class="iu-sugerencias" data-sug="${i}" style="display:none;"></div>
         <div class="iu-nota" data-info-fila="${i}">${escapar(infoFilas[i] || "")}</div>
         ${e ? `<div class="iu-msg-error">${escapar(e)}</div>` : ""}</div>
       ${editable ? `<button type="button" class="btn btn-fantasma btn-sm" data-quitar="${i}">Quitar</button>` : "<span></span>"}
@@ -328,13 +329,17 @@ function enganchar() {
     } else if (t.dataset.instCodigo !== undefined) {
       datos.otras_instituciones[Number(t.dataset.instCodigo)].codigo_dea = t.value.trim().toUpperCase();
     } else if (t.dataset.instNombre !== undefined) {
-      datos.otras_instituciones[Number(t.dataset.instNombre)].nombre = t.value;
+      const i = Number(t.dataset.instNombre);
+      datos.otras_instituciones[i].nombre = t.value;
+      sugerir(i, t.value);
     } else return;
     guardarBorradorLocal();
   };
   bloque.addEventListener("input", alCambiar);
   bloque.addEventListener("change", (e) => { if (e.target.tagName === "SELECT" || e.target.type === "checkbox") alCambiar(e); });
   bloque.addEventListener("click", async (e) => {
+    const sug = e.target.closest("[data-elegir]");
+    if (sug) { e.stopPropagation(); elegirSugerencia(Number(sug.dataset.fila), Number(sug.dataset.elegir)); return; }
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.reset) {
@@ -474,4 +479,38 @@ async function eliminarVisita() {
   } catch (err) {
     mostrarToast(err.message, true);
   }
+}
+
+// ---- Búsqueda por nombre dentro de «Otras instituciones» ----
+const sugerenciasPorFila = {};
+const temporizadoresSug = {};
+function sugerir(i, texto) {
+  clearTimeout(temporizadoresSug[i]);
+  const cont = document.querySelector(`[data-sug="${i}"]`);
+  if (!cont) return;
+  if (String(texto).trim().length < 3) { cont.style.display = "none"; return; }
+  temporizadoresSug[i] = setTimeout(async () => {
+    try {
+      const r = await api("GET", `${BASE}/buscar?q=${encodeURIComponent(texto.trim())}&excluir=${encodeURIComponent(V.codigo_dea)}`);
+      sugerenciasPorFila[i] = r.planteles;
+      const c = document.querySelector(`[data-sug="${i}"]`);
+      if (!c) return;
+      c.innerHTML = r.planteles.length
+        ? r.planteles.map((p, k) => `<button type="button" class="iu-sug" data-fila="${i}" data-elegir="${k}"><strong>${escapar(p.nombre_plantel)}</strong><small>${escapar(p.codigo_dea)} · ${escapar(p.municipio)}${p.parroquia ? " · " + escapar(p.parroquia) : ""}</small></button>`).join("") +
+          `<div class="iu-nota" style="padding:4px 8px;">¿No está en la lista? Deja el nombre como lo escribiste (sin código).</div>`
+        : `<div class="iu-nota" style="padding:6px 8px;">Sin coincidencias en GESCOLAR. Se guardará solo con el nombre que escribiste.</div>`;
+      c.style.display = "";
+    } catch (_) { /* si falla la búsqueda, se puede seguir escribiendo el nombre a mano */ }
+  }, 300);
+}
+function elegirSugerencia(i, k) {
+  const p = (sugerenciasPorFila[i] || [])[k];
+  if (!p) return;
+  const o = datos.otras_instituciones[i];
+  o.codigo_dea = p.codigo_dea;
+  o.nombre = p.nombre_plantel;
+  delete errores[`otras_instituciones.${i}`];
+  infoFilas[i] = `${p.municipio}${p.parroquia ? " · " + p.parroquia : ""}`;
+  pintarLista();
+  guardarBorradorLocal();
 }
