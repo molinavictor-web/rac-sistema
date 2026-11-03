@@ -133,11 +133,12 @@ Pantalla `public/inspecciones/reportes.html` + `public/js/inspecciones-reportes.
 
 ## 6. Instrumento Uno CDCE
 
-Formulario por pasos (Datos del plantel, Director, Infraestructura, Edificio compartido,
+Formulario por pasos (Datos del plantel, Director, Infraestructura, **Servicios**, Edificio compartido,
 Situación legal). Archivos: `src/routes/instrumentoUno.js`,
 `src/services/instrumentoUnoEsquema.js`, `src/services/exportarInstrumentoUno.js`, `src/services/infraestructuras.js`,
 `public/inspecciones/instrumento-uno*.html`, `public/js/instrumento-uno*.js`.
 
+- **Servicios y teatro/auditorio (nov. 2026):** «Teatro o auditorio» (No existe / Operativo / No operativo) va en Infraestructura. La sección «Servicios» tiene internet (¿posee?, proveedor de lista cerrada agrupada + «Otro», tipo de conexión + «Otro») y gas con **casillas** (cilindros, a granel/tanque estacionario, directo, no tiene): kilos y cantidad de cilindros si marca cilindros; capacidad del tanque (litros) si marca granel. Los campos dependientes usan `visibleSi` (el valor puede ser una lista de casillas) y `obligatorioVisible`; el servidor descarta y no exige lo que quedó oculto. Para cambiar las listas: `PROVEEDORES_INTERNET`, `TIPOS_CONEXION`, `SUMINISTRO_GAS` en `instrumentoUnoEsquema.js`. La pantalla ya no usa posiciones fijas de pasos: busca «edificio» por su id.
 - **Una sola definición del formulario:** `instrumentoUnoEsquema.js` define campos,
   validaciones, opciones y campos condicionales (`visibleSi`). El servidor valida con él y
   las pantallas se dibujan desde `/api/inspecciones/instrumento-uno/esquema`.

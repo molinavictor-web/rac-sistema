@@ -57,6 +57,33 @@ function grupoLegal(id, titulo, ayuda, prefijo) {
   };
 }
 
+// Proveedores de internet (lista cerrada, agrupada para el desplegable). "Otro" permite escribir uno que no esté.
+const PROVEEDORES_INTERNET = [
+  ...["CANTV", "Inter", "NetUno", "Fibex Telecom", "CIX (El Súper Internet)", "Planet InTV", "PlusNet", "Star Team", "Telecom3", "WestNet (Telecomunicaciones Role)", "Tconecta", "R-Net"]
+    .map((n) => ({ valor: n, etiqueta: n, grupo: "Operadores nacionales" })),
+  ...["Airtek", "Thundernet", "VNET", "WOW", "Simple Fibra", "Teranet", "2NET", "C-COM", "NODO", "Galanet"]
+    .map((n) => ({ valor: n, etiqueta: n, grupo: "Proveedores de fibra óptica" })),
+  ...["Movistar", "Digitel", "Movilnet"].map((n) => ({ valor: n, etiqueta: n, grupo: "Internet móvil e inalámbrico" })),
+  { valor: "OTRO", etiqueta: "Otro (escribir cuál)", grupo: "Otro" },
+];
+const TIPOS_CONEXION = [
+  { valor: "FIBRA_300", etiqueta: "Fibra óptica 300 Mbps" },
+  { valor: "FIBRA_500", etiqueta: "Fibra óptica 500 Mbps" },
+  { valor: "FIBRA_600", etiqueta: "Fibra óptica 600 Mbps" },
+  { valor: "FIBRA_1G", etiqueta: "Fibra óptica 1 Gbps" },
+  { valor: "ADSL", etiqueta: "ADSL / cobre" },
+  { valor: "RADIOENLACE", etiqueta: "Antena inalámbrica / radioenlace" },
+  { valor: "MOVIL", etiqueta: "Datos móviles (SIM)" },
+  { valor: "SATELITAL", etiqueta: "Satelital" },
+  { valor: "OTRO", etiqueta: "Otro (escribir cuál)" },
+];
+const SUMINISTRO_GAS = [
+  { valor: "CILINDRO", etiqueta: "Cilindros" },
+  { valor: "TANQUE", etiqueta: "A granel (tanque estacionario)" },
+  { valor: "DIRECTO", etiqueta: "Gas directo (por tubería)" },
+  { valor: "NINGUNO", etiqueta: "No tiene suministro de gas" },
+];
+
 const PATRON_CEDULA = "^\\d{6,9}$";
 // 11 dígitos: fijos 02xx (p. ej. 0291 de Monagas) y móviles 0412, 0414, 0416, 0424, 0426.
 const PATRON_TELEFONO = "^0(2\\d{2}|4(12|14|16|24|26))\\d{7}$";
@@ -135,8 +162,26 @@ const SECCIONES = [
       { clave: "cocina", etiqueta: "Cocina", tipo: "select", obligatorio: true, opciones: ESTADO_ESPACIO },
       { clave: "comedor", etiqueta: "Comedor", tipo: "select", obligatorio: true, opciones: ESTADO_ESPACIO },
       { clave: "cbit", etiqueta: "CBIT", tipo: "select", obligatorio: true, opciones: ESTADO_ESPACIO },
+      { clave: "teatro_auditorio", etiqueta: "Teatro o auditorio", tipo: "select", obligatorio: true, opciones: ESTADO_ESPACIO },
       { clave: "huerto_escolar", etiqueta: "¿Tiene huerto escolar?", tipo: "select", opciones: SI_NO },
       { clave: "observaciones_infra", etiqueta: "Observaciones", tipo: "parrafo" },
+    ],
+  },
+  {
+    id: "servicios",
+    titulo: "Servicios",
+    ayuda: "Conexión a internet y suministro de gas del plantel. Lo que no aplique se oculta solo.",
+    campos: [
+      { clave: "internet_posee", etiqueta: "¿Posee conexión a internet?", tipo: "select", obligatorio: true, opciones: SI_NO },
+      { clave: "internet_proveedor", etiqueta: "Proveedor del servicio de internet", tipo: "select", obligatorioVisible: true, opciones: PROVEEDORES_INTERNET, visibleSi: { clave: "internet_posee", valores: ["SI"] } },
+      { clave: "internet_proveedor_otro", etiqueta: "¿Cuál proveedor?", tipo: "texto", obligatorioVisible: true, visibleSi: { clave: "internet_proveedor", valores: ["OTRO"] } },
+      { clave: "internet_tipo", etiqueta: "Tipo de conexión de internet", tipo: "select", obligatorioVisible: true, opciones: TIPOS_CONEXION, visibleSi: { clave: "internet_posee", valores: ["SI"] } },
+      { clave: "internet_tipo_otro", etiqueta: "¿Cuál tipo de conexión?", tipo: "texto", obligatorioVisible: true, visibleSi: { clave: "internet_tipo", valores: ["OTRO"] } },
+      { clave: "gas_suministro", etiqueta: "Suministro de gas", tipo: "multi", obligatorio: true, opciones: SUMINISTRO_GAS, exclusiva: "NINGUNO", ayuda: "Marca todos los que apliquen." },
+      entero("gas_cilindro_kg", "Kilos de cada cilindro (kg)", 1, 100, { obligatorioVisible: true, visibleSi: { clave: "gas_suministro", valores: ["CILINDRO"] } }),
+      entero("gas_cilindro_cantidad", "Cantidad de cilindros", 1, 500, { obligatorioVisible: true, visibleSi: { clave: "gas_suministro", valores: ["CILINDRO"] } }),
+      entero("gas_tanque_capacidad", "Capacidad del tanque estacionario (litros)", 1, 100000, { obligatorioVisible: true, visibleSi: { clave: "gas_suministro", valores: ["TANQUE"] } }),
+      { clave: "observaciones_servicios", etiqueta: "Observaciones", tipo: "parrafo" },
     ],
   },
   {
@@ -250,6 +295,13 @@ function aTexto(v) {
   return typeof v === "string" ? v.replace(/\s+/g, " ").trim() : typeof v === "number" ? String(v) : "";
 }
 
+// ¿Se muestra este campo con las respuestas dadas? (visibleSi.clave puede ser una lista, como en las casillas de gas)
+function esVisible(c, datos) {
+  if (!c.visibleSi) return true;
+  const a = datos[c.visibleSi.clave];
+  return (Array.isArray(a) ? a : [a]).some((x) => c.visibleSi.valores.includes(x));
+}
+
 // Limpia y valida las respuestas. Con enviar=false (borrador) solo se exige que lo escrito sea válido;
 // con enviar=true además se exigen los campos obligatorios y las reglas cruzadas.
 // Devuelve { datos, errores } (errores: clave → mensaje).
@@ -265,6 +317,7 @@ function validar(entrada, { enviar = false } = {}) {
       const validas = c.opciones.map((o) => o.valor);
       const limpias = [...new Set(lista.map(aTexto).filter(Boolean))];
       if (limpias.some((x) => !validas.includes(x))) { errores[c.clave] = "Opción no válida."; return; }
+      if (c.exclusiva && limpias.includes(c.exclusiva) && limpias.length > 1) { errores[c.clave] = "«" + c.opciones.find((o) => o.valor === c.exclusiva).etiqueta + "» no se combina con otras opciones."; return; }
       if (limpias.length) datos[c.clave] = limpias;
       return;
     }
@@ -315,6 +368,10 @@ function validar(entrada, { enviar = false } = {}) {
     if (datos[`${p}_documento`] !== "SI" && datos[`${p}_documento`] !== "EN_TRAMITE") { delete datos[`${p}_tipo`]; delete datos[`${p}_detalle`]; }
   });
   datos.otras_instituciones = otras;
+  // lo que depende de una respuesta que no se dio (o cambió) no se guarda ni se valida; se evalúa en cascada
+  todosLosCampos().filter((c) => c.visibleSi).forEach((c) => {
+    if (!esVisible(c, datos)) { delete datos[c.clave]; delete errores[c.clave]; }
+  });
 
   if (enviar) {
     todosLosCampos().forEach((c) => {
@@ -323,6 +380,9 @@ function validar(entrada, { enviar = false } = {}) {
       if (c.dependeDe && c.dependeDe.startsWith("matricula_") && !(Number(datos[c.dependeDe]) > 0)) return;
       const v = datos[c.clave];
       if (v === undefined || (Array.isArray(v) && !v.length)) errores[c.clave] = "Obligatorio.";
+    });
+    todosLosCampos().filter((c) => c.obligatorioVisible && esVisible(c, datos)).forEach((c) => {
+      if (!errores[c.clave] && (datos[c.clave] === undefined || datos[c.clave] === "")) errores[c.clave] = "Obligatorio.";
     });
     if (!datos.director_telefono && !datos.director_telefono_movil && !errores.director_telefono && !errores.director_telefono_movil) {
       errores.director_telefono_movil = "Indica al menos un teléfono (fijo o móvil).";
