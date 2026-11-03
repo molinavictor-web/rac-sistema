@@ -1,199 +1,663 @@
--- =========================================================
--- ESQUEMA DE BASE DE DATOS — Sistema RAC
--- PostgreSQL
--- =========================================================
--- Tablas maestras: municipios, planteles, personal_ministerio
--- Estas tres cambian con el tiempo y son la fuente de verdad
--- contra la que se valida todo lo que sube cada municipio.
--- =========================================================
-
--- ---------------------------------------------------------
--- MUNICIPIOS
--- ---------------------------------------------------------
-CREATE TABLE municipios (
-    id              SERIAL PRIMARY KEY,
-    codigo          VARCHAR(10) UNIQUE NOT NULL,   -- código oficial del municipio
-    nombre          VARCHAR(120) NOT NULL,
-    creado_en       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    actualizado_en  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ---------------------------------------------------------
--- PLANTELES (tabla maestra — cambia: abren, cierran, se
--- reasignan de municipio o dependencia)
--- ---------------------------------------------------------
-CREATE TABLE planteles (
-    id                SERIAL PRIMARY KEY,
-    codigo_plantel    VARCHAR(20) UNIQUE NOT NULL,  -- código oficial (DEA/código del Ministerio)
-    nombre            VARCHAR(200) NOT NULL,
-    municipio_id      INTEGER NOT NULL REFERENCES municipios(id),
-    dependencia       VARCHAR(30),                  -- nacional / estadal / municipal / privada
-    estado            VARCHAR(20) NOT NULL DEFAULT 'activo',  -- activo / cerrado / fusionado
-    fecha_cierre      DATE,                          -- si aplica
-    creado_en         TIMESTAMPTZ NOT NULL DEFAULT now(),
-    actualizado_en    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_planteles_municipio ON planteles(municipio_id);
-CREATE INDEX idx_planteles_estado ON planteles(estado);
-
--- ---------------------------------------------------------
--- PERSONAL_MINISTERIO (tabla maestra — 900k+ registros,
--- se recarga/actualiza cuando el Ministerio manda data nueva)
+-- schema.sql — Estructura completa de la base de datos de SID (rac-sistema).
+-- Generado el 02-nov-2026 desde el proyecto Supabase «rac-sistema» (PostgreSQL 17),
+-- leyendo el catálogo de Postgres (solo estructura, sin datos).
 --
--- IMPORTANTE: la cédula NO es única. Una misma persona puede
--- tener varias filas (multi-plantel o multi-cargo). El cruce
--- RAC <-> NOMINA se hace ÚNICAMENTE por CEDULA: si una cédula
--- cargada en el RAC no existe aquí, es alerta -- significa que
--- están asignando a alguien un cargo del estado sin que esté
--- aprobado en el Ministerio.
--- ---------------------------------------------------------
-CREATE TABLE personal_ministerio (
-    id                SERIAL PRIMARY KEY,
-    cedula            VARCHAR(15) NOT NULL,           -- SIN UNIQUE: una persona puede tener varias filas
-    nombres           VARCHAR(150),
-    apellidos         VARCHAR(150),
-    cargo             VARCHAR(100),
-    codigo_dependencia VARCHAR(20),                    -- COD_NOM: código de control de nómina por plantel (dato informativo, NO se usa para el cruce)
-    codigo_plantel    VARCHAR(20) REFERENCES planteles(codigo_plantel),  -- COD_DEP: id físico del plantel según el Ministerio (dato informativo)
-    estado            VARCHAR(20) NOT NULL DEFAULT 'activo',  -- activo / inactivo / jubilado / egresado
-    fuente_carga      VARCHAR(50),                   -- de qué archivo/lote vino este registro
-    actualizado_en    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_pmin_cedula ON personal_ministerio(cedula);
-CREATE INDEX idx_pmin_estado ON personal_ministerio(estado);
-
--- ---------------------------------------------------------
--- RAC (registro de asignación de carga — ~30k registros,
--- lo mantiene la oficina de gestión humana)
+-- Contiene: RAC (rac, planteles, personal_ministerio, alertas, auditoría, geografía),
+-- Supervisión (planteles_supervision, supervisores, circuitos, directores, matrícula),
+-- Inspecciones (planes_atencion, inspecciones, catálogo de materiales, adicionales) e
+-- Instrumento Uno CDCE (iu_visitas, iu_edificio_miembros), más usuarios y configuracion.
 --
--- Una misma cédula puede (y debe poder) repetirse varias veces:
--- un profesor puede dar clases en turno mañana, tarde y/o noche,
--- incluso en distintos planteles. NO hay restricción de unicidad
--- sobre cédula+plantel -- esa flexibilidad es un requisito, no
--- un error a prevenir.
+-- No incluye a propósito: las tablas de respaldo puntual respaldo_*_20261007_194448
+-- ni la tabla de paso stg_geografico (existen en Supabase, pero no las usa el sistema).
 --
--- Traslados entre planteles: se resuelven editando (UPDATE) el
--- registro existente y cambiando su plantel_id -- la tabla
--- auditoria ya captura automáticamente el antes/después de ese
--- cambio, así que no hace falta una tabla aparte para el historial
--- de traslados.
--- ---------------------------------------------------------
-CREATE TABLE rac (
-    id                SERIAL PRIMARY KEY,
-    cedula            VARCHAR(15) NOT NULL,
-    plantel_id        INTEGER NOT NULL REFERENCES planteles(id),  -- validado contra el COD DEA en la tabla planteles (973 registros maestros)
-    codigo_dependencia VARCHAR(20),                    -- CODIGO RAC del plantel (dato informativo, copiado de la carga)
-    cargo             VARCHAR(100),
-    turno             VARCHAR(20),                     -- mañana / tarde / noche -- permite distinguir asignaciones múltiples en el mismo plantel
-    horas_academicas  NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (horas_academicas >= 0 AND horas_academicas <= 168),
-    horas_adm         NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (horas_adm >= 0 AND horas_adm <= 168),
-    periodo_escolar   VARCHAR(20) NOT NULL,           -- ej. '2025-2026'
-    situacion         VARCHAR(30) NOT NULL DEFAULT 'activo',  -- activo / tramite_jubilacion / reposo / tramite_incapacidad / fallecido / permiso / abandono (7 estados reales confirmados con data)
-    actualizado_en    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_rac_cedula ON rac(cedula);
-CREATE INDEX idx_rac_plantel ON rac(plantel_id);
+-- Para una base NUEVA y vacía: psql "$DATABASE_URL" -f src/db/schema.sql
+-- (o npm run migrate). NO correrlo sobre la base de producción: las tablas ya existen.
 
--- ---------------------------------------------------------
--- USUARIOS (encargados por municipio, operadores, admin)
--- ---------------------------------------------------------
-CREATE TABLE usuarios (
-    id                SERIAL PRIMARY KEY,
-    nombre            VARCHAR(150) NOT NULL,
-    email             VARCHAR(150) UNIQUE NOT NULL,
-    password_hash     VARCHAR(255) NOT NULL,
-    rol               VARCHAR(30) NOT NULL,           -- encargado_municipio / operador / admin
-    municipio_id      INTEGER REFERENCES municipios(id),  -- NULL si es operador/admin
-    activo            BOOLEAN NOT NULL DEFAULT true,
-    creado_en         TIMESTAMPTZ NOT NULL DEFAULT now()
+
+-- ======================================================================
+-- 1. Extensiones
+-- ======================================================================
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ======================================================================
+-- 2. Secuencias
+-- ======================================================================
+CREATE SEQUENCE IF NOT EXISTS public.adicional_alias_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.adicionales_catalogo_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.alertas_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.alertas_supervision_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.auditoria_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.carga_detalle_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.cargas_municipio_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.catalogo_materiales_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.estados_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.inspecciones_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.iu_edificio_miembros_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.iu_visitas_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.mapeo_codigos_plantel_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.matricula_nivel_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.matricula_planteles_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.municipios_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.parroquias_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.personal_ministerio_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.planes_atencion_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.planteles_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.rac_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.supervisor_circuital_plantel_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.supervisor_municipal_plantel_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.supervisores_circuitales_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.supervisores_municipales_id_seq;
+CREATE SEQUENCE IF NOT EXISTS public.usuarios_id_seq;
+
+-- ======================================================================
+-- 3. Tablas
+-- ======================================================================
+CREATE TABLE public.adicional_alias (
+  id integer DEFAULT nextval('adicional_alias_id_seq'::regclass) NOT NULL,
+  adicional_id integer NOT NULL,
+  alias text NOT NULL
 );
 
--- ---------------------------------------------------------
--- CARGAS_MUNICIPIO (cada vez que un encargado sube su Excel)
--- ---------------------------------------------------------
-CREATE TABLE cargas_municipio (
-    id                SERIAL PRIMARY KEY,
-    municipio_id      INTEGER NOT NULL REFERENCES municipios(id),
-    usuario_id        INTEGER NOT NULL REFERENCES usuarios(id),
-    nombre_archivo    VARCHAR(255),
-    cantidad_filas    INTEGER,
-    estado            VARCHAR(20) NOT NULL DEFAULT 'procesando', -- procesando / completado / error
-    fecha_carga       TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE public.adicionales_catalogo (
+  id integer DEFAULT nextval('adicionales_catalogo_id_seq'::regclass) NOT NULL,
+  nombre text NOT NULL,
+  unidad text,
+  estado text DEFAULT 'ACTIVO'::text NOT NULL,
+  unificado_en integer,
+  propuesto_por integer,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- ---------------------------------------------------------
--- CARGA_DETALLE (cada fila procesada de un archivo subido,
--- con trazabilidad hacia el archivo original)
--- ---------------------------------------------------------
-CREATE TABLE carga_detalle (
-    id                  SERIAL PRIMARY KEY,
-    carga_id            INTEGER NOT NULL REFERENCES cargas_municipio(id),
-    fila_original        INTEGER,                     -- número de fila en el Excel, para poder ubicarla
-    cedula               VARCHAR(15),
-    plantel_reportado    VARCHAR(20),
-    horas_reportadas      NUMERIC(5,2),
-    resultado_validacion VARCHAR(20) NOT NULL DEFAULT 'pendiente', -- ok / alerta / pendiente
-    procesado_en         TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE public.alertas (
+  id integer DEFAULT nextval('alertas_id_seq'::regclass) NOT NULL,
+  carga_detalle_id integer,
+  cedula character varying(15) NOT NULL,
+  tipo character varying(50) NOT NULL,
+  detalle text,
+  estado character varying(20) DEFAULT 'pendiente'::character varying NOT NULL,
+  revisado_por integer,
+  fecha_revision timestamp with time zone,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  detalle_fila jsonb
 );
-CREATE INDEX idx_detalle_carga ON carga_detalle(carga_id);
-CREATE INDEX idx_detalle_cedula ON carga_detalle(cedula);
 
--- ---------------------------------------------------------
--- ALERTAS (lo que no cuadra en la validación, para revisión
--- manual del operador)
--- ---------------------------------------------------------
-CREATE TABLE alertas (
-    id                SERIAL PRIMARY KEY,
-    carga_detalle_id  INTEGER REFERENCES carga_detalle(id),
-    cedula            VARCHAR(15) NOT NULL,
-    tipo              VARCHAR(50) NOT NULL,
-    -- tipos esperados:
-    --   'no_existe_ministerio'    -> la cédula del RAC no está en personal_ministerio
-    --                                (alguien fue asignado a un cargo del estado
-    --                                 sin estar aprobado en el Ministerio)
-    --   'plantel_no_existe'       -> el codigo_plantel (COD DEA) reportado no
-    --                                existe en la tabla planteles (973 maestros)
-    --   'horas_invalidas'         -> horas académicas/administrativas superan el
-    --                                máximo físico (168h/semana) -- reforzado
-    --                                también con CHECK constraints en rac
-    detalle           TEXT,
-    estado            VARCHAR(20) NOT NULL DEFAULT 'pendiente',  -- pendiente / revisado / resuelto / descartado
-    revisado_por      INTEGER REFERENCES usuarios(id),
-    fecha_revision    TIMESTAMPTZ,
-    creado_en         TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE public.alertas_supervision (
+  id integer DEFAULT nextval('alertas_supervision_id_seq'::regclass) NOT NULL,
+  tipo character varying(50) NOT NULL,
+  entidad character varying(30) NOT NULL,
+  codigo_plantel character varying(20),
+  cedula character varying(20),
+  referencia character varying(250),
+  detalle text NOT NULL,
+  fila_excel integer,
+  estado character varying(20) DEFAULT 'pendiente'::character varying NOT NULL,
+  resuelto_por integer,
+  fecha_resolucion timestamp with time zone,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL
 );
-CREATE INDEX idx_alertas_estado ON alertas(estado);
-CREATE INDEX idx_alertas_cedula ON alertas(cedula);
 
--- ---------------------------------------------------------
--- AUDITORIA (huella de toda edición/inserción/eliminación
--- hecha por operadores u admin de la oficina central sobre
--- las tablas sensibles — rac, planteles, personal_ministerio)
--- ---------------------------------------------------------
-CREATE TABLE auditoria (
-    id                SERIAL PRIMARY KEY,
-    usuario_id        INTEGER REFERENCES usuarios(id),  -- quién hizo el cambio
-    tabla_afectada    VARCHAR(50) NOT NULL,
-    registro_id       INTEGER NOT NULL,                 -- id de la fila afectada
-    accion            VARCHAR(10) NOT NULL,              -- INSERT / UPDATE / DELETE
-    datos_anteriores  JSONB,                             -- fila completa antes del cambio (NULL si es INSERT)
-    datos_nuevos      JSONB,                             -- fila completa después del cambio (NULL si es DELETE)
-    fecha             TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE public.auditoria (
+  id integer DEFAULT nextval('auditoria_id_seq'::regclass) NOT NULL,
+  usuario_id integer,
+  tabla_afectada character varying(50) NOT NULL,
+  registro_id integer NOT NULL,
+  accion character varying(10) NOT NULL,
+  datos_anteriores jsonb,
+  datos_nuevos jsonb,
+  fecha timestamp with time zone DEFAULT now() NOT NULL
 );
-CREATE INDEX idx_auditoria_tabla_registro ON auditoria(tabla_afectada, registro_id);
-CREATE INDEX idx_auditoria_usuario ON auditoria(usuario_id);
-CREATE INDEX idx_auditoria_fecha ON auditoria(fecha);
 
--- Función genérica de auditoría: se reutiliza en cada tabla
--- que se quiera trazar. Toma el usuario de una variable de
--- sesión que la aplicación debe fijar en cada transacción:
---   SET LOCAL app.usuario_id = '<id del usuario logueado>';
--- Así, sin importar si el cambio vino de la app o de una
--- consulta directa a la base, queda registrado quién fue
--- (o NULL si nadie fijó la variable, lo cual es en sí mismo
--- una señal a revisar).
-CREATE OR REPLACE FUNCTION fn_auditoria()
-RETURNS TRIGGER AS $$
+CREATE TABLE public.carga_detalle (
+  id integer DEFAULT nextval('carga_detalle_id_seq'::regclass) NOT NULL,
+  carga_id integer NOT NULL,
+  fila_original integer,
+  cedula character varying(15),
+  plantel_reportado character varying(20),
+  horas_reportadas numeric(5,2),
+  resultado_validacion character varying(20) DEFAULT 'pendiente'::character varying NOT NULL,
+  procesado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.cargas_municipio (
+  id integer DEFAULT nextval('cargas_municipio_id_seq'::regclass) NOT NULL,
+  municipio_id integer NOT NULL,
+  usuario_id integer NOT NULL,
+  nombre_archivo character varying(255),
+  cantidad_filas integer,
+  estado character varying(20) DEFAULT 'procesando'::character varying NOT NULL,
+  fecha_carga timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.catalogo_materiales (
+  id integer DEFAULT nextval('catalogo_materiales_id_seq'::regclass) NOT NULL,
+  codigo text NOT NULL,
+  lista text NOT NULL,
+  nro_lista integer,
+  ref_lista1 integer,
+  capitulo text NOT NULL,
+  rubro text NOT NULL,
+  unidad text,
+  activo boolean DEFAULT true NOT NULL,
+  observacion text,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.circuitos_educativos (
+  codigo_circuito text NOT NULL,
+  nombre text NOT NULL,
+  activo boolean DEFAULT true NOT NULL,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.configuracion (
+  clave character varying(100) NOT NULL,
+  valor text
+);
+
+CREATE TABLE public.directores_supervision (
+  codigo_plantel character varying(20) NOT NULL,
+  cedula character varying(15),
+  nombre character varying(150) NOT NULL,
+  telefono character varying(30),
+  correo character varying(150),
+  dependencia character varying(50),
+  cargo_nominal character varying(100),
+  plantel_cobro character varying(200),
+  titulo_pregrado character varying(200),
+  numero_cuenta character varying(30),
+  direccion_habitacion text,
+  titulo_fecha_grado date,
+  fecha_ingreso date,
+  formacion_unem text,
+  usuario_id integer,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.estados (
+  id integer DEFAULT nextval('estados_id_seq'::regclass) NOT NULL,
+  nombre character varying(100) NOT NULL
+);
+
+CREATE TABLE public.inspeccion_adicionales (
+  inspeccion_id integer NOT NULL,
+  adicional_id integer NOT NULL,
+  cantidad numeric(14,3),
+  actualizado_por integer,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.inspeccion_asignaciones (
+  inspeccion_id integer NOT NULL,
+  usuario_id integer NOT NULL,
+  asignado_por integer,
+  asignado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.inspeccion_inspectores (
+  inspeccion_id integer NOT NULL,
+  orden smallint NOT NULL,
+  nombre text NOT NULL,
+  usuario_id integer
+);
+
+CREATE TABLE public.inspeccion_materiales (
+  inspeccion_id integer NOT NULL,
+  material_id integer NOT NULL,
+  cantidad numeric(14,3) NOT NULL,
+  actualizado_por integer,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.inspecciones (
+  id integer DEFAULT nextval('inspecciones_id_seq'::regclass) NOT NULL,
+  codigo_dea text NOT NULL,
+  fecha_inspeccion date,
+  membrete jsonb DEFAULT '{}'::jsonb NOT NULL,
+  origen text DEFAULT 'NUEVA'::text NOT NULL,
+  estado text DEFAULT 'BORRADOR'::text NOT NULL,
+  observaciones text,
+  creado_por integer,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_por integer,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.iu_edificio_miembros (
+  id integer DEFAULT nextval('iu_edificio_miembros_id_seq'::regclass) NOT NULL,
+  codigo_infraestructura text NOT NULL,
+  codigo_dea text,
+  nombre text NOT NULL,
+  visita_id integer,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.iu_visitas (
+  id integer DEFAULT nextval('iu_visitas_id_seq'::regclass) NOT NULL,
+  codigo_dea text NOT NULL,
+  estado text DEFAULT 'BORRADOR'::text NOT NULL,
+  fecha_visita date DEFAULT CURRENT_DATE NOT NULL,
+  gescolar jsonb DEFAULT '{}'::jsonb NOT NULL,
+  datos jsonb DEFAULT '{}'::jsonb NOT NULL,
+  codigo_infraestructura text,
+  infra_sincronizada boolean DEFAULT false NOT NULL,
+  creado_por integer,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_por integer,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+  enviado_en timestamp with time zone
+);
+
+CREATE TABLE public.mapeo_codigos_plantel (
+  id integer DEFAULT nextval('mapeo_codigos_plantel_id_seq'::regclass) NOT NULL,
+  codigo_incorrecto text NOT NULL,
+  codigo_correcto text NOT NULL,
+  nota text,
+  creado_en timestamp without time zone DEFAULT now()
+);
+
+CREATE TABLE public.matricula_nivel (
+  id integer DEFAULT nextval('matricula_nivel_id_seq'::regclass) NOT NULL,
+  codigo_plantel character varying NOT NULL,
+  periodo_escolar character varying NOT NULL,
+  nivel text NOT NULL,
+  hembras integer DEFAULT 0 NOT NULL,
+  varones integer DEFAULT 0 NOT NULL,
+  actualizado_por integer,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.matricula_planteles (
+  id integer DEFAULT nextval('matricula_planteles_id_seq'::regclass) NOT NULL,
+  codigo_plantel character varying(20) NOT NULL,
+  periodo_escolar character varying(20) NOT NULL,
+  hembras integer DEFAULT 0 NOT NULL,
+  varones integer DEFAULT 0 NOT NULL,
+  total integer GENERATED ALWAYS AS (hembras + varones) STORED,
+  actualizado_por integer,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.municipios (
+  id integer DEFAULT nextval('municipios_id_seq'::regclass) NOT NULL,
+  codigo character varying(50),
+  nombre character varying(120) NOT NULL,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+  estado_id integer NOT NULL
+);
+
+CREATE TABLE public.niveles_matricula (
+  clave text NOT NULL,
+  nombre text NOT NULL,
+  orden integer NOT NULL
+);
+
+CREATE TABLE public.parroquias (
+  id integer DEFAULT nextval('parroquias_id_seq'::regclass) NOT NULL,
+  nombre character varying(150) NOT NULL,
+  municipio_id integer NOT NULL
+);
+
+CREATE TABLE public.personal_ministerio (
+  id integer DEFAULT nextval('personal_ministerio_id_seq'::regclass) NOT NULL,
+  cedula character varying(15) NOT NULL,
+  nombres character varying(150),
+  apellidos character varying(150),
+  cargo character varying(100),
+  codigo_dependencia character varying(20),
+  codigo_plantel character varying(20),
+  estado character varying(20) DEFAULT 'activo'::character varying NOT NULL,
+  fuente_carga character varying(50),
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.plan_inspecciones (
+  plan_id integer NOT NULL,
+  inspeccion_id integer NOT NULL,
+  codigo_dea text NOT NULL,
+  enlazado_en timestamp with time zone DEFAULT now() NOT NULL,
+  enlazado_por integer,
+  desenlazado_en timestamp with time zone,
+  desenlazado_por integer
+);
+
+CREATE TABLE public.planes_atencion (
+  id integer DEFAULT nextval('planes_atencion_id_seq'::regclass) NOT NULL,
+  nombre text NOT NULL,
+  descripcion text,
+  version_catalogo text DEFAULT 'LISTA2'::text NOT NULL,
+  estado text DEFAULT 'ACTIVO'::text NOT NULL,
+  creado_por integer,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.plantel_circuito (
+  codigo_plantel text NOT NULL,
+  estado text,
+  municipio text,
+  parroquia text,
+  codigo_circuito text,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.plantel_niveles (
+  codigo_plantel character varying NOT NULL,
+  nivel text NOT NULL
+);
+
+CREATE TABLE public.planteles (
+  id integer DEFAULT nextval('planteles_id_seq'::regclass) NOT NULL,
+  codigo_plantel character varying(20) NOT NULL,
+  nombre character varying(300) NOT NULL,
+  municipio_id integer NOT NULL,
+  dependencia character varying(150),
+  estado character varying(50) DEFAULT 'activo'::character varying NOT NULL,
+  fecha_cierre date,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+  parroquia character varying(100),
+  denominacion character varying(100),
+  direccion character varying(255),
+  estado_geografico character varying(50),
+  parroquia_id integer
+);
+
+CREATE TABLE public.planteles_supervision (
+  codigo_plantel character varying(20) NOT NULL,
+  eponimo_anterior character varying(200),
+  eponimo_actual character varying(200) NOT NULL,
+  denominacion character varying(100),
+  niveles_modalidad character varying(150),
+  dependencia character varying(50),
+  turno character varying(50),
+  direccion text,
+  coordenadas_geo character varying(60),
+  ubicacion_geo text,
+  cod_comuna character varying(20),
+  nombre_comuna character varying(150),
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+  municipio character varying(100),
+  parroquia character varying(100),
+  num_circuito character varying(20),
+  nombre_circuito character varying(200),
+  observaciones text,
+  en_gescolar boolean DEFAULT false NOT NULL
+);
+
+CREATE TABLE public.rac (
+  id integer DEFAULT nextval('rac_id_seq'::regclass) NOT NULL,
+  cedula character varying(15) NOT NULL,
+  plantel_id integer NOT NULL,
+  codigo_dependencia character varying(50),
+  cargo character varying(100),
+  turno character varying(25),
+  horas_academicas numeric(6,2) DEFAULT 0,
+  horas_adm numeric(6,2) DEFAULT 0,
+  periodo_escolar character varying(20),
+  situacion character varying(30) DEFAULT 'activo'::character varying,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+  codigo_cargo character varying(50),
+  tipo_personal character varying(40),
+  visto_en timestamp without time zone,
+  nivel text,
+  modalidad text,
+  ubicacion_geografica text,
+  turnos_plantel text,
+  codigo_estadistico text,
+  fecha_ingreso text,
+  sexo text,
+  grado_imparte text,
+  seccion text,
+  especialidad text,
+  anio text,
+  secciones text,
+  materia text,
+  periodo_grupo text,
+  observacion text,
+  edad text,
+  comparativa text,
+  nombres character varying(150),
+  apellidos character varying(150)
+);
+
+CREATE TABLE public.supervisor_circuital_plantel (
+  id integer DEFAULT nextval('supervisor_circuital_plantel_id_seq'::regclass) NOT NULL,
+  supervisor_circuital_id integer NOT NULL,
+  codigo_plantel character varying(20) NOT NULL
+);
+
+CREATE TABLE public.supervisor_municipal_plantel (
+  id integer DEFAULT nextval('supervisor_municipal_plantel_id_seq'::regclass) NOT NULL,
+  supervisor_municipal_id integer NOT NULL,
+  codigo_plantel character varying(20) NOT NULL
+);
+
+CREATE TABLE public.supervisores_circuitales (
+  id integer DEFAULT nextval('supervisores_circuitales_id_seq'::regclass) NOT NULL,
+  num_circuito character varying(20),
+  nombre_circuito character varying(200),
+  nombres character varying(150) NOT NULL,
+  apellidos character varying(150) NOT NULL,
+  cedula character varying(15) NOT NULL,
+  numero_cuenta character varying(30),
+  codigo_nominal character varying(30),
+  plantel_dependencia character varying(200),
+  titulo_pregrado character varying(200),
+  titulo_pre_pos_grado text,
+  cargo_nominal character varying(100),
+  telefono character varying(30),
+  correo character varying(150),
+  fecha_ingreso date,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.supervisores_municipales (
+  id integer DEFAULT nextval('supervisores_municipales_id_seq'::regclass) NOT NULL,
+  estado character varying(60),
+  municipio character varying(100) NOT NULL,
+  nombre character varying(150) NOT NULL,
+  cedula character varying(15) NOT NULL,
+  telefono character varying(30),
+  correo character varying(150),
+  parroquia character varying(100),
+  nro_cuenta character varying(30),
+  fecha_ingreso date,
+  cod_dependencia character varying(30),
+  titulo_pre_pos_grado text,
+  cargo_nominal character varying(100),
+  fecha_ultima_credencial date,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  actualizado_en timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.usuarios (
+  id integer DEFAULT nextval('usuarios_id_seq'::regclass) NOT NULL,
+  nombre character varying(150) NOT NULL,
+  email character varying(150) NOT NULL,
+  password_hash character varying(255) NOT NULL,
+  rol character varying(30) NOT NULL,
+  municipio_id integer,
+  activo boolean DEFAULT true NOT NULL,
+  creado_en timestamp with time zone DEFAULT now() NOT NULL,
+  codigo_plantel character varying(20)
+);
+
+
+-- ======================================================================
+-- 4. Llaves primarias, únicas y CHECK
+-- ======================================================================
+ALTER TABLE public.adicional_alias ADD CONSTRAINT adicional_alias_pkey PRIMARY KEY (id);
+ALTER TABLE public.adicionales_catalogo ADD CONSTRAINT adicionales_catalogo_estado_check CHECK ((estado = ANY (ARRAY['ACTIVO'::text, 'PENDIENTE'::text, 'RETIRADO'::text])));
+ALTER TABLE public.adicionales_catalogo ADD CONSTRAINT adicionales_catalogo_pkey PRIMARY KEY (id);
+ALTER TABLE public.alertas ADD CONSTRAINT alertas_pkey PRIMARY KEY (id);
+ALTER TABLE public.alertas_supervision ADD CONSTRAINT alertas_supervision_pkey PRIMARY KEY (id);
+ALTER TABLE public.auditoria ADD CONSTRAINT auditoria_pkey PRIMARY KEY (id);
+ALTER TABLE public.carga_detalle ADD CONSTRAINT carga_detalle_pkey PRIMARY KEY (id);
+ALTER TABLE public.cargas_municipio ADD CONSTRAINT cargas_municipio_pkey PRIMARY KEY (id);
+ALTER TABLE public.catalogo_materiales ADD CONSTRAINT catalogo_materiales_codigo_key UNIQUE (codigo);
+ALTER TABLE public.catalogo_materiales ADD CONSTRAINT catalogo_materiales_pkey PRIMARY KEY (id);
+ALTER TABLE public.circuitos_educativos ADD CONSTRAINT circuitos_educativos_pkey PRIMARY KEY (codigo_circuito);
+ALTER TABLE public.configuracion ADD CONSTRAINT configuracion_pkey PRIMARY KEY (clave);
+ALTER TABLE public.directores_supervision ADD CONSTRAINT directores_supervision_pkey PRIMARY KEY (codigo_plantel);
+ALTER TABLE public.estados ADD CONSTRAINT estados_nombre_key UNIQUE (nombre);
+ALTER TABLE public.estados ADD CONSTRAINT estados_pkey PRIMARY KEY (id);
+ALTER TABLE public.inspeccion_adicionales ADD CONSTRAINT inspeccion_adicionales_cantidad_check CHECK (((cantidad IS NULL) OR (cantidad >= (0)::numeric)));
+ALTER TABLE public.inspeccion_adicionales ADD CONSTRAINT inspeccion_adicionales_pkey PRIMARY KEY (inspeccion_id, adicional_id);
+ALTER TABLE public.inspeccion_asignaciones ADD CONSTRAINT inspeccion_asignaciones_pkey PRIMARY KEY (inspeccion_id, usuario_id);
+ALTER TABLE public.inspeccion_inspectores ADD CONSTRAINT inspeccion_inspectores_orden_check CHECK ((orden >= 1));
+ALTER TABLE public.inspeccion_inspectores ADD CONSTRAINT inspeccion_inspectores_pkey PRIMARY KEY (inspeccion_id, orden);
+ALTER TABLE public.inspeccion_materiales ADD CONSTRAINT inspeccion_materiales_cantidad_check CHECK ((cantidad >= (0)::numeric));
+ALTER TABLE public.inspeccion_materiales ADD CONSTRAINT inspeccion_materiales_pkey PRIMARY KEY (inspeccion_id, material_id);
+ALTER TABLE public.inspecciones ADD CONSTRAINT inspecciones_estado_check CHECK ((estado = ANY (ARRAY['BORRADOR'::text, 'CARGADA'::text])));
+ALTER TABLE public.inspecciones ADD CONSTRAINT inspecciones_origen_check CHECK ((origen = ANY (ARRAY['NUEVA'::text, 'HISTORICA'::text])));
+ALTER TABLE public.inspecciones ADD CONSTRAINT inspecciones_pkey PRIMARY KEY (id);
+ALTER TABLE public.iu_edificio_miembros ADD CONSTRAINT iu_edificio_miembros_pkey PRIMARY KEY (id);
+ALTER TABLE public.iu_visitas ADD CONSTRAINT iu_visitas_estado_check CHECK ((estado = ANY (ARRAY['BORRADOR'::text, 'ENVIADA'::text])));
+ALTER TABLE public.iu_visitas ADD CONSTRAINT iu_visitas_pkey PRIMARY KEY (id);
+ALTER TABLE public.mapeo_codigos_plantel ADD CONSTRAINT mapeo_codigos_plantel_codigo_incorrecto_key UNIQUE (codigo_incorrecto);
+ALTER TABLE public.mapeo_codigos_plantel ADD CONSTRAINT mapeo_codigos_plantel_pkey PRIMARY KEY (id);
+ALTER TABLE public.matricula_nivel ADD CONSTRAINT matricula_nivel_codigo_plantel_periodo_escolar_nivel_key UNIQUE (codigo_plantel, periodo_escolar, nivel);
+ALTER TABLE public.matricula_nivel ADD CONSTRAINT matricula_nivel_hembras_check CHECK ((hembras >= 0));
+ALTER TABLE public.matricula_nivel ADD CONSTRAINT matricula_nivel_pkey PRIMARY KEY (id);
+ALTER TABLE public.matricula_nivel ADD CONSTRAINT matricula_nivel_varones_check CHECK ((varones >= 0));
+ALTER TABLE public.matricula_planteles ADD CONSTRAINT matricula_planteles_codigo_plantel_periodo_escolar_key UNIQUE (codigo_plantel, periodo_escolar);
+ALTER TABLE public.matricula_planteles ADD CONSTRAINT matricula_planteles_hembras_check CHECK ((hembras >= 0));
+ALTER TABLE public.matricula_planteles ADD CONSTRAINT matricula_planteles_pkey PRIMARY KEY (id);
+ALTER TABLE public.matricula_planteles ADD CONSTRAINT matricula_planteles_varones_check CHECK ((varones >= 0));
+ALTER TABLE public.municipios ADD CONSTRAINT municipios_codigo_key UNIQUE (codigo);
+ALTER TABLE public.municipios ADD CONSTRAINT municipios_nombre_estado_id_key UNIQUE (nombre, estado_id);
+ALTER TABLE public.municipios ADD CONSTRAINT municipios_nombre_estado_key UNIQUE (nombre, estado_id);
+ALTER TABLE public.municipios ADD CONSTRAINT municipios_pkey PRIMARY KEY (id);
+ALTER TABLE public.niveles_matricula ADD CONSTRAINT niveles_matricula_pkey PRIMARY KEY (clave);
+ALTER TABLE public.parroquias ADD CONSTRAINT parroquias_nombre_municipio_id_key UNIQUE (nombre, municipio_id);
+ALTER TABLE public.parroquias ADD CONSTRAINT parroquias_pkey PRIMARY KEY (id);
+ALTER TABLE public.personal_ministerio ADD CONSTRAINT personal_ministerio_pkey PRIMARY KEY (id);
+ALTER TABLE public.plan_inspecciones ADD CONSTRAINT plan_inspecciones_pkey PRIMARY KEY (plan_id, inspeccion_id);
+ALTER TABLE public.planes_atencion ADD CONSTRAINT planes_atencion_estado_check CHECK ((estado = ANY (ARRAY['ACTIVO'::text, 'CERRADO'::text])));
+ALTER TABLE public.planes_atencion ADD CONSTRAINT planes_atencion_nombre_key UNIQUE (nombre);
+ALTER TABLE public.planes_atencion ADD CONSTRAINT planes_atencion_pkey PRIMARY KEY (id);
+ALTER TABLE public.plantel_circuito ADD CONSTRAINT plantel_circuito_pkey PRIMARY KEY (codigo_plantel);
+ALTER TABLE public.plantel_niveles ADD CONSTRAINT plantel_niveles_pkey PRIMARY KEY (codigo_plantel, nivel);
+ALTER TABLE public.planteles ADD CONSTRAINT planteles_codigo_plantel_key UNIQUE (codigo_plantel);
+ALTER TABLE public.planteles ADD CONSTRAINT planteles_pkey PRIMARY KEY (id);
+ALTER TABLE public.planteles_supervision ADD CONSTRAINT planteles_supervision_pkey PRIMARY KEY (codigo_plantel);
+ALTER TABLE public.rac ADD CONSTRAINT rac_horas_academicas_check CHECK (((horas_academicas >= (0)::numeric) AND (horas_academicas <= (168)::numeric)));
+ALTER TABLE public.rac ADD CONSTRAINT rac_horas_adm_check CHECK (((horas_adm >= (0)::numeric) AND (horas_adm <= (168)::numeric)));
+ALTER TABLE public.rac ADD CONSTRAINT rac_pkey PRIMARY KEY (id);
+ALTER TABLE public.supervisor_circuital_plantel ADD CONSTRAINT supervisor_circuital_plantel_pkey PRIMARY KEY (id);
+ALTER TABLE public.supervisor_circuital_plantel ADD CONSTRAINT supervisor_circuital_plantel_supervisor_circuital_id_codigo_key UNIQUE (supervisor_circuital_id, codigo_plantel);
+ALTER TABLE public.supervisor_municipal_plantel ADD CONSTRAINT supervisor_municipal_plantel_pkey PRIMARY KEY (id);
+ALTER TABLE public.supervisor_municipal_plantel ADD CONSTRAINT supervisor_municipal_plantel_supervisor_municipal_id_codigo_key UNIQUE (supervisor_municipal_id, codigo_plantel);
+ALTER TABLE public.supervisores_circuitales ADD CONSTRAINT supervisores_circuitales_pkey PRIMARY KEY (id);
+ALTER TABLE public.supervisores_municipales ADD CONSTRAINT supervisores_municipales_pkey PRIMARY KEY (id);
+ALTER TABLE public.usuarios ADD CONSTRAINT usuarios_email_key UNIQUE (email);
+ALTER TABLE public.usuarios ADD CONSTRAINT usuarios_pkey PRIMARY KEY (id);
+
+-- ======================================================================
+-- 5. Llaves foráneas
+-- ======================================================================
+ALTER TABLE public.adicional_alias ADD CONSTRAINT adicional_alias_adicional_id_fkey FOREIGN KEY (adicional_id) REFERENCES adicionales_catalogo(id) ON DELETE CASCADE;
+ALTER TABLE public.adicionales_catalogo ADD CONSTRAINT adicionales_catalogo_propuesto_por_fkey FOREIGN KEY (propuesto_por) REFERENCES usuarios(id);
+ALTER TABLE public.adicionales_catalogo ADD CONSTRAINT adicionales_catalogo_unificado_en_fkey FOREIGN KEY (unificado_en) REFERENCES adicionales_catalogo(id);
+ALTER TABLE public.alertas ADD CONSTRAINT alertas_carga_detalle_id_fkey FOREIGN KEY (carga_detalle_id) REFERENCES carga_detalle(id);
+ALTER TABLE public.alertas ADD CONSTRAINT alertas_revisado_por_fkey FOREIGN KEY (revisado_por) REFERENCES usuarios(id);
+ALTER TABLE public.alertas_supervision ADD CONSTRAINT alertas_supervision_resuelto_por_fkey FOREIGN KEY (resuelto_por) REFERENCES usuarios(id);
+ALTER TABLE public.auditoria ADD CONSTRAINT auditoria_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id);
+ALTER TABLE public.carga_detalle ADD CONSTRAINT carga_detalle_carga_id_fkey FOREIGN KEY (carga_id) REFERENCES cargas_municipio(id);
+ALTER TABLE public.cargas_municipio ADD CONSTRAINT cargas_municipio_municipio_id_fkey FOREIGN KEY (municipio_id) REFERENCES municipios(id);
+ALTER TABLE public.cargas_municipio ADD CONSTRAINT cargas_municipio_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id);
+ALTER TABLE public.directores_supervision ADD CONSTRAINT directores_supervision_codigo_plantel_fkey FOREIGN KEY (codigo_plantel) REFERENCES planteles_supervision(codigo_plantel) ON DELETE CASCADE;
+ALTER TABLE public.directores_supervision ADD CONSTRAINT directores_supervision_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id);
+ALTER TABLE public.inspeccion_adicionales ADD CONSTRAINT inspeccion_adicionales_actualizado_por_fkey FOREIGN KEY (actualizado_por) REFERENCES usuarios(id);
+ALTER TABLE public.inspeccion_adicionales ADD CONSTRAINT inspeccion_adicionales_adicional_id_fkey FOREIGN KEY (adicional_id) REFERENCES adicionales_catalogo(id);
+ALTER TABLE public.inspeccion_adicionales ADD CONSTRAINT inspeccion_adicionales_inspeccion_id_fkey FOREIGN KEY (inspeccion_id) REFERENCES inspecciones(id) ON DELETE CASCADE;
+ALTER TABLE public.inspeccion_asignaciones ADD CONSTRAINT inspeccion_asignaciones_asignado_por_fkey FOREIGN KEY (asignado_por) REFERENCES usuarios(id);
+ALTER TABLE public.inspeccion_asignaciones ADD CONSTRAINT inspeccion_asignaciones_inspeccion_id_fkey FOREIGN KEY (inspeccion_id) REFERENCES inspecciones(id) ON DELETE CASCADE;
+ALTER TABLE public.inspeccion_asignaciones ADD CONSTRAINT inspeccion_asignaciones_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE;
+ALTER TABLE public.inspeccion_inspectores ADD CONSTRAINT inspeccion_inspectores_inspeccion_id_fkey FOREIGN KEY (inspeccion_id) REFERENCES inspecciones(id) ON DELETE CASCADE;
+ALTER TABLE public.inspeccion_inspectores ADD CONSTRAINT inspeccion_inspectores_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id);
+ALTER TABLE public.inspeccion_materiales ADD CONSTRAINT inspeccion_materiales_actualizado_por_fkey FOREIGN KEY (actualizado_por) REFERENCES usuarios(id);
+ALTER TABLE public.inspeccion_materiales ADD CONSTRAINT inspeccion_materiales_inspeccion_id_fkey FOREIGN KEY (inspeccion_id) REFERENCES inspecciones(id) ON DELETE CASCADE;
+ALTER TABLE public.inspeccion_materiales ADD CONSTRAINT inspeccion_materiales_material_id_fkey FOREIGN KEY (material_id) REFERENCES catalogo_materiales(id);
+ALTER TABLE public.inspecciones ADD CONSTRAINT inspecciones_actualizado_por_fkey FOREIGN KEY (actualizado_por) REFERENCES usuarios(id);
+ALTER TABLE public.inspecciones ADD CONSTRAINT inspecciones_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES usuarios(id);
+ALTER TABLE public.iu_edificio_miembros ADD CONSTRAINT iu_edificio_miembros_visita_id_fkey FOREIGN KEY (visita_id) REFERENCES iu_visitas(id) ON DELETE SET NULL;
+ALTER TABLE public.iu_visitas ADD CONSTRAINT iu_visitas_actualizado_por_fkey FOREIGN KEY (actualizado_por) REFERENCES usuarios(id);
+ALTER TABLE public.iu_visitas ADD CONSTRAINT iu_visitas_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES usuarios(id);
+ALTER TABLE public.matricula_nivel ADD CONSTRAINT matricula_nivel_codigo_plantel_fkey FOREIGN KEY (codigo_plantel) REFERENCES planteles_supervision(codigo_plantel) ON UPDATE CASCADE ON DELETE CASCADE;
+ALTER TABLE public.matricula_nivel ADD CONSTRAINT matricula_nivel_nivel_fkey FOREIGN KEY (nivel) REFERENCES niveles_matricula(clave);
+ALTER TABLE public.matricula_planteles ADD CONSTRAINT matricula_planteles_actualizado_por_fkey FOREIGN KEY (actualizado_por) REFERENCES usuarios(id);
+ALTER TABLE public.matricula_planteles ADD CONSTRAINT matricula_planteles_codigo_plantel_fkey FOREIGN KEY (codigo_plantel) REFERENCES planteles_supervision(codigo_plantel) ON DELETE CASCADE;
+ALTER TABLE public.municipios ADD CONSTRAINT municipios_estado_id_fkey FOREIGN KEY (estado_id) REFERENCES estados(id);
+ALTER TABLE public.parroquias ADD CONSTRAINT parroquias_municipio_id_fkey FOREIGN KEY (municipio_id) REFERENCES municipios(id);
+ALTER TABLE public.plan_inspecciones ADD CONSTRAINT plan_inspecciones_desenlazado_por_fkey FOREIGN KEY (desenlazado_por) REFERENCES usuarios(id);
+ALTER TABLE public.plan_inspecciones ADD CONSTRAINT plan_inspecciones_enlazado_por_fkey FOREIGN KEY (enlazado_por) REFERENCES usuarios(id);
+ALTER TABLE public.plan_inspecciones ADD CONSTRAINT plan_inspecciones_inspeccion_id_fkey FOREIGN KEY (inspeccion_id) REFERENCES inspecciones(id) ON DELETE CASCADE;
+ALTER TABLE public.plan_inspecciones ADD CONSTRAINT plan_inspecciones_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES planes_atencion(id) ON DELETE CASCADE;
+ALTER TABLE public.planes_atencion ADD CONSTRAINT planes_atencion_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES usuarios(id);
+ALTER TABLE public.plantel_circuito ADD CONSTRAINT plantel_circuito_codigo_circuito_fkey FOREIGN KEY (codigo_circuito) REFERENCES circuitos_educativos(codigo_circuito);
+ALTER TABLE public.plantel_niveles ADD CONSTRAINT plantel_niveles_codigo_plantel_fkey FOREIGN KEY (codigo_plantel) REFERENCES planteles_supervision(codigo_plantel) ON UPDATE CASCADE ON DELETE CASCADE;
+ALTER TABLE public.plantel_niveles ADD CONSTRAINT plantel_niveles_nivel_fkey FOREIGN KEY (nivel) REFERENCES niveles_matricula(clave);
+ALTER TABLE public.planteles ADD CONSTRAINT planteles_municipio_id_fkey FOREIGN KEY (municipio_id) REFERENCES municipios(id);
+ALTER TABLE public.planteles ADD CONSTRAINT planteles_parroquia_id_fkey FOREIGN KEY (parroquia_id) REFERENCES parroquias(id);
+ALTER TABLE public.rac ADD CONSTRAINT rac_plantel_id_fkey FOREIGN KEY (plantel_id) REFERENCES planteles(id);
+ALTER TABLE public.supervisor_circuital_plantel ADD CONSTRAINT supervisor_circuital_plantel_codigo_plantel_fkey FOREIGN KEY (codigo_plantel) REFERENCES planteles_supervision(codigo_plantel) ON DELETE CASCADE;
+ALTER TABLE public.supervisor_circuital_plantel ADD CONSTRAINT supervisor_circuital_plantel_supervisor_circuital_id_fkey FOREIGN KEY (supervisor_circuital_id) REFERENCES supervisores_circuitales(id) ON DELETE CASCADE;
+ALTER TABLE public.supervisor_municipal_plantel ADD CONSTRAINT supervisor_municipal_plantel_codigo_plantel_fkey FOREIGN KEY (codigo_plantel) REFERENCES planteles_supervision(codigo_plantel) ON DELETE CASCADE;
+ALTER TABLE public.supervisor_municipal_plantel ADD CONSTRAINT supervisor_municipal_plantel_supervisor_municipal_id_fkey FOREIGN KEY (supervisor_municipal_id) REFERENCES supervisores_municipales(id) ON DELETE CASCADE;
+ALTER TABLE public.usuarios ADD CONSTRAINT usuarios_municipio_id_fkey FOREIGN KEY (municipio_id) REFERENCES municipios(id);
+
+-- ======================================================================
+-- 6. Índices
+-- ======================================================================
+CREATE INDEX idx_alertas_cedula ON public.alertas USING btree (cedula);
+CREATE INDEX idx_alertas_estado ON public.alertas USING btree (estado);
+CREATE INDEX idx_alertas_sup_estado ON public.alertas_supervision USING btree (estado);
+CREATE INDEX idx_alertas_sup_tipo ON public.alertas_supervision USING btree (tipo);
+CREATE INDEX idx_auditoria_fecha ON public.auditoria USING btree (fecha);
+CREATE INDEX idx_auditoria_tabla_registro ON public.auditoria USING btree (tabla_afectada, registro_id);
+CREATE INDEX idx_auditoria_usuario ON public.auditoria USING btree (usuario_id);
+CREATE INDEX idx_catalogo_materiales_activo ON public.catalogo_materiales USING btree (activo);
+CREATE INDEX idx_catalogo_materiales_capitulo ON public.catalogo_materiales USING btree (capitulo);
+CREATE INDEX idx_detalle_carga ON public.carga_detalle USING btree (carga_id);
+CREATE INDEX idx_detalle_cedula ON public.carga_detalle USING btree (cedula);
+CREATE INDEX idx_directores_supervision_usuario ON public.directores_supervision USING btree (usuario_id);
+CREATE INDEX idx_inspeccion_adicionales_adicional ON public.inspeccion_adicionales USING btree (adicional_id);
+CREATE INDEX idx_inspeccion_materiales_material ON public.inspeccion_materiales USING btree (material_id);
+CREATE INDEX idx_inspecciones_dea ON public.inspecciones USING btree (codigo_dea);
+CREATE INDEX idx_plan_inspecciones_inspeccion ON public.plan_inspecciones USING btree (inspeccion_id);
+CREATE INDEX idx_plantel_circuito_circuito ON public.plantel_circuito USING btree (codigo_circuito);
+CREATE INDEX idx_plantel_circuito_municipio ON public.plantel_circuito USING btree (municipio);
+CREATE INDEX idx_planteles_estado ON public.planteles USING btree (estado);
+CREATE INDEX idx_planteles_municipio ON public.planteles USING btree (municipio_id);
+CREATE INDEX idx_pmin_cedula ON public.personal_ministerio USING btree (cedula);
+CREATE INDEX idx_pmin_estado ON public.personal_ministerio USING btree (estado);
+CREATE INDEX idx_rac_cedula ON public.rac USING btree (cedula);
+CREATE INDEX idx_rac_plantel ON public.rac USING btree (plantel_id);
+CREATE INDEX ix_asignaciones_usuario ON public.inspeccion_asignaciones USING btree (usuario_id);
+CREATE INDEX ix_iu_miembro_infra ON public.iu_edificio_miembros USING btree (codigo_infraestructura);
+CREATE INDEX ix_iu_visitas_creador ON public.iu_visitas USING btree (creado_por);
+CREATE INDEX ix_iu_visitas_dea ON public.iu_visitas USING btree (codigo_dea);
+CREATE UNIQUE INDEX ux_adicional_alias ON public.adicional_alias USING btree (upper(alias));
+CREATE UNIQUE INDEX ux_adicionales_nombre ON public.adicionales_catalogo USING btree (upper(nombre));
+CREATE UNIQUE INDEX ux_iu_miembro_dea ON public.iu_edificio_miembros USING btree (codigo_infraestructura, codigo_dea) WHERE (codigo_dea IS NOT NULL);
+CREATE UNIQUE INDEX ux_iu_miembro_nombre ON public.iu_edificio_miembros USING btree (codigo_infraestructura, lower(nombre)) WHERE (codigo_dea IS NULL);
+CREATE UNIQUE INDEX ux_plan_plantel_activo ON public.plan_inspecciones USING btree (plan_id, codigo_dea) WHERE (desenlazado_en IS NULL);
+
+-- ======================================================================
+-- 7. Funciones
+-- ======================================================================
+CREATE OR REPLACE FUNCTION public.fn_auditoria()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
 DECLARE
     v_usuario_id INTEGER;
 BEGIN
@@ -218,69 +682,89 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$function$
+;
 
--- Se activa en las tablas sensibles a auditar:
-CREATE TRIGGER trg_auditoria_rac
-    AFTER INSERT OR UPDATE OR DELETE ON rac
-    FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
+-- ======================================================================
+-- 8. Vistas
+-- ======================================================================
+CREATE OR REPLACE VIEW public.v_consolidado_adicionales AS
+ SELECT pi.plan_id,
+    COALESCE(a.unificado_en, a.id) AS adicional_id,
+    sum(ia.cantidad) AS total,
+    count(*) AS planteles_con_cantidad
+   FROM plan_inspecciones pi
+     JOIN inspeccion_adicionales ia ON ia.inspeccion_id = pi.inspeccion_id
+     JOIN adicionales_catalogo a ON a.id = ia.adicional_id
+  WHERE pi.desenlazado_en IS NULL AND ia.cantidad > 0::numeric
+  GROUP BY pi.plan_id, (COALESCE(a.unificado_en, a.id));
+CREATE OR REPLACE VIEW public.v_consolidado_oficial AS
+ SELECT pi.plan_id,
+    im.material_id,
+    sum(im.cantidad) AS total,
+    count(*) AS planteles_con_cantidad
+   FROM plan_inspecciones pi
+     JOIN inspeccion_materiales im ON im.inspeccion_id = pi.inspeccion_id
+  WHERE pi.desenlazado_en IS NULL AND im.cantidad > 0::numeric
+  GROUP BY pi.plan_id, im.material_id;
+CREATE OR REPLACE VIEW public.v_mapa_supervision AS
+ SELECT pc.codigo_plantel,
+    pc.estado,
+    pc.municipio,
+    pc.parroquia,
+    c.codigo_circuito AS nro_circuito,
+    c.nombre AS nombre_circuito
+   FROM plantel_circuito pc
+     LEFT JOIN circuitos_educativos c ON c.codigo_circuito = pc.codigo_circuito;
 
-CREATE TRIGGER trg_auditoria_planteles
-    AFTER INSERT OR UPDATE OR DELETE ON planteles
-    FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
+-- ======================================================================
+-- 9. Triggers de auditoría
+-- ======================================================================
+CREATE TRIGGER trg_auditoria_alertas AFTER INSERT OR DELETE OR UPDATE ON public.alertas FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
+CREATE TRIGGER trg_auditoria_personal_ministerio AFTER INSERT OR DELETE OR UPDATE ON public.personal_ministerio FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
+CREATE TRIGGER trg_auditoria_planteles AFTER INSERT OR DELETE OR UPDATE ON public.planteles FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
+CREATE TRIGGER trg_auditoria_rac AFTER INSERT OR DELETE OR UPDATE ON public.rac FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
 
-CREATE TRIGGER trg_auditoria_personal_ministerio
-    AFTER INSERT OR UPDATE OR DELETE ON personal_ministerio
-    FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
-
-CREATE TRIGGER trg_auditoria_alertas
-    AFTER INSERT OR UPDATE OR DELETE ON alertas
-    FOR EACH ROW EXECUTE FUNCTION fn_auditoria();
-
--- =========================================================
--- Notas de diseño:
---
--- 1. personal_ministerio y planteles son tablas MAESTRAS:
---    se actualizan por lotes cuando llega data nueva del
---    Ministerio, nunca las edita un encargado de municipio
---    directamente.
---
--- 2. El flujo de validación (a implementar en la app, no en
---    SQL puro) por cada fila de carga_detalle -- son DOS
---    validaciones independientes, no una cadena:
---
---      a) ¿la CEDULA existe en personal_ministerio?
---         NO -> alerta 'no_existe_ministerio'
---         (cruce únicamente por cédula -- el codigo_dependencia
---          es dato informativo, no se usa para esta validación)
---
---      b) ¿el codigo_plantel (COD DEA) reportado existe en la
---         tabla planteles (973 registros maestros)?
---         NO -> alerta 'plantel_no_existe'
---
---      c) ¿las horas están dentro de un rango físicamente posible?
---         NO -> alerta 'horas_invalidas'
---
---    Cédulas repetidas en el RAC (mismo profesor, varios turnos
---    o planteles) son válidas y esperadas -- NO generan alerta
---    por sí solas.
---
---    Traslados: se resuelven con un UPDATE sobre el registro de
---    rac existente (cambiando plantel_id/turno) -- el trigger de
---    auditoria ya deja registrado el plantel anterior y el nuevo.
---
--- 3. Con 900k+ registros en personal_ministerio, los índices
---    en cedula son esenciales — sin eso cada validación sería
---    un escaneo completo de la tabla.
---
--- 4. Auditoría: la aplicación DEBE ejecutar
---      SET LOCAL app.usuario_id = '<id>';
---    al inicio de cada transacción que edite rac, planteles,
---    personal_ministerio o alertas, usando el id del usuario
---    logueado (de la tabla usuarios). Los triggers capturan
---    automáticamente el resto — no hace falta lógica extra
---    en el código de la app para loguear cada cambio.
---    Como los datos_anteriores/datos_nuevos quedan en JSONB
---    con la fila completa, se puede reconstruir el historial
---    exacto de cualquier registro en cualquier momento.
--- =========================================================
+-- ======================================================================
+-- 10. Seguridad a nivel de fila (RLS)
+-- ======================================================================
+-- Todas las tablas tienen RLS activado y SIN políticas: así nadie puede leerlas por la API
+-- pública de Supabase (clave anon). El servidor entra con su propia conexión (DATABASE_URL).
+ALTER TABLE public.adicional_alias ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.adicionales_catalogo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alertas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alertas_supervision ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.auditoria ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.carga_detalle ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cargas_municipio ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.catalogo_materiales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.circuitos_educativos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.configuracion ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.directores_supervision ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.estados ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inspeccion_adicionales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inspeccion_asignaciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inspeccion_inspectores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inspeccion_materiales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inspecciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.iu_edificio_miembros ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.iu_visitas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mapeo_codigos_plantel ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.matricula_nivel ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.matricula_planteles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.municipios ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.niveles_matricula ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.parroquias ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.personal_ministerio ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.plan_inspecciones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.planes_atencion ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.plantel_circuito ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.plantel_niveles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.planteles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.planteles_supervision ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rac ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.supervisor_circuital_plantel ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.supervisor_municipal_plantel ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.supervisores_circuitales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.supervisores_municipales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.usuarios ENABLE ROW LEVEL SECURITY;
