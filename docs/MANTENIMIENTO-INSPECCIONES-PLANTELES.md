@@ -108,7 +108,7 @@ Crear/desactivar usuarios: pantalla Usuarios (admin). El primer admin se crea po
   Maturín con avance del Instrumento Uno. "Cargado" = plantel con ≥1 visita `ENVIADA`.
 - El listado completo de endpoints está comentado al inicio de `src/routes/inspecciones.js`.
 
-## 5b. Reportes por plan (Inspecciones → Reportes)
+## 5b. Reportes (Inspecciones → Reportes)
 
 Pantalla `public/inspecciones/reportes.html` + `public/js/inspecciones-reportes.js`; servicio `src/services/reportesInspecciones.js`; ruta
 `src/routes/reportesInspecciones.js` (`/api/inspecciones/reportes`, montada antes de `/api/inspecciones`); Excel con `reportePlan` en `src/services/exportarExcel.js`.
@@ -121,8 +121,14 @@ Pantalla `public/inspecciones/reportes.html` + `public/js/inspecciones-reportes.
 - **De dónde sale cada dato:** identificación, matrícula y director salen de la planilla de cada plantel (copia de GESCOLAR al enlazarlo + correcciones del ingeniero), igual que los
   consolidados. El edificio sale de Infraestructuras (solo / comparte / sin clasificar, código `INFRA-…`, con quién comparte, espacios separados). La **matrícula del edificio** suma todas sus
   instituciones con código DEA (las que no están en el plan se toman de GESCOLAR vigente); una institución sin DEA no suma y el reporte lo avisa. Solo cuentan los planteles **activos** del plan.
-- **Para agregar una columna:** añadirla a `COLUMNAS` (y a `PRESETS` si va en una combinación) en `reportesInspecciones.js` y calcular su valor en `armarReportePlan`; la pantalla y el Excel la toman del catálogo.
-- **Pruebas hechas (durante el desarrollo, no están en el repo):** 56 de API y Excel con PostgreSQL real y Google simulado, 19 de pantalla (jsdom), capturas en escritorio y teléfono, y revisión del Excel convertido a PDF con LibreOffice.
+- **Planteles que yo elija:** además de un plan, se pueden **buscar y agregar planteles uno a uno** (búsqueda en GESCOLAR sin distinguir acentos; hasta 300; la lista se recuerda en el navegador).
+  Rutas: `GET /seleccion/buscar?q=`, `POST /seleccion` y `POST /seleccion/excel` (cuerpo `{codigos, columnas}`). Si el plantel ya tiene una planilla se usa la más reciente (columna "Fuente de los datos" = Planilla);
+  si no, sus datos salen de GESCOLAR vigente (= GESCOLAR) y las columnas de inspección quedan vacías.
+- **Proyección de rehabilitación (aulas):** toma aulas total / operativas / no operativas de la **última visita ENVIADA** del Instrumento Uno (`iu_visitas.datos`). Alumnos adicionales posibles = aulas NO operativas × 25
+  (mínimo) y × 30 (máximo); mesas-sillas a dotar = una por alumno adicional. Valores fijos (constantes `ALUMNOS_POR_AULA_MIN/MAX` en el servicio), un solo turno. Es una proyección de **capacidad**, no matrícula real:
+  el reporte lo avisa, avisa los planteles sin visita (celdas "—", no 0) y los que ya tienen menos de 25 alumnos por aula operativa. Sin visitas ENVIADAS no hay datos de aulas.
+- **Para agregar una columna:** añadirla a `COLUMNAS` (y a `PRESETS` si va en una combinación) en `reportesInspecciones.js` y calcular su valor en `armarReporte`; la pantalla y el Excel la toman del catálogo.
+- **Pruebas hechas (durante el desarrollo, no están en el repo):** 56 de API y Excel (plan) y 35 de selección y proyección con PostgreSQL real y Google simulado, 31 de pantalla (jsdom), capturas en escritorio y teléfono, y revisión del Excel convertido a PDF con LibreOffice.
   No se probó contra Google real ni en un teléfono físico. Con muchas columnas, la impresión en una sola hoja queda pequeña: elegir menos columnas para imprimir.
 
 ## 6. Instrumento Uno CDCE

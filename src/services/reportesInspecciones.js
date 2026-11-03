@@ -1,6 +1,7 @@
 // reportesInspecciones.js — "Reportes por plan" del módulo Inspecciones.
 //
-// Arma una tabla con los planteles ACTIVOS de un plan de atención y las columnas que la persona elija
+// Arma una tabla con los planteles ACTIVOS de un plan de atención —o con los planteles que la persona elija
+// uno a uno— y las columnas que la persona elija
 // de un catálogo CERRADO (definido aquí, en el servidor): identificación, matrícula, edificio
 // (solo / comparte), inspección y director. Nunca se arma SQL con nombres que vengan del navegador:
 // las columnas pedidas se validan contra el catálogo.
@@ -14,6 +15,11 @@
 //     no están en este plan se usa GESCOLAR vigente (caché de 15 min). Una institución anotada solo por
 //     nombre (sin DEA) no tiene matrícula y no suma: el reporte lo avisa.
 //   · Inspección: estado, fecha e ingenieros de la planilla; cuántos rubros y adicionales tienen cantidad.
+//   · Planteles elegidos que no están en un plan: si ya tienen una planilla (inspección) se usa; si no, sus datos
+//     salen de GESCOLAR vigente (la columna "Fuente de los datos" lo dice) y las columnas de inspección quedan vacías.
+//   · Proyección de aulas: aulas total / operativas / no operativas de la última visita ENVIADA del Instrumento Uno.
+//     Es una proyección de CAPACIDAD: supone rehabilitar todas las aulas no operativas, entre 25 y 30 alumnos por aula
+//     (valores fijos, decididos por el usuario), un solo turno y una mesa-silla por alumno adicional.
 
 const { pool } = require("../db/pool");
 const gescolar = require("./gescolar");
@@ -22,12 +28,13 @@ const infra = require("./infraestructuras");
 // ---------------------------------------------------------------------------
 // Catálogo de columnas
 // ---------------------------------------------------------------------------
-// tipo: "texto" | "entero" ; sumable: se suma en la fila de totales ; roles: si existe, solo esos perfiles la ven.
+// tipo: "texto" | "entero" | "decimal" ; sumable: se suma en la fila de totales ; roles: si existe, solo esos perfiles la ven.
 const ROLES_DIRECTOR = ["admin", "insp_coordinador"];
 
 const GRUPOS = [
   { id: "plantel", etiqueta: "Datos del plantel" },
   { id: "matricula", etiqueta: "Matrícula" },
+  { id: "proyeccion", etiqueta: "Proyección de rehabilitación (aulas)" },
   { id: "edificio", etiqueta: "Edificio" },
   { id: "inspeccion", etiqueta: "Inspección" },
   { id: "director", etiqueta: "Director (datos de contacto)" },
@@ -43,6 +50,7 @@ const COLUMNAS = [
   { id: "nivel", grupo: "plantel", etiqueta: "Nivel principal", tipo: "texto", ancho: 18 },
   { id: "modalidad", grupo: "plantel", etiqueta: "Modalidad principal", tipo: "texto", ancho: 20 },
   { id: "zona", grupo: "plantel", etiqueta: "Zona de ubicación", tipo: "texto", ancho: 16 },
+  { id: "fuente", grupo: "plantel", etiqueta: "Fuente de los datos", tipo: "texto", ancho: 14 },
 
   { id: "mat_total", grupo: "matricula", etiqueta: "Matrícula total", tipo: "entero", sumable: true, ancho: 12 },
   { id: "mat_maternal", grupo: "matricula", etiqueta: "Maternal", tipo: "entero", sumable: true, ancho: 11, gescolar: "total_maternal" },
@@ -55,6 +63,15 @@ const COLUMNAS = [
   { id: "mat_mr", grupo: "matricula", etiqueta: "Misión Ribas", tipo: "entero", sumable: true, ancho: 12, gescolar: "total_mr" },
   { id: "mat_ribas_tecnica", grupo: "matricula", etiqueta: "Ribas técnica", tipo: "entero", sumable: true, ancho: 12, gescolar: "total_ribas_tecnica" },
   { id: "mat_especial", grupo: "matricula", etiqueta: "Especial", tipo: "entero", sumable: true, ancho: 10, gescolar: "total_especial" },
+
+  { id: "aulas_total", grupo: "proyeccion", etiqueta: "Aulas (total)", tipo: "entero", sumable: true, ancho: 10 },
+  { id: "aulas_operativas", grupo: "proyeccion", etiqueta: "Aulas operativas", tipo: "entero", sumable: true, ancho: 11 },
+  { id: "aulas_no_operativas", grupo: "proyeccion", etiqueta: "Aulas NO operativas", tipo: "entero", sumable: true, ancho: 11 },
+  { id: "alumnos_por_aula", grupo: "proyeccion", etiqueta: "Alumnos por aula operativa (hoy)", tipo: "decimal", ancho: 14 },
+  { id: "proy_alumnos_min", grupo: "proyeccion", etiqueta: "Alumnos adicionales posibles (25 por aula)", tipo: "entero", sumable: true, ancho: 16 },
+  { id: "proy_alumnos_max", grupo: "proyeccion", etiqueta: "Alumnos adicionales posibles (30 por aula)", tipo: "entero", sumable: true, ancho: 16 },
+  { id: "proy_mesas_min", grupo: "proyeccion", etiqueta: "Mesas-sillas a dotar (mínimo)", tipo: "entero", sumable: true, ancho: 14 },
+  { id: "proy_mesas_max", grupo: "proyeccion", etiqueta: "Mesas-sillas a dotar (máximo)", tipo: "entero", sumable: true, ancho: 14 },
 
   { id: "edificio_estado", grupo: "edificio", etiqueta: "Edificio", tipo: "texto", ancho: 20 },
   { id: "edificio_codigo", grupo: "edificio", etiqueta: "Código de infraestructura", tipo: "texto", ancho: 17 },
@@ -78,6 +95,7 @@ const PRESETS = [
   { id: "esencial", etiqueta: "Esencial", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "edificio_estado", "edificio_codigo"] },
   { id: "matricula_edificio", etiqueta: "Matrícula y edificio", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "edificio_estado", "edificio_codigo", "edificio_instituciones", "edificio_comparte_con", "edificio_matricula", "espacios_separados"] },
   { id: "matricula_niveles", etiqueta: "Matrícula por nivel", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "mat_maternal", "mat_preescolar", "mat_primaria", "mat_media_general", "mat_media", "mat_tecnica", "mat_adulto", "mat_especial"] },
+  { id: "proyeccion_aulas", etiqueta: "Proyección de aulas", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "aulas_total", "aulas_operativas", "aulas_no_operativas", "alumnos_por_aula", "proy_alumnos_min", "proy_alumnos_max", "proy_mesas_min", "proy_mesas_max"] },
   { id: "seguimiento", etiqueta: "Seguimiento de la inspección", columnas: ["codigo", "nombre", "municipio", "parroquia", "insp_estado", "insp_fecha", "insp_responsable", "insp_rubros", "insp_adicionales"] },
 ];
 
@@ -212,6 +230,11 @@ function datosDePlanilla(membrete) {
 // Armado del reporte
 // ---------------------------------------------------------------------------
 
+const ALUMNOS_POR_AULA_MIN = 25;
+const ALUMNOS_POR_AULA_MAX = 30;
+const MAX_PLANTELES_ELEGIDOS = 300;
+const CODIGO_DEA = /^[A-Za-z0-9]{4,20}$/;
+
 function fechaISO(valor) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(valor || ""));
   return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
@@ -219,17 +242,11 @@ function fechaISO(valor) {
 
 const ETIQUETA_EDIFICIO = { solo: "Solo en su edificio", comparte: "Comparte edificio", sin_clasificar: "Sin clasificar" };
 
-async function armarReportePlan(planId, columnas) {
-  const plan = (await pool.query("SELECT id, nombre, descripcion, estado FROM planes_atencion WHERE id = $1", [planId])).rows[0];
-  if (!plan) return null;
-
-  const { rows } = await pool.query(
-    `SELECT pi.inspeccion_id, pi.codigo_dea, i.fecha_inspeccion::text AS fecha, i.estado, i.membrete
-     FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
-     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
-    [planId]
-  );
-  const ids = rows.map((r) => r.inspeccion_id);
+// Núcleo: arma el reporte a partir de una lista de "entradas" ya resueltas.
+//   entrada = { inspeccion_id (o null), codigo, fecha, estado, membrete (copia de GESCOLAR + correcciones, o la fila de GESCOLAR), fuente }
+async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciales = [] }) {
+  const ids = entradas.map((r) => r.inspeccion_id).filter(Boolean);
+  const deas = entradas.map((r) => String(r.codigo || "").toLowerCase());
 
   const ing = new Map(); // inspeccion_id -> [nombres en orden]
   const rubros = new Map();
@@ -243,16 +260,32 @@ async function armarReportePlan(planId, columnas) {
       .rows.forEach((r) => adic.set(r.inspeccion_id, r.n));
   }
 
+  // Aulas: última visita ENVIADA del Instrumento Uno de cada plantel.
+  const pideProyeccion = columnas.some((c) => c.grupo === "proyeccion");
+  const aulas = new Map();
+  if (pideProyeccion && deas.length) {
+    (await pool.query(
+      `SELECT DISTINCT ON (lower(codigo_dea)) lower(codigo_dea) AS k, datos
+       FROM iu_visitas WHERE estado = 'ENVIADA' AND lower(codigo_dea) = ANY($1::text[])
+       ORDER BY lower(codigo_dea), enviado_en DESC NULLS LAST, id DESC`,
+      [deas]
+    )).rows.forEach((r) => {
+      const d = r.datos || {};
+      aulas.set(r.k, { total: aEntero(d.aulas_total), operativas: aEntero(d.aulas_operativas), no_operativas: aEntero(d.aulas_no_operativas) });
+    });
+  }
+
   const pideEdificio = columnas.some((c) => c.grupo === "edificio");
+  const pideMatEdificio = columnas.some((c) => c.id === "edificio_matricula");
   const edifDe = new Map(); // dea (minúsculas) -> edificio
   const espacios = new Map();
   let gescolarVigente = new Map(); // dea -> matrícula total vigente en GESCOLAR
-  let avisoMatricula = "";
+  const avisos = [...avisosIniciales];
   if (pideEdificio) {
     const { edificios } = await infra.obtenerEdificios();
     edificios.forEach((e) => e.miembros.forEach((m) => { if (m.codigo_dea) edifDe.set(m.codigo_dea.toLowerCase(), e); }));
     (await pool.query("SELECT lower(codigo_dea) AS k, COUNT(*)::int AS n FROM infra_espacios GROUP BY 1")).rows.forEach((r) => espacios.set(r.k, r.n));
-    if (columnas.some((c) => c.id === "edificio_matricula")) {
+    if (pideMatEdificio) {
       try {
         (await gescolar.cargarGescolar()).forEach((p) => {
           const dea = texto(p[gescolar.CAMPO_CODIGO]).toLowerCase();
@@ -261,38 +294,45 @@ async function armarReportePlan(planId, columnas) {
       } catch (err) {
         console.error("Reportes: no se pudo leer GESCOLAR para la matrícula del edificio:", err.message);
         gescolarVigente = null;
-        avisoMatricula = "No se pudo consultar GESCOLAR: la matrícula del edificio solo suma las instituciones que están en este plan.";
+        avisos.push("No se pudo consultar GESCOLAR: la matrícula del edificio solo suma las instituciones que están en este reporte.");
       }
     }
   }
 
-  // Datos efectivos de cada plantel del plan (también sirven para la matrícula de su edificio).
-  const planillas = new Map(rows.map((r) => [r.inspeccion_id, datosDePlanilla(r.membrete)]));
-  const matriculaEnPlan = new Map();
-  rows.forEach((r) => { const d = planillas.get(r.inspeccion_id); matriculaEnPlan.set(String(r.codigo_dea || "").toLowerCase(), d.matricula); });
+  // Datos efectivos de cada plantel (también sirven para la matrícula de su edificio).
+  const planillas = new Map(entradas.map((r) => [r.codigo, datosDePlanilla(r.membrete)]));
+  const matriculaEnReporte = new Map();
+  entradas.forEach((r) => { matriculaEnReporte.set(String(r.codigo || "").toLowerCase(), planillas.get(r.codigo).matricula); });
 
   const edificioSinDatos = new Set();
-  const filas = rows.map((r) => {
-    const d = planillas.get(r.inspeccion_id);
-    const dea = String(r.codigo_dea || "").toLowerCase();
+  let sinAulas = 0; let subocupados = 0;
+  const filas = entradas.map((r) => {
+    const d = planillas.get(r.codigo);
+    const dea = String(r.codigo || "").toLowerCase();
     const e = edifDe.get(dea);
     const estado = !e ? "sin_clasificar" : e.cantidad > 1 ? "comparte" : "solo";
     const otras = e ? e.miembros.filter((m) => !m.codigo_dea || m.codigo_dea.toLowerCase() !== dea) : [];
     let matEdificio = null;
-    if (e && columnas.some((c) => c.id === "edificio_matricula")) {
+    if (e && pideMatEdificio) {
       let suma = 0; let faltan = 0;
       e.miembros.forEach((m) => {
         const k = (m.codigo_dea || "").toLowerCase();
         let v = null;
-        if (k) v = matriculaEnPlan.has(k) && matriculaEnPlan.get(k) !== null ? matriculaEnPlan.get(k) : (gescolarVigente ? gescolarVigente.get(k) : null);
+        if (k) v = matriculaEnReporte.has(k) && matriculaEnReporte.get(k) !== null ? matriculaEnReporte.get(k) : (gescolarVigente ? gescolarVigente.get(k) : null);
         if (v === null || v === undefined) faltan += 1; else suma += v;
       });
       // Si de ninguna institución del edificio se conoce la matrícula, es "sin dato" (no 0).
       matEdificio = faltan === e.miembros.length ? null : suma;
       if (faltan) edificioSinDatos.add(e.codigo_infraestructura);
     }
+    const au = aulas.get(dea) || null;
+    const noOper = au && au.no_operativas !== null ? au.no_operativas : null;
+    const oper = au ? au.operativas : null;
+    if (pideProyeccion && !au) sinAulas += 1;
+    const porAula = oper && d.matricula !== null ? Math.round((d.matricula / oper) * 10) / 10 : null;
+    if (porAula !== null && porAula < ALUMNOS_POR_AULA_MIN) subocupados += 1;
     const valores = {
-      codigo: r.codigo_dea,
+      codigo: r.codigo,
       nombre: d.nombre,
       municipio: d.municipio,
       parroquia: d.parroquia,
@@ -301,19 +341,29 @@ async function armarReportePlan(planId, columnas) {
       nivel: primero(d.mapa, ["nivel_principal"]),
       modalidad: primero(d.mapa, ["modalidad_principal"]),
       zona: primero(d.mapa, ["zona_ubicacion"]),
+      fuente: r.fuente,
       mat_total: d.matricula,
+      aulas_total: au ? au.total : null,
+      aulas_operativas: oper,
+      aulas_no_operativas: noOper,
+      alumnos_por_aula: porAula,
+      proy_alumnos_min: noOper === null ? null : noOper * ALUMNOS_POR_AULA_MIN,
+      proy_alumnos_max: noOper === null ? null : noOper * ALUMNOS_POR_AULA_MAX,
+      // una mesa-silla por alumno adicional
+      proy_mesas_min: noOper === null ? null : noOper * ALUMNOS_POR_AULA_MIN,
+      proy_mesas_max: noOper === null ? null : noOper * ALUMNOS_POR_AULA_MAX,
       edificio_estado: ETIQUETA_EDIFICIO[estado],
       edificio_codigo: e ? e.codigo_infraestructura : "",
       edificio_instituciones: e ? e.cantidad : null,
       edificio_comparte_con: otras.map((m) => (m.codigo_dea ? `${m.nombre} (${m.codigo_dea})` : m.nombre)).join("; "),
       edificio_matricula: matEdificio,
       espacios_separados: pideEdificio ? (espacios.get(dea) || 0) : null,
-      insp_estado: r.estado,
+      insp_estado: r.inspeccion_id ? r.estado : "Sin planilla",
       insp_fecha: fechaISO(r.fecha),
       insp_responsable: (ing.get(r.inspeccion_id) || [])[0] || "",
       insp_ingenieros: (ing.get(r.inspeccion_id) || []).join("; "),
-      insp_rubros: rubros.get(r.inspeccion_id) || 0,
-      insp_adicionales: adic.get(r.inspeccion_id) || 0,
+      insp_rubros: r.inspeccion_id ? (rubros.get(r.inspeccion_id) || 0) : null,
+      insp_adicionales: r.inspeccion_id ? (adic.get(r.inspeccion_id) || 0) : null,
       director_nombre: d.director,
       director_telefono: d.telefono,
       _estado: estado,
@@ -335,14 +385,17 @@ async function armarReportePlan(planId, columnas) {
 
   const edificiosDistintos = new Set(filas.filter((f) => f._edificio).map((f) => f._edificio));
   const matTotal = filas.reduce((x, f) => x + (typeof f.mat_total === "number" ? f.mat_total : 0), 0);
-  const avisos = [];
-  if (avisoMatricula) avisos.push(avisoMatricula);
   if (edificioSinDatos.size) avisos.push(`En ${edificioSinDatos.size} edificio(s) hay instituciones sin matrícula conocida (sin código DEA o sin dato en GESCOLAR): la matrícula del edificio no las incluye.`);
   const sinMat = filas.filter((f) => f.mat_total === null).length;
   if (sinMat) avisos.push(`${sinMat} plantel(es) no tienen matrícula registrada.`);
+  if (pideProyeccion) {
+    avisos.push(`Proyección de capacidad: supone rehabilitar todas las aulas no operativas, entre ${ALUMNOS_POR_AULA_MIN} y ${ALUMNOS_POR_AULA_MAX} alumnos por aula (un solo turno) y una mesa-silla por alumno adicional. No es matrícula real: depende de que haya niños sin cupo.`);
+    if (sinAulas) avisos.push(`${sinAulas} plantel(es) no tienen una visita ENVIADA del Instrumento Uno: sin datos de aulas.`);
+    if (subocupados) avisos.push(`${subocupados} plantel(es) ya tienen menos de ${ALUMNOS_POR_AULA_MIN} alumnos por aula operativa: rehabilitar más aulas probablemente no genere matrícula adicional (conviene revisar la demanda).`);
+  }
 
   return {
-    plan,
+    plan: { id: planId || null, nombre: titulo },
     columnas: columnas.map(({ id, etiqueta, tipo, grupo, ancho, sumable }) => ({ id, etiqueta, tipo, grupo, ancho, sumable: Boolean(sumable) })),
     filas: filas.map((f) => { const o = {}; columnas.forEach((c) => { o[c.id] = f[c.id] === undefined ? null : f[c.id]; }); return o; }),
     totales,
@@ -354,10 +407,112 @@ async function armarReportePlan(planId, columnas) {
       planteles_solos: pideEdificio ? filas.filter((f) => f._estado === "solo").length : null,
       planteles_comparten: pideEdificio ? filas.filter((f) => f._estado === "comparte").length : null,
       sin_clasificar: pideEdificio ? filas.filter((f) => f._estado === "sin_clasificar").length : null,
+      // Proyección de aulas (solo si el reporte la incluye)
+      con_datos_de_aulas: pideProyeccion ? filas.filter((f) => f.aulas_total !== null || f.aulas_no_operativas !== null).length : null,
+      aulas_no_operativas: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.aulas_no_operativas === "number" ? f.aulas_no_operativas : 0), 0) : null,
+      alumnos_adicionales_min: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.proy_alumnos_min === "number" ? f.proy_alumnos_min : 0), 0) : null,
+      alumnos_adicionales_max: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.proy_alumnos_max === "number" ? f.proy_alumnos_max : 0), 0) : null,
     },
     avisos,
     generado_en: new Date().toISOString(),
   };
 }
 
-module.exports = { ErrorReporte, catalogoPara, validarColumnas, armarReportePlan, COLUMNAS };
+// Reporte de los planteles ACTIVOS de un plan.
+async function armarReportePlan(planId, columnas) {
+  const plan = (await pool.query("SELECT id, nombre FROM planes_atencion WHERE id = $1", [planId])).rows[0];
+  if (!plan) return null;
+  const { rows } = await pool.query(
+    `SELECT pi.inspeccion_id, pi.codigo_dea, i.fecha_inspeccion::text AS fecha, i.estado, i.membrete
+     FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
+     WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
+    [planId]
+  );
+  const entradas = rows.map((r) => ({ inspeccion_id: r.inspeccion_id, codigo: r.codigo_dea, fecha: r.fecha, estado: r.estado, membrete: r.membrete || {}, fuente: "Planilla" }));
+  return armarReporte({ titulo: plan.nombre, planId: plan.id, entradas, columnas });
+}
+
+// Valida y limpia la lista de códigos elegidos (sin repetir, formato correcto, máximo permitido).
+function validarCodigos(lista) {
+  if (!Array.isArray(lista)) throw new ErrorReporte(400, "Elige al menos un plantel.");
+  const vistos = new Set(); const codigos = [];
+  for (const c of lista) {
+    const t = String(c === undefined || c === null ? "" : c).trim();
+    if (!CODIGO_DEA.test(t)) throw new ErrorReporte(400, `Código de plantel no válido: ${t.slice(0, 25)}.`);
+    if (!vistos.has(t.toLowerCase())) { vistos.add(t.toLowerCase()); codigos.push(t); }
+  }
+  if (!codigos.length) throw new ErrorReporte(400, "Elige al menos un plantel.");
+  if (codigos.length > MAX_PLANTELES_ELEGIDOS) throw new ErrorReporte(400, `Máximo ${MAX_PLANTELES_ELEGIDOS} planteles por reporte.`);
+  return codigos;
+}
+
+// Reporte de los planteles elegidos uno a uno (estén o no en un plan).
+async function armarReporteSeleccion(codigos, columnas) {
+  let filasGescolar;
+  try {
+    filasGescolar = await gescolar.cargarGescolar();
+  } catch (err) {
+    console.error("Reportes: no se pudo leer GESCOLAR:", err.message);
+    throw new ErrorReporte(502, "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento.");
+  }
+  const porCodigo = new Map();
+  filasGescolar.forEach((p) => { const c = texto(p[gescolar.CAMPO_CODIGO]); if (c) porCodigo.set(c.toLowerCase(), p); });
+
+  const noEncontrados = codigos.filter((c) => !porCodigo.has(c.toLowerCase()));
+  const hallados = codigos.filter((c) => porCodigo.has(c.toLowerCase()));
+
+  // Si el plantel ya tiene una planilla (de cualquier plan), se usa la más reciente.
+  const insp = new Map();
+  if (hallados.length) {
+    (await pool.query(
+      `SELECT DISTINCT ON (lower(codigo_dea)) id, lower(codigo_dea) AS k, fecha_inspeccion::text AS fecha, estado, membrete
+       FROM inspecciones WHERE lower(codigo_dea) = ANY($1::text[])
+       ORDER BY lower(codigo_dea), actualizado_en DESC, id DESC`,
+      [hallados.map((c) => c.toLowerCase())]
+    )).rows.forEach((r) => insp.set(r.k, r));
+  }
+  const entradas = hallados.map((c) => {
+    const fila = porCodigo.get(c.toLowerCase());
+    const codigo = texto(fila[gescolar.CAMPO_CODIGO]);
+    const i = insp.get(c.toLowerCase());
+    return i
+      ? { inspeccion_id: i.id, codigo, fecha: i.fecha, estado: i.estado, membrete: i.membrete || {}, fuente: "Planilla" }
+      : { inspeccion_id: null, codigo, fecha: null, estado: "", membrete: fila, fuente: "GESCOLAR" };
+  });
+  const avisos = [];
+  if (noEncontrados.length) avisos.push(`No se encontraron en GESCOLAR: ${noEncontrados.slice(0, 10).join(", ")}${noEncontrados.length > 10 ? "…" : ""}.`);
+  const deGescolar = entradas.filter((e) => e.fuente === "GESCOLAR").length;
+  if (deGescolar) avisos.push(`${deGescolar} plantel(es) no tienen planilla de inspección: sus datos salen de GESCOLAR vigente y las columnas de inspección quedan vacías.`);
+  return armarReporte({ titulo: `Planteles seleccionados (${entradas.length})`, planId: null, entradas, columnas, avisosIniciales: avisos });
+}
+
+// Búsqueda de planteles para agregarlos a la selección (por nombre, código, municipio o parroquia).
+async function buscarParaSeleccion(entrada) {
+  const t = String(entrada || "").trim();
+  if (t.length < 2) throw new ErrorReporte(400, "Escribe al menos 2 caracteres para buscar.");
+  let datos;
+  try {
+    datos = await gescolar.cargarGescolar();
+  } catch (err) {
+    console.error("Reportes: búsqueda en GESCOLAR:", err.message);
+    throw new ErrorReporte(502, "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento.");
+  }
+  // Sin distinguir mayúsculas ni acentos (y con la codificación dañada corregida), por nombre, código, municipio o parroquia.
+  const plano = (v) => arreglarCodificacion(String(v === undefined || v === null ? "" : v)).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const q = plano(t);
+  const LIMITE = 12;
+  const hallados = [];
+  let total = 0;
+  for (const p of datos) {
+    const m = mapaNormalizado(p);
+    const campos = [p[gescolar.CAMPO_NOMBRE], p[gescolar.CAMPO_CODIGO], primero(m, ["municipio"]), primero(m, ["parroquia"])];
+    if (!campos.some((c) => plano(c).includes(q))) continue;
+    total += 1;
+    if (hallados.length < LIMITE) {
+      hallados.push({ codigo_dea: texto(p[gescolar.CAMPO_CODIGO]), nombre: texto(p[gescolar.CAMPO_NOMBRE]), municipio: primero(m, ["municipio"]), parroquia: primero(m, ["parroquia"]) });
+    }
+  }
+  return { total, limitado: total > LIMITE, planteles: hallados };
+}
+
+module.exports = { ErrorReporte, catalogoPara, validarColumnas, validarCodigos, armarReportePlan, armarReporteSeleccion, buscarParaSeleccion, COLUMNAS };

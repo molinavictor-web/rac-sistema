@@ -1,5 +1,5 @@
-// inspecciones-reportes.js — Reportes por plan (Inspecciones).
-// Se elige un plan, se marcan las columnas (datos del plantel, matrícula, edificio, inspección…) y se ve la tabla
+// inspecciones-reportes.js — Reportes (Inspecciones).
+// Se elige un plan —o se buscan y agregan planteles uno a uno—, se marcan las columnas (datos del plantel, matrícula, edificio, inspección…) y se ve la tabla
 // en pantalla o se descarga en Excel. El servidor valida cada columna contra su catálogo cerrado.
 
 const usuario = renderShell("inspecciones-reportes", "Reportes");
@@ -10,6 +10,10 @@ let CAT = null;          // { grupos, columnas, presets }
 let PLANES = [];
 let seleccion = new Set();
 let ultimo = null;        // último reporte mostrado
+let fuente = "plan";      // "plan" | "planteles"
+let elegidos = [];        // [{codigo_dea, nombre, municipio, parroquia}] cuando la fuente es "planteles"
+const CLAVE_ELEGIDOS = "rep_planteles_" + (usuario && usuario.id ? usuario.id : "x");
+let temporizador = null;
 
 function escapar(v) {
   return String(v === undefined || v === null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -21,8 +25,8 @@ async function iniciar() {
   document.getElementById("contenido").innerHTML = `
     <section class="planteles-hero"><div class="planteles-hero-copy">
       <span class="planteles-eyebrow">INSPECCIONES</span>
-      <h1>Reportes por plan</h1>
-      <p>Elige un plan de atención y marca los datos que quieres ver de sus planteles: matrícula, si comparten edificio o están solos, estado de la inspección y más. Puedes verlo en pantalla o descargarlo en Excel.</p>
+      <h1>Reportes</h1>
+      <p>Elige un plan de atención, o busca y agrega los planteles que quieras, y marca los datos que quieres ver de sus planteles: matrícula, si comparten edificio o están solos, estado de la inspección, proyección de aulas a rehabilitar y más. Puedes verlo en pantalla o descargarlo en Excel.</p>
     </div></section>
     <div class="panel rep-panel" id="armado"><div class="cargando">Cargando…</div></div>
     <div id="resultado"></div>`;
@@ -58,6 +62,17 @@ function recordar() {
   try { localStorage.setItem(CLAVE_GUARDADA, JSON.stringify([...seleccion])); } catch (_) { /* opcional */ }
 }
 
+function cargarElegidos() {
+  try {
+    const g = JSON.parse(localStorage.getItem(CLAVE_ELEGIDOS) || "null");
+    if (Array.isArray(g)) return g.filter((x) => x && typeof x.codigo_dea === "string").slice(0, 300);
+  } catch (_) { /* sin almacenamiento */ }
+  return [];
+}
+function recordarElegidos() {
+  try { localStorage.setItem(CLAVE_ELEGIDOS, JSON.stringify(elegidos)); } catch (_) { /* opcional */ }
+}
+
 function planInicial() {
   const deUrl = Number(new URLSearchParams(window.location.search).get("plan"));
   if (deUrl && PLANES.some((p) => p.id === deUrl)) return deUrl;
@@ -67,15 +82,23 @@ function planInicial() {
 
 function dibujarArmado() {
   const cont = document.getElementById("armado");
-  if (!PLANES.length) {
-    cont.innerHTML = `<div class="vacio"><strong>Todavía no hay planes de atención</strong>Crea un plan en «Planes de atención» y enlaza sus planteles.</div>`;
-    return;
-  }
   const idPlan = planInicial();
   cont.innerHTML = `
-    <div class="rep-fila">
+    <div class="rep-presets" id="fuentes">
+      <button type="button" class="rep-chip" data-fuente="plan">Un plan de atención</button>
+      <button type="button" class="rep-chip" data-fuente="planteles">Planteles que yo elija</button>
+    </div>
+    <div class="rep-fila" id="bloquePlan">
       <label for="plan"><strong>Plan de atención</strong></label>
       <select id="plan">${PLANES.map((p) => `<option value="${p.id}"${p.id === idPlan ? " selected" : ""}>${escapar(p.nombre)} (${p.planteles} planteles)</option>`).join("")}</select>
+    </div>
+    <div id="bloquePlanteles" style="display:none;">
+      <div class="rep-fila">
+        <label for="buscar"><strong>Buscar plantel</strong></label>
+        <input type="search" id="buscar" placeholder="Nombre, código DEA, municipio o parroquia…" autocomplete="off" style="flex:1; min-width:220px;">
+      </div>
+      <div id="sugerencias" class="rep-sugerencias"></div>
+      <div id="elegidos" class="rep-elegidos"></div>
     </div>
     <div class="rep-presets" id="presets"><span style="font-size:.84rem; color:#5b6b80; align-self:center;">Combinaciones listas:</span>
       ${CAT.presets.map((p) => `<button type="button" class="rep-chip" data-preset="${escapar(p.id)}">${escapar(p.etiqueta)}</button>`).join("")}
@@ -93,6 +116,17 @@ function dibujarArmado() {
     </div>
     <div class="rep-error" id="repError"></div>`;
 
+  elegidos = cargarElegidos();
+  fuente = PLANES.length ? "plan" : "planteles";
+  pintarFuente();
+  pintarElegidos();
+  cont.querySelectorAll("[data-fuente]").forEach((b) => b.addEventListener("click", () => { fuente = b.dataset.fuente; pintarFuente(); }));
+  document.getElementById("buscar").addEventListener("input", (e) => {
+    clearTimeout(temporizador);
+    const q = e.target.value.trim();
+    if (q.length < 2) { document.getElementById("sugerencias").innerHTML = ""; return; }
+    temporizador = setTimeout(() => buscar(q), 300);
+  });
   pintarSeleccion();
   cont.querySelectorAll("[data-col]").forEach((chk) => chk.addEventListener("change", () => {
     if (chk.checked) seleccion.add(chk.dataset.col); else seleccion.delete(chk.dataset.col);
@@ -112,6 +146,46 @@ function dibujarArmado() {
   document.getElementById("btnExcel").addEventListener("click", (e) => descargarExcel(e.currentTarget));
 }
 
+function pintarFuente() {
+  document.querySelectorAll("[data-fuente]").forEach((b) => b.classList.toggle("activa", b.dataset.fuente === fuente));
+  document.getElementById("bloquePlan").style.display = fuente === "plan" ? "" : "none";
+  document.getElementById("bloquePlanteles").style.display = fuente === "planteles" ? "" : "none";
+  if (fuente === "plan" && !PLANES.length) {
+    document.getElementById("bloquePlan").innerHTML = `<span style="color:#5b6b80;">Todavía no hay planes de atención. Usa «Planteles que yo elija».</span>`;
+  }
+}
+
+async function buscar(q) {
+  const cont = document.getElementById("sugerencias");
+  try {
+    const r = await RAC.get(`/api/inspecciones/reportes/seleccion/buscar?q=${encodeURIComponent(q)}`);
+    if (document.getElementById("buscar").value.trim() !== q) return; // llegó tarde
+    const libres = r.planteles.filter((p) => !elegidos.some((e) => e.codigo_dea === p.codigo_dea));
+    cont.innerHTML = libres.length
+      ? libres.map((p) => `<button type="button" class="rep-sug" data-add="${escapar(p.codigo_dea)}"><strong>${escapar(p.nombre)}</strong><span>${escapar(p.codigo_dea)} · ${escapar(p.municipio)}${p.parroquia ? " · " + escapar(p.parroquia) : ""}</span></button>`).join("") + (r.limitado ? `<div class="rep-nota">Hay más resultados: escribe más para afinar.</div>` : "")
+      : `<div class="rep-nota">${r.planteles.length ? "Los que coinciden ya están agregados." : "No se encontró ningún plantel."}</div>`;
+    cont.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => {
+      const p = r.planteles.find((x) => x.codigo_dea === b.dataset.add);
+      if (p && !elegidos.some((e) => e.codigo_dea === p.codigo_dea) && elegidos.length < 300) { elegidos.push(p); recordarElegidos(); pintarElegidos(); }
+      b.remove();
+    }));
+  } catch (err) {
+    cont.innerHTML = `<div class="rep-error">${escapar(err.message)}</div>`;
+  }
+}
+
+function pintarElegidos() {
+  const cont = document.getElementById("elegidos");
+  if (!cont) return;
+  cont.innerHTML = elegidos.length
+    ? `<div class="rep-nota"><strong>${elegidos.length}</strong> plantel(es) elegido(s) <button type="button" id="quitarTodos" class="rep-link">quitar todos</button></div>` +
+      elegidos.map((p) => `<span class="rep-pastilla" title="${escapar(p.codigo_dea)}">${escapar(p.nombre)} <button type="button" data-quitar="${escapar(p.codigo_dea)}" aria-label="Quitar ${escapar(p.nombre)}">×</button></span>`).join("")
+    : `<div class="rep-nota">Todavía no has agregado planteles. Busca por nombre o código y toca el que quieras.</div>`;
+  cont.querySelectorAll("[data-quitar]").forEach((b) => b.addEventListener("click", () => { elegidos = elegidos.filter((e) => e.codigo_dea !== b.dataset.quitar); recordarElegidos(); pintarElegidos(); }));
+  const qt = document.getElementById("quitarTodos");
+  if (qt) qt.addEventListener("click", () => { elegidos = []; recordarElegidos(); pintarElegidos(); });
+}
+
 function pintarSeleccion() {
   document.querySelectorAll("[data-col]").forEach((chk) => { chk.checked = seleccion.has(chk.dataset.col); });
   document.querySelectorAll("[data-preset]").forEach((b) => {
@@ -122,7 +196,7 @@ function pintarSeleccion() {
 }
 
 function parametros() {
-  const plan = document.getElementById("plan").value;
+  const plan = fuente === "plan" ? document.getElementById("plan").value : "";
   // El orden de las columnas lo define el catálogo, no el orden en que se marcaron.
   const cols = CAT.columnas.filter((c) => seleccion.has(c.id)).map((c) => c.id);
   return { plan, cols };
@@ -132,7 +206,8 @@ function validar() {
   const err = document.getElementById("repError");
   err.textContent = "";
   const { plan, cols } = parametros();
-  if (!plan) { err.textContent = "Elige un plan."; return null; }
+  if (fuente === "plan" && !plan) { err.textContent = "Elige un plan."; return null; }
+  if (fuente === "planteles" && !elegidos.length) { err.textContent = "Agrega al menos un plantel."; return null; }
   if (!cols.length) { err.textContent = "Marca al menos una columna."; return null; }
   return { plan, cols };
 }
@@ -143,7 +218,9 @@ async function verReporte() {
   const cont = document.getElementById("resultado");
   cont.innerHTML = `<div class="panel"><div class="cargando">Armando el reporte…</div></div>`;
   try {
-    ultimo = await RAC.get(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}?columnas=${encodeURIComponent(p.cols.join(","))}`);
+    ultimo = fuente === "plan"
+      ? await RAC.get(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}?columnas=${encodeURIComponent(p.cols.join(","))}`)
+      : await RAC.post("/api/inspecciones/reportes/seleccion", { codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols });
     dibujarResultado();
   } catch (err) {
     cont.innerHTML = `<div class="panel rep-panel"><div class="rep-error">${escapar(err.message)}</div></div>`;
@@ -151,6 +228,7 @@ async function verReporte() {
 }
 
 function celda(c, v) {
+  if (c.tipo === "decimal") return `<td class="num">${v === null || v === undefined ? "—" : Number(v).toLocaleString("es-VE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>`;
   if (c.tipo === "entero") return `<td class="num">${v === null || v === undefined ? "—" : n(v)}</td>`;
   if (c.id === "edificio_estado") {
     const clase = v === "Comparte edificio" ? "comparte" : v === "Solo en su edificio" ? "solo" : "sin";
@@ -163,6 +241,7 @@ function celda(c, v) {
 function dibujarResultado() {
   const r = ultimo;
   const res = r.resumen;
+  const conProy = res.alumnos_adicionales_min !== null && res.alumnos_adicionales_min !== undefined;
   const tarjeta = (num, txt) => `<div class="stat-card"><div class="num">${n(num)}</div><div class="lbl">${escapar(txt)}</div></div>`;
   const conEdificio = res.edificios_distintos !== null && res.edificios_distintos !== undefined;
   const tfoot = r.columnas.some((c) => c.sumable)
@@ -172,15 +251,16 @@ function dibujarResultado() {
     <div class="rep-tarjetas">
       ${tarjeta(res.planteles, "Planteles")}
       ${tarjeta(res.matricula_total, "Matrícula total")}
+      ${conProy ? tarjeta(res.aulas_no_operativas, "Aulas no operativas") + tarjeta(res.alumnos_adicionales_min, "Alumnos adicionales (mín.)") + tarjeta(res.alumnos_adicionales_max, "Alumnos adicionales (máx.)") : ""}
       ${conEdificio ? tarjeta(res.edificios_distintos, "Edificios distintos") + tarjeta(res.planteles_solos, "Solos en su edificio") + tarjeta(res.planteles_comparten, "Comparten edificio") + tarjeta(res.sin_clasificar, "Sin clasificar") : ""}
     </div>
     ${(r.avisos || []).map((a) => `<div class="rep-aviso">${escapar(a)}</div>`).join("")}
     <div class="panel">
       ${r.filas.length ? `<div class="tabla-responsive rep-scroll"><table class="rep-tabla">
-        <thead><tr>${r.columnas.map((c) => `<th class="${c.tipo === "entero" ? "num" : ""}">${escapar(c.etiqueta)}</th>`).join("")}</tr></thead>
+        <thead><tr>${r.columnas.map((c) => `<th class="${c.tipo === "texto" ? "" : "num"}">${escapar(c.etiqueta)}</th>`).join("")}</tr></thead>
         <tbody>${r.filas.map((f) => `<tr>${r.columnas.map((c) => celda(c, f[c.id])).join("")}</tr>`).join("")}</tbody>
         ${tfoot}
-      </table></div>` : `<div class="vacio"><strong>Este plan no tiene planteles activos</strong>Enlaza planteles al plan desde «Planes de atención».</div>`}
+      </table></div>` : `<div class="vacio"><strong>No hay planteles para mostrar</strong>Si es un plan, enlaza planteles desde «Planes de atención».</div>`}
     </div>`;
 }
 
@@ -192,7 +272,13 @@ async function descargarExcel(boton) {
   boton.disabled = true;
   boton.textContent = "Generando Excel…";
   try {
-    const resp = await fetch(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}/excel?columnas=${encodeURIComponent(p.cols.join(","))}`, { headers: { Authorization: "Bearer " + RAC.getToken() } });
+    const resp = fuente === "plan"
+      ? await fetch(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}/excel?columnas=${encodeURIComponent(p.cols.join(","))}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
+      : await fetch("/api/inspecciones/reportes/seleccion/excel", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + RAC.getToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols }),
+      });
     if (resp.status === 401) { RAC.cerrarSesion(); return; }
     if (!resp.ok) {
       let mensaje = `Error ${resp.status}`;

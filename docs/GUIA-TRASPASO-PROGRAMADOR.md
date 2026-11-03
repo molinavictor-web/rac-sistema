@@ -247,7 +247,7 @@ Detalle en la sección 5b de `MANTENIMIENTO-INSPECCIONES-PLANTELES.md`.
 |---|---|
 | Agregar o modificar una pregunta del Instrumento Uno | Solo `src/services/instrumentoUnoEsquema.js` (la pantalla y el Excel se adaptan) |
 | Cambiar los rubros oficiales de materiales | Tabla `catalogo_materiales` (SQL). Nunca borrar rubros usados: marcar `activo = false` |
-| Agregar una columna a los Reportes por plan | `COLUMNAS` (y `PRESETS`) y `armarReportePlan` en `src/services/reportesInspecciones.js`; la pantalla y el Excel la toman del catálogo |
+| Agregar una columna a los Reportes | `COLUMNAS` (y `PRESETS`) y `armarReporte` en `src/services/reportesInspecciones.js`; la pantalla y el Excel la toman del catálogo |
 | Agregar un rol | `ROLES_VALIDOS` en `src/routes/usuarios.js`, el nombre visible en `public/js/usuarios.js`, `src/middleware/auth.js` (constantes de encierro si el rol queda limitado a un módulo), las constantes `ROLES_*` de la ruta que corresponda y `roles:` en `public/js/nav.js`. La base no restringe los valores de `usuarios.rol` |
 | Agregar una pantalla nueva | `.html` en la carpeta del módulo + `.js` en `public/js/` + ruta en `src/routes/` + `app.use` en `server.js` (respetando el orden de la sección 7) + entrada en `nav.js` |
 | Agregar una columna a GESCOLAR | Agregarla al final de la hoja; el sistema ya lee la pestaña completa. Si se usa en pantalla, referirla por su nombre exacto |
