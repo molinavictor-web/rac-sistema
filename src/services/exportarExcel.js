@@ -353,13 +353,16 @@ async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, ge
 
   const fin = Math.max(1, Math.min(n, 8));
   hoja.mergeCells(8, 1, 8, fin);
-  celda(hoja.getCell(8, 1), `REPORTE — ${plan.nombre}`, { tam: 16, negrita: true, borde: false, h: "left" });
+  celda(hoja.getCell(8, 1), plan.id ? `REPORTE — ${plan.nombre}` : `REPORTE — ${plan.nombre.toUpperCase()}`, { tam: 16, negrita: true, borde: false, h: "left" });
   hoja.getRow(8).height = 22;
 
   const lineas = [`Generado el ${new Date(generado_en).toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit", year: "numeric" })}`];
   lineas.push(`Planteles: ${resumen.planteles} · Matrícula total: ${Number(resumen.matricula_total).toLocaleString("es-VE")}`);
   if (resumen.edificios_distintos !== null && resumen.edificios_distintos !== undefined) {
     lineas.push(`Edificios distintos: ${resumen.edificios_distintos} · Solos: ${resumen.planteles_solos} · Comparten: ${resumen.planteles_comparten} · Sin clasificar: ${resumen.sin_clasificar}`);
+  }
+  if (resumen.alumnos_adicionales_min !== null && resumen.alumnos_adicionales_min !== undefined) {
+    lineas.push(`Aulas no operativas: ${resumen.aulas_no_operativas} · Alumnos adicionales posibles: ${Number(resumen.alumnos_adicionales_min).toLocaleString("es-VE")} a ${Number(resumen.alumnos_adicionales_max).toLocaleString("es-VE")}`);
   }
   hoja.mergeCells(9, 1, 9, fin);
   celda(hoja.getCell(9, 1), lineas.join("   |   "), { tam: 10, borde: false, h: "left" });
@@ -381,9 +384,9 @@ async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, ge
     const r = filaEnc + 1 + k;
     columnas.forEach((c, i) => {
       const v = f[c.id];
-      const esNum = c.tipo === "entero";
+      const esNum = c.tipo === "entero" || c.tipo === "decimal";
       celda(hoja.getCell(r, i + 1), v === null || v === undefined ? (esNum ? null : "") : v, {
-        h: esNum ? "right" : "left", ajustar: !esNum, formato: esNum ? "#,##0" : undefined,
+        h: esNum ? "right" : "left", ajustar: !esNum, formato: esNum ? (c.tipo === "decimal" ? "#,##0.0" : "#,##0") : undefined,
         relleno: k % 2 ? "FFF5F8FC" : undefined,
       });
     });

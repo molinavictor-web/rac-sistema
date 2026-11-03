@@ -4,6 +4,9 @@
 //   GET /catalogo                          columnas disponibles para el perfil en sesión, agrupadas, y combinaciones sugeridas
 //   GET /plan/:id?columnas=a,b,c           el reporte en JSON (vista previa en pantalla)
 //   GET /plan/:id/excel?columnas=a,b,c     el mismo reporte en Excel
+//   GET /seleccion/buscar?q=texto          busca planteles (GESCOLAR) para ir agregándolos a la selección
+//   POST /seleccion        {codigos, columnas}   reporte de los planteles elegidos uno a uno (JSON)
+//   POST /seleccion/excel  {codigos, columnas}   el mismo reporte en Excel
 //   GET /planes                            planes que se pueden elegir (con su cantidad de planteles activos)
 //
 // Solo lectura. Perfiles: admin, insp_coordinador, insp_consulta y operador_plantel. Las columnas con datos de
@@ -81,6 +84,42 @@ router.get("/plan/:id/excel", requireAuth, requireRol(...ROLES_LECTURA), async (
     const buffer = await require("../services/exportarExcel").reportePlan(reporte);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="${nombreArchivo("REPORTE", reporte.plan.nombre)}.xlsx"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    responderError(res, err, "No se pudo generar el Excel del reporte.");
+  }
+});
+
+router.get("/seleccion/buscar", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    res.json(await reportes.buscarParaSeleccion(req.query.q));
+  } catch (err) {
+    responderError(res, err, "No se pudo buscar.");
+  }
+});
+
+async function reporteDeSeleccion(req) {
+  const columnas = reportes.validarColumnas(Array.isArray(req.body.columnas) ? req.body.columnas.join(",") : req.body.columnas, req.usuario.rol);
+  const codigos = reportes.validarCodigos(req.body.codigos);
+  if (columnas.some((c) => c.grupo === "edificio")) await asegurarSync();
+  return reportes.armarReporteSeleccion(codigos, columnas);
+}
+
+router.post("/seleccion", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    res.json(await reporteDeSeleccion(req));
+  } catch (err) {
+    responderError(res, err, "No se pudo armar el reporte.");
+  }
+});
+
+router.post("/seleccion/excel", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    const reporte = await reporteDeSeleccion(req);
+    const buffer = await require("../services/exportarExcel").reportePlan(reporte);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${nombreArchivo("REPORTE", "planteles", String(reporte.filas.length))}.xlsx"`);
     res.setHeader("Cache-Control", "no-store");
     res.send(Buffer.from(buffer));
   } catch (err) {
