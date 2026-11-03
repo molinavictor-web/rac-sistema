@@ -2,7 +2,7 @@
 
 Complementa al `README.md` (que describe todo el SID). Este documento es para quien
 herede el sistema: una persona, o un asistente de IA al que se le pase este archivo
-junto con el repo. Escrito el 2026-11-02.
+junto con el repo. Escrito el 2026-11-02 (actualizado con Infraestructuras y Excel del Instrumento Uno).
 
 > **Idea central:** el sistema NO depende de ningún asistente de IA para funcionar.
 > Todo corre en Render + Supabase + Google (Sheets/Drive) + GitHub. Un asistente solo
@@ -112,7 +112,7 @@ Crear/desactivar usuarios: pantalla Usuarios (admin). El primer admin se crea po
 
 Formulario por pasos (Datos del plantel, Director, Infraestructura, Edificio compartido,
 Situación legal). Archivos: `src/routes/instrumentoUno.js`,
-`src/services/instrumentoUnoEsquema.js`, `src/services/coordenadasInfra.js`,
+`src/services/instrumentoUnoEsquema.js`, `src/services/exportarInstrumentoUno.js`, `src/services/infraestructuras.js`,
 `public/inspecciones/instrumento-uno*.html`, `public/js/instrumento-uno*.js`.
 
 - **Una sola definición del formulario:** `instrumentoUnoEsquema.js` define campos,
@@ -120,16 +120,40 @@ Situación legal). Archivos: `src/routes/instrumentoUno.js`,
   las pantallas se dibujan desde `/api/inspecciones/instrumento-uno/esquema`.
   **Para agregar o cambiar una pregunta, se edita solo ese archivo** (más texto de ayuda si aplica).
 - **Tablas:** `iu_visitas` (una visita por plantel/fecha/ingeniero; estados BORRADOR/ENVIADA;
-  respuestas en JSONB) y `iu_edificio_miembros`.
-- **Edificios compartidos:** el `codigo_infraestructura` es el código DEA del plantel
-  principal. Se reutiliza el código existente entre los miembros; si hay más de uno distinto
-  responde 409 (hay que unificar a mano en la hoja Coordenadas). Si la hoja no se puede leer y el
-  plantel comparte, responde 502 (no se inventa un código). Si falla la escritura en la hoja, la
-  visita queda guardada y se marca "pendiente". GESCOLAR **nunca** se modifica desde aquí.
-- **Edificios compartidos (pantalla):** tarjeta con nombres (973), compartidos e
-  infraestructuras = total_gescolar − Σ max(0, en_gescolar − 1).
+  respuestas en JSONB). `iu_edificio_miembros` es la tabla antigua de edificios: ya no se escribe, solo se importa una vez.
+- **Edificios:** al ENVIAR una visita, el plantel queda clasificado (solo o comparte edificio) con el módulo
+  de Infraestructuras (sección 6b). La visita guarda el código `INFRA-…` de su edificio. Si los
+  involucrados ya están en dos edificios compartidos distintos responde 409 (la visita sigue en borrador); si Google
+  no responde responde 502. Si falla la escritura en la hoja Coordenadas, la visita queda guardada y marcada
+  "pendiente". GESCOLAR **nunca** se modifica desde aquí. Eliminar una visita NO deshace la clasificación.
+- **Excel de respuestas:** botón "Descargar Excel" (`GET /visitas.xlsx`, por defecto solo ENVIADAS; `?estado=TODAS`
+  incluye borradores). Hoja "Visitas" (una columna por pregunta del esquema, con totales) y hoja "Edificios".
+  Código en `src/services/exportarInstrumentoUno.js`; el ingeniero solo descarga las suyas.
 - **Borradores:** en el navegador, clave `iu_borrador_<usuarioId>_<visitaId>`.
 - **Eliminar:** borradores propios; enviadas solo coordinador/admin.
+
+## 6b. Infraestructuras (clasificación de edificios)
+
+Pantalla "Infraestructuras" (Inspecciones). Archivos: `src/routes/infraestructuras.js`,
+`src/services/infraestructuras.js`, `src/services/coordenadasInfra.js`, `public/inspecciones/infraestructuras.html`,
+`public/js/infraestructuras.js`. Script SQL: `12_infraestructuras.sql` (ya ejecutado; también está al final de `schema.sql`).
+
+- **Idea:** cada nombre de plantel de GESCOLAR queda "sin clasificar", "solo en su edificio" o "comparte edificio".
+  Cada edificio tiene un código **INFRA-000001, INFRA-000002…** (generado por el sistema, tabla `infraestructuras`) y
+  sus instituciones (`infra_miembros`). Una institución sin código DEA se identifica por nombre.
+- **Reglas:** un plantel con DEA pertenece a UN solo edificio. Al compartir se une al edificio de varios nombres que ya
+  exista; los edificios de un solo nombre se fusionan (queda el de número menor; puede haber saltos en la numeración).
+  Dos edificios de varios nombres distintos → 409 (pendiente: pantalla para unificarlos). "Solo" saca al plantel del
+  edificio compartido en que estuviera.
+- **Hoja "Coordenadas Planteles":** se completa la columna `codigo_infraestructura` SOLO para edificios compartidos. Los
+  edificios importados de la hoja conservan allí su código antiguo (`codigo_anterior`, p. ej. EDIF9999 o un DEA) para no
+  desordenar al bot; los edificios nuevos llevan `INFRA-…`. Los solos viven solo en Supabase.
+- **Importación automática:** al abrir la pantalla (como mucho cada 5 min) y al clasificar, el sistema importa la hoja y las
+  visitas antiguas del Instrumento Uno. Es repetible sin duplicar. Botón "Sincronizar con la hoja" (admin/coordinador).
+  Si Google no responde al clasificar → 502 y no se guarda nada (para no partir un edificio en dos).
+- **Roles:** clasifican admin, `insp_coordinador` e `insp_ingeniero`; el resto solo consulta.
+- **Tarjeta "Infraestructuras":** = nombres de GESCOLAR − Σ (instituciones de cada edificio − 1). Baja al registrar compartidos.
+- **Pendiente:** pantalla para unificar edificios en conflicto; opcionalmente migrar los códigos antiguos de la hoja a INFRA-…
 
 ## 7. Módulos de consulta de planteles
 
@@ -152,7 +176,7 @@ documentado aquí; ver su propio README.**
 ## 9. Pruebas
 
 - `tests/sid-supervision-browser.cjs` (Playwright, GitHub Actions) solo cubre Supervisión.
-- Inspecciones e Instrumento Uno se probaron durante el desarrollo con PostgreSQL 16 local,
+- Inspecciones, Instrumento Uno e Infraestructuras se probaron durante el desarrollo con PostgreSQL 16 local,
   googleapis simulado y jsdom; **esas pruebas no están en el repo**. Nunca se probó contra
   Google real fuera de producción: ante un cambio, probar a mano en pantalla (crear visita,
   enviar, ver edificios, descargar Excel).
@@ -160,8 +184,7 @@ documentado aquí; ver su propio README.**
 
 ## 10. Pendientes (a 2026-11-02)
 
-- Exportar/consolidar las respuestas del Instrumento Uno (hoy solo se ven en pantalla).
-- Pantalla para unificar edificios en conflicto (409).
+- Pantalla para unificar edificios en conflicto (409) y, opcional, migrar los códigos antiguos de la hoja a INFRA-….
 - Enviar por WhatsApp los archivos de Drive desde la ficha; comandos `Avances`/`info` del bot.
 - Trabajo sin internet en campo con sincronización (probable PWA): requisito prioritario, no hecho.
 - Calcular pintura/espacios y catálogo de colores en base de datos (ideas, no desarrolladas;
