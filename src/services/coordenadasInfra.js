@@ -54,7 +54,8 @@ async function leerFilas() {
 // - Plantel sin fila → se agrega una fila [codigo, infra, "", "", fecha, ingeniero] (sin coordenadas).
 // Con { sobrescribir: true } un plantel cuya fila tiene OTRO código también se corrige (la base de datos
 // es la que manda: se usa al reorganizar edificios, para que el bot vea el mismo agrupamiento).
-async function registrarEdificio(infra, codigos, ingeniero, { sobrescribir = false } = {}) {
+// Con { agregarFilas: false } los planteles sin fila en la hoja se ignoran (no se agregan filas nuevas).
+async function registrarEdificio(infra, codigos, ingeniero, { sobrescribir = false, agregarFilas = true } = {}) {
   const filas = await leerFilas();
   const porCodigo = new Map(filas.map((f) => [f.codigo_dea.toLowerCase(), f]));
   const actualizar = [];
@@ -63,7 +64,7 @@ async function registrarEdificio(infra, codigos, ingeniero, { sobrescribir = fal
   const fecha = new Date().toISOString().slice(0, 10);
   for (const codigo of codigos) {
     const f = porCodigo.get(String(codigo).toLowerCase());
-    if (!f) { agregar.push([codigo, infra, "", "", fecha, ingeniero || ""]); continue; }
+    if (!f) { if (agregarFilas) agregar.push([codigo, infra, "", "", fecha, ingeniero || ""]); continue; }
     if (!f.codigo_infraestructura || (sobrescribir && f.codigo_infraestructura !== infra)) actualizar.push({ range: `B${f.fila}`, values: [[infra]] });
     else if (f.codigo_infraestructura !== infra) conflictos.push({ codigo_dea: codigo, codigo_infraestructura: f.codigo_infraestructura });
   }

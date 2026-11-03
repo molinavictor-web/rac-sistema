@@ -5,7 +5,8 @@
 // y una lista de instituciones (tabla infra_miembros).
 //
 // Hoja "Coordenadas Planteles" (la que usa el bot): se sigue completando la columna codigo_infraestructura,
-// pero SOLO para los planteles que comparten edificio (como hasta ahora). Un edificio importado de la hoja conserva
+// para los edificios compartidos y, en los planteles solos que ya tienen fila, solo si la celda está vacía (como hace el bot,
+// que anota el código en todos). Un edificio importado de la hoja conserva
 // el código que ya tenía allí (codigo_anterior) para no desordenar al bot; los edificios nuevos llevan INFRA-….
 //
 // Reglas:
@@ -238,14 +239,25 @@ async function clasificar({ codigo_dea, nombre, comparte, otras = [], usuarioId 
   }
 }
 
-// Completa la hoja Coordenadas Planteles (solo edificios compartidos). Devuelve 'ok' | 'pendiente' | 'no_aplica' | 'no_configurada'.
+// Completa la hoja Coordenadas Planteles. Devuelve 'ok' | 'pendiente' | 'no_aplica' | 'no_configurada'.
+//   · Edificio compartido: todos sus planteles llevan el código del edificio (se agregan filas sin coordenadas si faltan).
+//   · Plantel solo: si YA tiene fila y su celda está vacía, se rellena con su código (como hace el bot); nunca se agregan
+//     filas ni se pisa un código que ya tenga.
+//   · Plantel que sale de un edificio compartido: su celda se vacía (y, si queda solo, se rellena como arriba).
 async function sincronizarHoja(resultado, ingenieroNombre) {
-  if (!coordenadas.configurada()) return resultado.comparte || resultado.quitar.length ? "no_configurada" : "no_aplica";
-  if (!resultado.comparte && !resultado.quitar.length) return "no_aplica";
+  if (!coordenadas.configurada()) return "no_configurada";
   try {
     if (resultado.quitar.length) await coordenadas.quitarCodigos(resultado.quitar);
-    if (resultado.comparte && resultado.deas.length) await coordenadas.registrarEdificio(resultado.codigo_hoja, resultado.deas, ingenieroNombre || "", { sobrescribir: true });
-    return "ok";
+    let escrito = resultado.quitar.length > 0;
+    if (resultado.deas.length) {
+      const r = await coordenadas.registrarEdificio(resultado.codigo_hoja, resultado.deas, ingenieroNombre || "", {
+        sobrescribir: resultado.comparte,
+        agregarFilas: resultado.comparte,
+      });
+      escrito = escrito || r.actualizadas > 0 || r.agregadas > 0;
+    }
+    // un plantel solo sin fila (o con su celda ya llena) no cambia nada en la hoja
+    return resultado.comparte || escrito ? "ok" : "no_aplica";
   } catch (err) {
     console.error("Infraestructuras: no se pudo escribir en la hoja Coordenadas Planteles:", err.message);
     return "pendiente";

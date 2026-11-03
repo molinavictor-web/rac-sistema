@@ -360,7 +360,7 @@ router.put("/visitas/:id", requireAuth, requireRol(...ROLES_ESCRIBE), cargarVisi
       throw err;
     }
     const infra = clasif.infra.codigo;
-    const necesitaHoja = clasif.comparte || clasif.quitar.length > 0;
+    const necesitaHoja = coordenadas.configurada();
     await pool.query(
       `UPDATE iu_visitas SET datos = $2::jsonb, fecha_visita = $3::date, estado = 'ENVIADA', enviado_en = COALESCE(enviado_en, NOW()),
               codigo_infraestructura = $4, infra_sincronizada = $5, actualizado_por = $6, actualizado_en = NOW()
