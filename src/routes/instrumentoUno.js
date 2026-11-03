@@ -228,6 +228,45 @@ router.get("/visitas", requireAuth, requireRol(...ROLES_LECTURA), async (req, re
   }
 });
 
+// Excel con las respuestas. Por defecto solo las ENVIADAS (?estado=TODAS incluye borradores).
+// El ingeniero descarga solo las suyas. Va antes de /visitas/:id.
+router.get("/visitas.xlsx", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    const params = [];
+    const filtros = [];
+    const textoFiltro = [];
+    if (req.usuario.rol === "insp_ingeniero") { params.push(req.usuario.id); filtros.push(`v.creado_por = $${params.length}`); textoFiltro.push("solo mis visitas"); }
+    const estado = String(req.query.estado || "ENVIADA").toUpperCase();
+    if (estado === "BORRADOR" || estado === "ENVIADA") { params.push(estado); filtros.push(`v.estado = $${params.length}`); textoFiltro.push(estado === "ENVIADA" ? "solo enviadas" : "solo borradores"); }
+    else textoFiltro.push("enviadas y borradores");
+    const { rows } = await pool.query(
+      `SELECT v.id, v.codigo_dea, v.estado, v.fecha_visita::text AS fecha_visita, v.datos, v.gescolar,
+              v.codigo_infraestructura, u.nombre AS ingeniero
+       FROM iu_visitas v LEFT JOIN usuarios u ON u.id = v.creado_por
+       ${filtros.length ? "WHERE " + filtros.join(" AND ") : ""}
+       ORDER BY COALESCE(v.datos->>'municipio', v.gescolar->>'municipio', ''), COALESCE(v.datos->>'nombre_plantel', v.gescolar->>'nombre_plantel', ''), v.id`,
+      params
+    );
+    // si el plantel no tiene el nombre/municipio en lo respondido, usar lo de GESCOLAR
+    rows.forEach((v) => {
+      v.datos = v.datos || {};
+      ["nombre_plantel", "municipio", "parroquia"].forEach((k) => { if (!v.datos[k] && v.gescolar && v.gescolar[k]) v.datos[k] = v.gescolar[k]; });
+    });
+    const ids = rows.map((v) => v.id);
+    const miembros = ids.length
+      ? (await pool.query("SELECT id, codigo_infraestructura, codigo_dea, nombre, visita_id FROM iu_edificio_miembros WHERE visita_id = ANY($1::int[])", [ids])).rows
+      : [];
+    const buffer = await require("../services/exportarInstrumentoUno").visitas({ visitas: rows, miembros, filtroTexto: textoFiltro.join(", ") });
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="INSTRUMENTO_UNO_${fecha}.xlsx"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    falloInterno(res, err, "No se pudo generar el Excel del Instrumento Uno.");
+  }
+});
+
 router.post("/visitas", requireAuth, requireRol(...ROLES_ESCRIBE), async (req, res) => {
   const codigoPedido = esquemaLimpiar(req.body && req.body.codigo_dea);
   if (!codigoPedido) return res.status(400).json({ error: "Escribe el código DEA del plantel." });
