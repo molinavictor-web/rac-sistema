@@ -119,10 +119,13 @@ public/
   css/                         # style.css compartido + hojas por pantalla
 scripts/
   migrate.js                   # aplica schema.sql
+  sql/                         # semilla del catálogo de materiales (166 rubros) y script de seguridad de Supabase
   importar_planteles.js        # carga el CSV de planteles
 tests/
   sid-supervision-browser.cjs  # prueba visual de Supervisión (Playwright, GitHub Actions)
 ```
+
+**¿Recibes este sistema por primera vez?** Empieza por `docs/GUIA-TRASPASO-PROGRAMADOR.md` (mapa de piezas, hojas de Google, montar una copia, qué tocar para cada cambio).
 
 ## Variables de entorno
 
