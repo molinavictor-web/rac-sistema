@@ -145,9 +145,11 @@ Pantalla "Infraestructuras" (Inspecciones). Archivos: `src/routes/infraestructur
   exista; los edificios de un solo nombre se fusionan (queda el de número menor; puede haber saltos en la numeración).
   Dos edificios de varios nombres distintos → 409 (pendiente: pantalla para unificarlos). "Solo" saca al plantel del
   edificio compartido en que estuviera.
-- **Hoja "Coordenadas Planteles":** se completa la columna `codigo_infraestructura` SOLO para edificios compartidos. Los
+- **Hoja "Coordenadas Planteles":** la columna `codigo_infraestructura` se completa para los edificios compartidos (se agregan
+  filas sin coordenadas si faltan) y, en un plantel SOLO, únicamente si ya tiene fila y su celda está vacía (el bot anota el código
+  en todos los planteles, y así la hoja queda coherente); nunca se agregan filas para solos ni se pisa un código ya escrito. Los
   edificios importados de la hoja conservan allí su código antiguo (`codigo_anterior`, p. ej. EDIF9999 o un DEA) para no
-  desordenar al bot; los edificios nuevos llevan `INFRA-…`. Los solos viven solo en Supabase.
+  desordenar al bot; los edificios nuevos llevan `INFRA-…`.
 - **Importación automática:** al abrir la pantalla (como mucho cada 5 min) y al clasificar, el sistema importa la hoja y las
   visitas antiguas del Instrumento Uno. Es repetible sin duplicar. Botón "Sincronizar con la hoja" (admin/coordinador).
   Si Google no responde al clasificar → 502 y no se guarda nada (para no partir un edificio en dos).
