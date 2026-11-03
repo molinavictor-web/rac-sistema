@@ -3,7 +3,8 @@
 //
 // Montado en /api/inspecciones/infraestructuras (dentro de /api/inspecciones: los perfiles insp_* ya pueden usarlo).
 //   GET  /resumen                 tarjetas: clasificados, sin clasificar, solos, edificios compartidos, infraestructuras
-//   GET  /planteles?q=&estado=&municipio=&pagina=   planteles de GESCOLAR con su clasificación
+//   GET  /planteles?q=&estado=&municipio=&parroquia=&pagina=   planteles de GESCOLAR con su clasificación
+//   GET  /parroquias?municipio=   parroquias de un municipio (para el filtro)
 //   GET  /buscar?q=&excluir=      buscar otra institución (con su edificio, si ya tiene)
 //   GET  /plantel/:codigo         un plantel con su edificio y compañeros
 //   POST /clasificar              { codigo_dea, comparte, otras:[{codigo_dea,nombre}], espacios?:[…] }  (espacios: lista completa de espacios separados; si no viene, no se tocan)
@@ -48,9 +49,18 @@ router.get("/planteles", requireAuth, requireRol(...ROLES_LECTURA), async (req, 
     const estado = ["sin_clasificar", "solo", "comparte"].includes(req.query.estado) ? req.query.estado : "";
     const pagina = Math.max(1, parseInt(req.query.pagina, 10) || 1);
     await asegurarSync();
-    res.json(await infra.listarPlanteles({ q: limpiar(req.query.q), estado, municipio: limpiar(req.query.municipio), pagina, limite: 50 }));
+    res.json(await infra.listarPlanteles({ q: limpiar(req.query.q), estado, municipio: limpiar(req.query.municipio), parroquia: limpiar(req.query.parroquia), pagina, limite: 50 }));
   } catch (err) {
     responderError(res, err, "No se pudo cargar la lista de planteles.");
+  }
+});
+
+router.get("/parroquias", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    const municipio = limpiar(req.query.municipio);
+    res.json({ parroquias: municipio ? await infra.parroquiasDe(municipio) : [] });
+  } catch (err) {
+    responderError(res, err, "No se pudo cargar las parroquias.");
   }
 });
 

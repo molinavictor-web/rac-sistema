@@ -28,6 +28,7 @@ function iniciar() {
         <input type="text" id="q" placeholder="Buscar por código o nombre" style="min-width:230px;">
         <select id="estado"><option value="">Todos</option><option value="sin_clasificar">Sin clasificar</option><option value="solo">Solos en su edificio</option><option value="comparte">Comparten edificio</option></select>
         <select id="municipio"><option value="">Todos los municipios</option>${MUNICIPIOS.map((m) => `<option>${escapar(m)}</option>`).join("")}</select>
+        <select id="parroquia" disabled title="Elige primero un municipio"><option value="">Todas las parroquias</option></select>
         ${PUEDE_SINCRONIZAR ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnSync" title="Vuelve a leer la hoja Coordenadas Planteles">Sincronizar con la hoja</button>` : ""}
       </div>
       <div id="lista"><div class="cargando">Cargando…</div></div>
@@ -35,7 +36,8 @@ function iniciar() {
     </div>`;
   let t = null;
   document.getElementById("q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { pagina = 1; cargarLista(); }, 300); });
-  ["estado", "municipio"].forEach((id) => document.getElementById(id).addEventListener("change", () => { pagina = 1; cargarLista(); }));
+  ["estado", "parroquia"].forEach((id) => document.getElementById(id).addEventListener("change", () => { pagina = 1; cargarLista(); }));
+  document.getElementById("municipio").addEventListener("change", async () => { pagina = 1; await cargarParroquias(); cargarLista(); });
   const sync = document.getElementById("btnSync");
   if (sync) sync.addEventListener("click", sincronizar);
   cargarResumen();
@@ -66,13 +68,30 @@ async function cargarResumen() {
   }
 }
 
+// Las parroquias dependen del municipio elegido; sin municipio el filtro queda apagado.
+async function cargarParroquias() {
+  const sel = document.getElementById("parroquia");
+  const municipio = document.getElementById("municipio").value;
+  sel.innerHTML = `<option value="">Todas las parroquias</option>`;
+  sel.disabled = !municipio;
+  sel.title = municipio ? "" : "Elige primero un municipio";
+  if (!municipio) return;
+  try {
+    const r = await RAC.get(`${BASE}/parroquias?municipio=${encodeURIComponent(municipio)}`);
+    sel.innerHTML = `<option value="">Todas las parroquias (${r.parroquias.length})</option>` + r.parroquias.map((x) => `<option>${escapar(x)}</option>`).join("");
+  } catch (ex) {
+    mostrarToast(ex.message, true);
+  }
+}
+
 async function cargarLista() {
   const cont = document.getElementById("lista");
   const q = document.getElementById("q").value.trim();
   const estado = document.getElementById("estado").value;
   const municipio = document.getElementById("municipio").value;
+  const parroquia = document.getElementById("parroquia").value;
   try {
-    const r = await RAC.get(`${BASE}/planteles?q=${encodeURIComponent(q)}&estado=${estado}&municipio=${encodeURIComponent(municipio)}&pagina=${pagina}`);
+    const r = await RAC.get(`${BASE}/planteles?q=${encodeURIComponent(q)}&estado=${estado}&municipio=${encodeURIComponent(municipio)}&parroquia=${encodeURIComponent(parroquia)}&pagina=${pagina}`);
     if (!r.planteles.length) {
       cont.innerHTML = `<div class="vacio"><strong>Sin resultados</strong>Prueba con otro filtro.</div>`;
       document.getElementById("paginas").innerHTML = "";
