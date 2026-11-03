@@ -2,7 +2,8 @@
 // (la misma que usa el bot de WhatsApp y "Consultar planteles"). Columnas: codigo_dea, codigo_infraestructura,
 // latitud, longitud, fecha_captura, ingeniero.
 //
-// Convención de la hoja: el código de infraestructura es el código DEA del plantel principal del edificio
+// Convención histórica de la hoja: el código de infraestructura era el código DEA del plantel principal del edificio
+// (ahora los edificios nuevos llevan INFRA-000001, INFRA-000002… y los antiguos conservan su código; ver infraestructuras.js)
 // (p. ej. S0536N1608 comparte edificio con S0346D1608 y ambos llevan S0346D1608).
 // Este servicio SOLO toca la columna B (y agrega filas sin coordenadas si el plantel aún no tiene fila);
 // nunca modifica latitud ni longitud.
@@ -51,7 +52,9 @@ async function leerFilas() {
 // - Plantel con fila y B igual → no se toca.
 // - Plantel con fila y B DISTINTO → no se toca y se informa en `conflictos`.
 // - Plantel sin fila → se agrega una fila [codigo, infra, "", "", fecha, ingeniero] (sin coordenadas).
-async function registrarEdificio(infra, codigos, ingeniero) {
+// Con { sobrescribir: true } un plantel cuya fila tiene OTRO código también se corrige (la base de datos
+// es la que manda: se usa al reorganizar edificios, para que el bot vea el mismo agrupamiento).
+async function registrarEdificio(infra, codigos, ingeniero, { sobrescribir = false } = {}) {
   const filas = await leerFilas();
   const porCodigo = new Map(filas.map((f) => [f.codigo_dea.toLowerCase(), f]));
   const actualizar = [];
@@ -61,7 +64,7 @@ async function registrarEdificio(infra, codigos, ingeniero) {
   for (const codigo of codigos) {
     const f = porCodigo.get(String(codigo).toLowerCase());
     if (!f) { agregar.push([codigo, infra, "", "", fecha, ingeniero || ""]); continue; }
-    if (!f.codigo_infraestructura) actualizar.push({ range: `B${f.fila}`, values: [[infra]] });
+    if (!f.codigo_infraestructura || (sobrescribir && f.codigo_infraestructura !== infra)) actualizar.push({ range: `B${f.fila}`, values: [[infra]] });
     else if (f.codigo_infraestructura !== infra) conflictos.push({ codigo_dea: codigo, codigo_infraestructura: f.codigo_infraestructura });
   }
   const cli = obtenerCliente();
@@ -83,4 +86,23 @@ async function registrarEdificio(infra, codigos, ingeniero) {
   return { actualizadas: actualizar.length, agregadas: agregar.length, conflictos };
 }
 
-module.exports = { configurada, leerFilas, registrarEdificio };
+// Deja vacío el código de infraestructura (columna B) de esos planteles (ya no comparten edificio).
+// No toca coordenadas ni agrega filas.
+async function quitarCodigos(codigos) {
+  const filas = await leerFilas();
+  const porCodigo = new Map(filas.map((f) => [f.codigo_dea.toLowerCase(), f]));
+  const data = [];
+  for (const codigo of codigos) {
+    const f = porCodigo.get(String(codigo).toLowerCase());
+    if (f && f.codigo_infraestructura) data.push({ range: `B${f.fila}`, values: [[""]] });
+  }
+  if (data.length) {
+    await obtenerCliente().spreadsheets.values.batchUpdate({
+      spreadsheetId: SHEETS_COORDENADAS_ID,
+      requestBody: { valueInputOption: "RAW", data },
+    });
+  }
+  return { limpiadas: data.length };
+}
+
+module.exports = { configurada, leerFilas, registrarEdificio, quitarCodigos };
