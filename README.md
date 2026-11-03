@@ -1,179 +1,174 @@
-# RAC Monagas — Sistema web
+# SID — Sistema Integrado Digital (rac-sistema)
 
-Sistema web (Node.js/Express + PostgreSQL + Google Sheets/Drive) para la
-Zona Educativa del estado Monagas. Nació como el backend de validación del
-**RAC** (Registro de Asignación de Carga) contra la nómina del Ministerio de
-Educación, y hoy reúne varios módulos relacionados: alertas de calidad de
-datos, catálogo maestro de planteles, consulta de la data de GESCOLAR,
-generación de credenciales con QR, y administración de usuarios/roles.
+Sistema web de la Zona Educativa del estado Monagas (Node.js/Express +
+PostgreSQL/Supabase + Google Sheets/Drive). Nació como el validador del
+**RAC** (Registro de Asignación de Cargo) contra la nómina del Ministerio de
+Educación y hoy es un sistema por **módulos**, cada uno con sus propios
+perfiles de acceso:
 
-## Qué valida el RAC
-
-1. **Cédula**: toda cédula cargada al RAC debe existir en `personal_ministerio`.
-   Si no existe → alerta `no_existe_ministerio` (posible asignación sin
-   aprobación del Ministerio). Cédulas repetidas en el RAC son válidas (un
-   profesor puede tener varios turnos/planteles).
-2. **Plantel**: el código de plantel (COD DEA) debe existir en el catálogo
-   maestro `planteles`. Si no existe → alerta `plantel_no_existe` (a menos
-   que el código esté registrado como typo conocido en
-   `mapeo_codigos_plantel`, en cuyo caso se resuelve solo, sin alerta).
-3. **Horas**: académicas y administrativas no pueden superar 168h/semana.
-
-## Módulos
-
-| Módulo | Para qué sirve | Roles con acceso |
+| Módulo | Entrada | Para qué sirve |
 |---|---|---|
-| **Resumen** (dashboard) | Panorama general del RAC | todos |
-| **Consultar RAC** | Ver/editar registros del RAC, traslados | todos (según municipio) |
-| **Exportar RAC** | Descargar el RAC completo en CSV | admin, operador |
-| **Alertas** | Bandeja de alertas de validación (cédula/plantel/horas) | todos |
-| **Códigos sin catalogar** | Detecta códigos de plantel no reconocidos y permite marcarlos como typo conocido (`mapeo_codigos_plantel`) | operador, admin |
-| **Depurar archivo** | Limpieza/depuración de un archivo cargado antes de procesarlo | admin |
-| **Cargar por municipio** | Cada municipio sube su Excel del RAC; se valida y se guardan las alertas | encargado_municipio, operador, admin |
-| **Carga completa mensual** | Carga masiva del RAC completo (todos los municipios de una vez) | admin |
-| **Planteles** | Catálogo maestro de planteles en Postgres (los 973 planteles de Monagas) | admin |
-| **Consultar planteles (GESCOLAR)** | Búsqueda de la hoja GESCOLAR en Google Sheets (55 columnas por plantel) con ficha completa y descarga de los archivos que tenga ese código DEA en Google Drive | admin, operador_plantel |
-| **Credenciales** | Genera el PDF de notificación/credencial con QR de verificación, cruzando nómina+RAC; panel de pendientes por aprobar (firma física) y página pública `/verificar/:codigo` | admin, operador, operador_credenciales |
-| **Usuarios** | Alta/baja y edición de usuarios y roles del sistema | admin |
-| **Mantenimiento** | Exportar auditoría completa (CSV) y otras tareas de mantenimiento de la base de datos | admin |
+| **RAC** | `/login.html` | Carga y validación del RAC, alertas de calidad de datos, catálogo de planteles, consulta de GESCOLAR, directorio de directores, credenciales con QR, usuarios y mantenimiento |
+| **Supervisión** | `/supervision/login.html` | Supervisores municipales y circuitales, circuitos educativos, directores, matrícula por período y por nivel, alertas y estadísticas |
+| **Inspecciones** (FEDE) | `/inspecciones/login.html` | Planes de atención, planillas de materiales, adicionales, consolidados en Excel, Instrumento Uno CDCE y edificios compartidos |
 
-### Roles
+Producción: https://rac-sistema.onrender.com (Render, plan Starter).
 
-```
-admin                 -- acceso total
-operador              -- oficina central: ve/opera todos los municipios
-encargado_municipio   -- solo su propio municipio (RAC y cargas)
-operador_credenciales -- solo el módulo de Credenciales
-operador_plantel      -- solo Consultar planteles (GESCOLAR + Drive)
-```
+## Perfiles (roles)
+
+| Rol | Acceso |
+|---|---|
+| `admin` | Todo |
+| `operador` | RAC de todos los municipios (consultar, exportar, alertas, depurar archivo, planteles sin eliminar, directorio, cargar por municipio) |
+| `encargado_municipio` | RAC y cargas solo de su municipio |
+| `operador_credenciales` | Solo Credenciales |
+| `operador_plantel` | Consultar planteles y Directorio; Inspecciones en solo lectura |
+| `supervision` | **Solo** el panel de Supervisión |
+| `director` | **Solo** "Mi plantel" en Supervisión (su propio `codigo_plantel`); la cuenta se crea desde Supervisión → Directores |
+| `insp_coordinador` | **Solo** Inspecciones: planes, planteles, asignaciones, consolidados, Excel |
+| `insp_ingeniero` | **Solo** Inspecciones: sus planillas asignadas y sus visitas del Instrumento Uno |
+| `insp_consulta` | **Solo** Inspecciones en lectura (autoridades) |
+
+Los roles de Supervisión e Inspecciones quedan encerrados en su módulo en
+dos niveles: el backend (`src/middleware/auth.js` responde 403 fuera de
+`/api/supervision` o `/api/inspecciones`) y el menú (`public/js/nav.js`
+los redirige a su panel).
+
+## Reglas del RAC
+
+1. **Cédula**: se cruza con `personal_ministerio` solo por cédula (una cédula
+   repetida en el RAC es normal: varios turnos o planteles). Si no está en
+   nómina → alerta `cedula_no_existe_nomina`.
+2. **Plantel**: el código DEA debe existir en `planteles` o en
+   `mapeo_codigos_plantel` (typos conocidos). Si no → alerta
+   `plantel_no_existe` y la fila no se inserta.
+3. **Clave de un registro**: `cedula + plantel + codigo_cargo` (permite dos
+   nombramientos de la misma persona en el mismo plantel).
+4. **Horas**: académicas hasta 54/semana; administrativas hasta 168/semana.
+5. En cada carga masiva todo se sincroniza contra el archivo, salvo nombres
+   y apellidos (prioridad: nómina > archivo > lo ya guardado).
 
 ## Arquitectura
 
-- **Backend**: Node.js + Express, montado como un único servicio (`src/server.js`)
-  que sirve tanto la API (`/api/...`) como el frontend estático (`/public`).
-- **Base de datos**: PostgreSQL (Supabase/Render), con triggers de auditoría
-  (tabla `auditoria`) sobre las operaciones sensibles del RAC.
-- **Autenticación**: JWT (`Authorization: Bearer <token>`), guardado en
-  `sessionStorage` del navegador — no usa cookies. El frontend (`public/js/api.js`)
-  agrega el header automáticamente en cada llamada; las descargas de archivos
-  (credenciales, auditoría, Drive) se piden con `fetch` + `blob()` en vez de
-  un link directo, porque un `<a href>` no puede llevar ese header.
-- **Frontend**: HTML + JavaScript "vanilla" (sin framework ni build step),
-  un archivo `.html` + `.js` por pantalla, todos comparten `public/css/style.css`
-  y el menú lateral de `public/js/nav.js` (que decide qué se muestra según el
-  rol del usuario logueado).
-- **Integraciones con Google** (vía una única cuenta de servicio, con permisos
-  de solo lectura):
-  - **Sheets**: hoja "GESCOLAR" (`SHEETS_GESCOLAR_ID`, consulta de planteles)
-    y hoja "CredencialesEmitidas" (`SHEETS_CREDENCIALES_ID`, registro de
-    credenciales generadas).
-  - **Drive**: carpeta raíz "Planteles" (`DRIVE_FOLDER_PLANTELES_ID`), con una
-    subcarpeta por código DEA; se listan y descargan sus archivos por
-    streaming (sin pasar por WhatsApp, sin costo).
+- **Backend**: Node.js + Express en un solo servicio (`src/server.js`) que
+  sirve la API (`/api/...`) y el frontend estático (`/public`). Incluye una
+  red de seguridad para errores en rutas async (no tumban el servidor).
+- **Base de datos**: PostgreSQL en Supabase (conexión por *Session pooler*),
+  con triggers de auditoría (tabla `auditoria`, retención 3 días, purga manual).
+- **Autenticación**: JWT (`Authorization: Bearer <token>`) guardado en
+  `sessionStorage`. `public/js/api.js` agrega el header; las descargas se
+  piden con `fetch` + `blob()`.
+- **Frontend**: HTML + JavaScript sin framework ni build step; un `.html` +
+  un `.js` por pantalla, `public/css/style.css` compartido (más hojas `*-v6.css`
+  por pantalla) y menú lateral en `public/js/nav.js`.
+- **Seguridad HTTP**: `helmet` con CSP: no se permiten `<script>` en línea
+  ni `onclick` en el HTML (usar `addEventListener`).
+- **Google** (una cuenta de servicio + OAuth para escribir en Drive):
+  - Hoja **GESCOLAR** (`SHEETS_GESCOLAR_ID`): consulta de planteles; Directorio
+    escribe los datos del director; Inspecciones escribe la columna
+    `RESPONSABLE` y una columna `PLAN <nombre>` por cada plan.
+  - Hoja **CredencialesEmitidas** (`SHEETS_CREDENCIALES_ID`).
+  - Hoja **Coordenadas Planteles** (`SHEETS_COORDENADAS_ID`): coordenadas y
+    `codigo_infraestructura` (edificios compartidos).
+  - Carpeta **Planteles** en Drive (`DRIVE_FOLDER_PLANTELES_ID`), una
+    subcarpeta por código DEA. La escritura usa OAuth con la cuenta Gmail
+    dueña de la carpeta; el refresh token se guarda en la tabla
+    `configuracion` y se renueva con el botón "Reconectar Google Drive"
+    (vence cada 7 días mientras la app de Google esté en modo "Prueba").
 
 ## Estructura del repositorio
 
 ```
 src/
-  server.js                    # entrypoint Express — monta todas las rutas
-  db/
-    pool.js                    # conexión a Postgres + helper de transacción auditada
-    schema.sql                 # esquema completo (tablas, triggers de auditoría)
+  server.js                    # entrypoint: monta todas las rutas
+  db/pool.js                   # conexión a Postgres + transacción auditada
+  db/schema.sql                # esquema de la base de datos
+  middleware/auth.js           # JWT, roles, municipio, plantel y encierro por módulo
+  utils/csv.js                 # parser CSV (RFC 4180) compartido
+  assets/                      # logos (Ministerio, educación, FEDE)
   services/
-    validacion.js              # las 3 reglas de validación del RAC
-  middleware/
-    auth.js                    # JWT + control de rol/municipio
-  utils/
-    csv.js                     # parseo de CSV compartido
-  assets/
-    membrete-logo.png          # logo del Ministerio, usado en el PDF de credencial
+    validacion.js              # reglas de validación del RAC
+    gescolar.js                # lectura/escritura de GESCOLAR para Inspecciones
+    coordenadasInfra.js        # columna codigo_infraestructura de Coordenadas Planteles
+    exportarExcel.js           # Excel de consolidados y planillas (exceljs)
+    instrumentoUnoEsquema.js   # preguntas y validaciones del Instrumento Uno CDCE
   routes/
     auth.js                    # login
-    rac.js / racCompleto.js    # CRUD del RAC (incluye traslados) y carga completa mensual
-    cargas.js                  # subir Excel por municipio → valida → guarda alertas
-    alertas.js                 # bandeja de alertas para el operador
+    rac.js, racCompleto.js     # RAC: consulta/edición y carga completa mensual
+    cargas.js                  # carga por municipio
+    alertas.js                 # bandeja y exportación de alertas
     planteles.js               # catálogo maestro de planteles (Postgres)
-    plantelesConsulta.js       # consulta GESCOLAR (Sheets) + archivos por DEA (Drive)
-    personalMinisterio.js      # carga de la nómina del Ministerio
-    credenciales.js            # generación de PDF+QR, aprobación, verificación pública
-    usuarios.js                # alta/edición/roles de usuarios del sistema
-    mapeoCodigosPlantel.js     # códigos de plantel marcados como typo conocido
-    depurarArchivo.js          # depuración de archivos antes de cargarlos
-    mantenimiento.js           # exportar auditoría y tareas de mantenimiento
+    plantelesConsulta.js       # GESCOLAR (Sheets) + archivos por DEA (Drive)
+    directorioDirectores.js    # directorio de directores (GESCOLAR)
+    personalMinisterio.js      # nómina del Ministerio
+    mapeoCodigosPlantel.js     # códigos de plantel con typo conocido
+    depurarArchivo.js          # depuración del CSV antes de cargarlo
+    credenciales.js            # PDF + QR, aprobación y /verificar/:codigo
+    usuarios.js                # usuarios y roles (eliminación suave)
+    mantenimiento.js           # auditoría, respaldo y reinicio de datos
+    supervision.js             # módulo Supervisión
+    inspecciones.js            # módulo Inspecciones (planes, planillas, consolidados)
+    instrumentoUno.js          # Instrumento Uno CDCE (/api/inspecciones/instrumento-uno)
 public/
-  *.html + js/*.js             # una pantalla por par de archivos (mismo nombre)
-  js/api.js                    # cliente HTTP compartido (maneja el token JWT)
-  js/nav.js                    # menú lateral, roles visibles y logout
-  css/style.css                # sistema de diseño compartido por todas las pantallas
+  *.html + js/*.js             # pantallas del RAC
+  supervision/*.html           # pantallas de Supervisión (JS en js/supervision-*.js)
+  inspecciones/*.html          # pantallas de Inspecciones (JS en js/inspecciones-*.js e instrumento-uno*.js)
+  css/                         # style.css compartido + hojas por pantalla
 scripts/
-  migrate.js                   # aplica schema.sql a la base de datos
-  importar_planteles.js        # carga el CSV real de planteles (973 registros) a Postgres
+  migrate.js                   # aplica schema.sql
+  importar_planteles.js        # carga el CSV de planteles
+tests/
+  sid-supervision-browser.cjs  # prueba visual de Supervisión (Playwright, GitHub Actions)
 ```
 
 ## Variables de entorno
 
 | Variable | Para qué |
 |---|---|
-| `DATABASE_URL` | Conexión a PostgreSQL |
+| `DATABASE_URL` | Conexión a PostgreSQL (Supabase, Session pooler) |
 | `JWT_SECRET` | Firma de los tokens de sesión |
 | `NODE_ENV` | `production` en Render |
-| `PORT` | Puerto del servidor (lo asigna Render) |
-| `MAX_UPLOAD_SIZE_MB` | Límite general de subida de archivos |
-| `MAX_UPLOAD_NOMINA_MB` | Límite específico para la carga de nómina |
-| `MAX_UPLOAD_PLANTELES_MB` | Límite específico para la carga del catálogo de planteles |
-| `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` | Ruta al JSON de la cuenta de servicio de Google (cargado como Secret File en Render) — la misma cuenta que usa `whatsapp-credenciales` |
-| `SHEETS_GESCOLAR_ID` | ID de la hoja de Google Sheets "GESCOLAR" |
-| `SHEETS_CREDENCIALES_ID` | ID de la hoja "CredencialesEmitidas" |
-| `DRIVE_FOLDER_PLANTELES_ID` | ID de la carpeta raíz "Planteles" en Drive |
-| `DIRECTOR_NOMBRE` / `DIRECTOR_CEDULA` / `DIRECTOR_CARGO` | Datos de quien firma, usados en el PDF de credencial |
-| `RESOLUCION_TEXTO` | Texto de la resolución que se imprime en el PDF de credencial |
-| `URL_PUBLICA` | URL pública del servicio, usada para armar el link del QR de verificación |
+| `PORT` | Puerto (lo asigna Render) |
+| `MAX_UPLOAD_SIZE_MB`, `MAX_UPLOAD_NOMINA_MB`, `MAX_UPLOAD_PLANTELES_MB` | Límites de subida |
+| `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` | Ruta al JSON de la cuenta de servicio (Secret File en Render) |
+| `SHEETS_GESCOLAR_ID` | Hoja GESCOLAR |
+| `SHEETS_CREDENCIALES_ID` | Hoja CredencialesEmitidas |
+| `SHEETS_COORDENADAS_ID` | Hoja Coordenadas Planteles (Instrumento Uno y edificios compartidos) |
+| `DRIVE_FOLDER_PLANTELES_ID` | Carpeta raíz "Planteles" en Drive |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth para escribir en Drive |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | Respaldo; el token vigente vive en la tabla `configuracion` |
+| `URL_PUBLICA` | URL pública (enlace del QR y callback de OAuth) |
+| `DIRECTOR_NOMBRE`, `DIRECTOR_CEDULA`, `DIRECTOR_CARGO`, `RESOLUCION_TEXTO` | Datos de quien firma el PDF de credencial |
 
-No hay `.env.example` en el repo (para no tentar a subir credenciales reales
-por accidente) — usa esta tabla como referencia al configurar las variables
-en local o en Render.
+No hay `.env.example` a propósito (para no subir credenciales reales por accidente).
 
 ## Levantar en local
 
 ```bash
 npm install
-# crear un archivo .env con las variables de la tabla de arriba
-
-npm run migrate                                    # crea las tablas en Postgres
-node scripts/importar_planteles.js planteles.csv   # carga el catálogo de planteles
-npm run dev                                          # arranca con reinicio automático
+# crear un .env con las variables de la tabla
+npm run migrate                                     # crea las tablas
+node scripts/importar_planteles.js planteles.csv    # catálogo de planteles
+npm run dev
 ```
 
-## Desplegar / actualizar en Render
+## Desplegar en Render
 
-1. Sube los cambios a GitHub (por "Upload file" o `git push`, según el archivo).
-2. Si el servicio tiene auto-deploy activado desde ese repo, Render
-   redespliega solo; si no, entra al servicio → "Manual Deploy" → "Deploy latest commit".
-3. Variables de entorno y el JSON de la cuenta de servicio de Google se
-   administran desde las pestañas "Environment" y "Secret Files" del
-   servicio — no van en el repo.
-4. Primer despliegue únicamente:
-   ```bash
-   # desde la pestaña "Shell" del servicio en Render
-   npm run migrate
-   node scripts/importar_planteles.js planteles.csv
-   ```
-5. Crear el primer usuario admin (no hay endpoint público de registro, a
-   propósito — los usuarios los crea otro admin desde el módulo "Usuarios"
-   una vez que exista el primero):
+1. Los cambios llegan a la rama `main` (Pull Request o "Upload files").
+2. Render redespliega solo (auto-deploy) o con "Manual Deploy".
+3. Variables y el JSON de la cuenta de servicio se administran en
+   "Environment" y "Secret Files"; nunca van en el repo.
+4. No tocar GitHub/Render mientras corre una carga masiva (un deploy a mitad
+   reinicia el servidor).
+5. El primer usuario admin se crea por SQL (no hay registro público):
    ```sql
-   -- desde el Shell de la base de datos en Render:
    INSERT INTO usuarios (nombre, email, password_hash, rol)
-   VALUES ('Tu Nombre', 'tu@email.com', '<hash generado con bcrypt>', 'admin');
+   VALUES ('Tu Nombre', 'tu@email.com', '<hash bcrypt>', 'admin');
    ```
 
-## Pendiente / ideas a futuro
+## Pendientes conocidos
 
-- Envío de los archivos de Drive por WhatsApp desde "Consultar planteles"
-  (hoy solo tiene descarga) — pendiente decidir entre un enlace `wa.me`
-  (gratis, lo envía la persona) o el bot existente de `whatsapp-credenciales`
-  (puede tener costo fuera de una conversación abierta de 24h).
-- Comandos "Avances \<código DEA\>" e "info \<código DEA\>" en el bot de
-  WhatsApp (resumen de rehabilitación y ficha informativa del plantel).
-- Refinar el mapeo de columnas en `cargas.js` a medida que se vea más
-  variedad real en los Excel de cada municipio.
+- Envío por WhatsApp de los archivos de Drive desde "Consultar planteles".
+- Comandos "Avances" e "info" del bot de WhatsApp.
+- Exportar/consolidar las respuestas del Instrumento Uno y pantalla para
+  unificar edificios en conflicto.

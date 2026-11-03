@@ -1,31 +1,56 @@
-# Render Blueprint — despliega el backend y la base de datos juntos.
-# Al conectar este repo en Render como "Blueprint", crea automáticamente
-# ambos servicios y los conecta entre sí (DATABASE_URL se inyecta solo).
+# Render Blueprint de referencia: describe el servicio tal como está en producción.
+# La base de datos NO está en Render: es PostgreSQL en Supabase (DATABASE_URL apunta
+# al "Session pooler"). Las variables marcadas sync:false se cargan a mano en la
+# pestaña "Environment" del servicio; el JSON de la cuenta de servicio de Google va
+# en "Secret Files" (su ruta en GOOGLE_SERVICE_ACCOUNT_KEY_PATH).
 #
 # https://render.com/docs/blueprint-spec
 
-databases:
-  - name: rac-db
-    plan: standard          # ajustar según el volumen (900k+ registros en personal_ministerio)
-    databaseName: rac
-    user: rac_admin
-
 services:
   - type: web
-    name: rac-backend
+    name: rac-sistema
     runtime: node
-    plan: standard
+    plan: starter           # $7/mes, no se duerme
+    branch: main
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: rac-db
-          property: connectionString
-      - key: JWT_SECRET
-        generateValue: true
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
       - key: MAX_UPLOAD_SIZE_MB
         value: "20"
+      - key: MAX_UPLOAD_NOMINA_MB
+        sync: false
+      - key: MAX_UPLOAD_PLANTELES_MB
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY_PATH
+        sync: false
+      - key: SHEETS_GESCOLAR_ID
+        sync: false
+      - key: SHEETS_CREDENCIALES_ID
+        sync: false
+      - key: SHEETS_COORDENADAS_ID
+        sync: false
+      - key: DRIVE_FOLDER_PLANTELES_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REFRESH_TOKEN
+        sync: false
+      - key: URL_PUBLICA
+        value: https://rac-sistema.onrender.com
+      - key: DIRECTOR_NOMBRE
+        sync: false
+      - key: DIRECTOR_CEDULA
+        sync: false
+      - key: DIRECTOR_CARGO
+        sync: false
+      - key: RESOLUCION_TEXTO
+        sync: false
