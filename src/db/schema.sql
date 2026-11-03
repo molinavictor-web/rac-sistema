@@ -768,3 +768,40 @@ ALTER TABLE public.supervisor_municipal_plantel ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.supervisores_circuitales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.supervisores_municipales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.usuarios ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Infraestructuras (script 12_infraestructuras.sql): edificios con código INFRA-000001… y sus instituciones
+-- ---------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS infraestructuras_numero_seq;
+
+CREATE TABLE IF NOT EXISTS infraestructuras (
+  id               SERIAL      PRIMARY KEY,
+  numero           INTEGER     NOT NULL DEFAULT nextval('infraestructuras_numero_seq'),
+  codigo           TEXT        GENERATED ALWAYS AS ('INFRA-' || lpad(numero::text, 6, '0')) STORED,
+  codigo_anterior  TEXT,                       -- código que tenía en la hoja Coordenadas Planteles (DEA o EDIF…)
+  creado_por       INTEGER     REFERENCES usuarios(id),
+  creado_en        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_infra_numero ON infraestructuras (numero);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_infra_codigo ON infraestructuras (codigo);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_infra_anterior ON infraestructuras (lower(codigo_anterior)) WHERE codigo_anterior IS NOT NULL;
+
+-- Instituciones de cada edificio. Un plantel con código DEA pertenece a UN solo edificio.
+-- Una institución sin código DEA se identifica por su nombre dentro del edificio.
+CREATE TABLE IF NOT EXISTS infra_miembros (
+  id                 SERIAL      PRIMARY KEY,
+  infraestructura_id INTEGER     NOT NULL REFERENCES infraestructuras(id) ON DELETE CASCADE,
+  codigo_dea         TEXT,
+  nombre             TEXT        NOT NULL,
+  creado_por         INTEGER     REFERENCES usuarios(id),
+  creado_en          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_infra_miembros_infra ON infra_miembros (infraestructura_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_infra_miembro_dea ON infra_miembros (lower(codigo_dea)) WHERE codigo_dea IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_infra_miembro_nombre ON infra_miembros (infraestructura_id, lower(nombre)) WHERE codigo_dea IS NULL;
+
+-- Seguridad (igual que el resto): la app entra como "postgres"; nadie más debe leer estas tablas por la API pública.
+ALTER TABLE infraestructuras ENABLE ROW LEVEL SECURITY;
+ALTER TABLE infra_miembros   ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON infraestructuras, infra_miembros FROM anon, authenticated;
+REVOKE ALL ON SEQUENCE infraestructuras_numero_seq, infraestructuras_id_seq, infra_miembros_id_seq FROM anon, authenticated;

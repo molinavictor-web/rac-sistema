@@ -2,9 +2,9 @@
 //
 // Se escribe el código DEA, se traen los datos de GESCOLAR para confirmarlos o corregirlos y se sigue
 // con director, infraestructura y edificio compartido. Lo corregido queda SOLO en el instrumento
-// (GESCOLAR no se modifica). Si en el edificio funciona otra institución, se asigna un código de
-// infraestructura común (el código DEA del plantel principal, como hace el bot de WhatsApp) y se
-// completa la columna codigo_infraestructura de la hoja "Coordenadas Planteles".
+// (GESCOLAR no se modifica). Al enviar, el plantel queda clasificado (solo o comparte edificio) en el módulo
+// de Infraestructuras (services/infraestructuras.js): cada edificio lleva un código INFRA-000001… y, si es
+// compartido, se completa la columna codigo_infraestructura de la hoja "Coordenadas Planteles".
 //
 // Montado en /api/inspecciones/instrumento-uno (dentro de /api/inspecciones, así que los perfiles insp_*
 // ya pueden usarlo sin tocar el resto del sistema).
@@ -21,6 +21,7 @@ const { requireAuth, requireRol } = require("../middleware/auth");
 const { pool } = require("../db/pool");
 const gescolar = require("../services/gescolar");
 const coordenadas = require("../services/coordenadasInfra");
+const infraestructuras = require("../services/infraestructuras");
 const esquema = require("../services/instrumentoUnoEsquema");
 
 const router = express.Router();
@@ -48,54 +49,20 @@ function nombreDeFila(fila) {
 }
 
 // ---------------------------------------------------------------------------
-// Edificios: se combinan la hoja "Coordenadas Planteles" (lo que ya existe) y la base de datos
-// (las instituciones sin código DEA y lo registrado por este instrumento).
+// Edificios: salen del módulo de Infraestructuras (base de datos), que ya importó lo que había en la hoja
+// "Coordenadas Planteles".
 // ---------------------------------------------------------------------------
 
 async function leerEdificios() {
-  const grupos = new Map(); // codigo_infraestructura -> Map(clave -> { codigo_dea, nombre })
   let hojaOk = true;
-  const agregar = (infra, dea, nombre) => {
-    if (!infra) return;
-    if (!grupos.has(infra)) grupos.set(infra, new Map());
-    const clave = dea ? `D:${dea.toLowerCase()}` : `N:${esquema.normalizar(nombre)}`;
-    const g = grupos.get(infra);
-    const previo = g.get(clave);
-    g.set(clave, { codigo_dea: dea || "", nombre: (previo && previo.nombre) || nombre || "" });
-  };
-
-  if (coordenadas.configurada()) {
-    try {
-      (await coordenadas.leerFilas()).forEach((f) => { if (f.codigo_infraestructura) agregar(f.codigo_infraestructura, f.codigo_dea, ""); });
-    } catch (err) {
-      hojaOk = false;
-      console.error("Instrumento Uno: no se pudo leer la hoja Coordenadas Planteles:", err.message);
-    }
-  }
-  const { rows } = await pool.query("SELECT codigo_infraestructura, codigo_dea, nombre FROM iu_edificio_miembros");
-  rows.forEach((r) => agregar(r.codigo_infraestructura, r.codigo_dea || "", r.nombre));
-
-  // nombres oficiales desde GESCOLAR
-  let nombres = new Map();
   try {
-    (await gescolar.cargarGescolar()).forEach((p) => {
-      const c = esquemaLimpiar(p[gescolar.CAMPO_CODIGO]).toLowerCase();
-      if (c) nombres.set(c, nombreDeFila(p));
-    });
+    hojaOk = (await infraestructuras.sincronizar()).hoja_ok;
   } catch (err) {
-    console.error("Instrumento Uno: no se pudo leer GESCOLAR para los nombres:", err.message);
+    hojaOk = false;
+    console.error("Instrumento Uno: no se pudo sincronizar los edificios:", err.message);
   }
-  const resultado = [];
-  grupos.forEach((miembros, infra) => {
-    const lista = [...miembros.values()].map((m) => ({
-      codigo_dea: m.codigo_dea,
-      nombre: (m.codigo_dea && nombres.get(m.codigo_dea.toLowerCase())) || m.nombre || "",
-    }));
-    lista.sort((a, b) => (a.codigo_dea === infra ? -1 : b.codigo_dea === infra ? 1 : a.nombre.localeCompare(b.nombre, "es")));
-    const enGescolar = lista.filter((m) => m.codigo_dea && nombres.has(m.codigo_dea.toLowerCase())).length;
-    resultado.push({ codigo_infraestructura: infra, cantidad: lista.length, miembros: lista, en_gescolar: enGescolar });
-  });
-  return { edificios: resultado, hoja_ok: hojaOk, total_gescolar: nombres.size };
+  const { edificios, total_gescolar } = await infraestructuras.obtenerEdificios();
+  return { edificios, hoja_ok: hojaOk, total_gescolar };
 }
 
 function edificioDe(edificios, codigoDea) {
@@ -187,7 +154,8 @@ router.get("/plantel/:codigo", requireAuth, requireRol(...ROLES_LECTURA), async 
       nombre_plantel: nombreDeFila(fila),
       municipio: esquemaLimpiar(fila.municipio),
       parroquia: esquemaLimpiar(fila.parroquia),
-      edificio: edificioDe(edificios, fila[gescolar.CAMPO_CODIGO]),
+      // solo se informa si YA comparte edificio (un edificio de un solo nombre no es noticia para el ingeniero)
+      edificio: (() => { const e = edificioDe(edificios, fila[gescolar.CAMPO_CODIGO]); return e && e.cantidad >= 2 ? e : null; })(),
     });
   } catch (err) {
     falloInterno(res, err, "No se pudo consultar el plantel.");
@@ -252,10 +220,20 @@ router.get("/visitas.xlsx", requireAuth, requireRol(...ROLES_LECTURA), async (re
       v.datos = v.datos || {};
       ["nombre_plantel", "municipio", "parroquia"].forEach((k) => { if (!v.datos[k] && v.gescolar && v.gescolar[k]) v.datos[k] = v.gescolar[k]; });
     });
-    const ids = rows.map((v) => v.id);
-    const miembros = ids.length
-      ? (await pool.query("SELECT id, codigo_infraestructura, codigo_dea, nombre, visita_id FROM iu_edificio_miembros WHERE visita_id = ANY($1::int[])", [ids])).rows
-      : [];
+    // Edificios compartidos de las visitas exportadas (código INFRA-… vigente de cada plantel)
+    const codigos = [...new Set(rows.map((v) => v.codigo_infraestructura).filter(Boolean))];
+    const visitaDe = new Map();
+    rows.forEach((v) => { if (v.codigo_infraestructura && !visitaDe.has(v.codigo_infraestructura)) visitaDe.set(v.codigo_infraestructura, v.id); });
+    let miembros = [];
+    if (codigos.length) {
+      const q = await pool.query(
+        `SELECT i.codigo AS codigo_infraestructura, m.id, m.codigo_dea, m.nombre
+         FROM infra_miembros m JOIN infraestructuras i ON i.id = m.infraestructura_id
+         WHERE i.codigo = ANY($1::text[]) ORDER BY i.numero, m.id`, [codigos]);
+      const cuenta = new Map();
+      q.rows.forEach((r) => cuenta.set(r.codigo_infraestructura, (cuenta.get(r.codigo_infraestructura) || 0) + 1));
+      miembros = q.rows.filter((r) => cuenta.get(r.codigo_infraestructura) > 1).map((r) => ({ ...r, visita_id: visitaDe.get(r.codigo_infraestructura) }));
+    }
     const buffer = await require("../services/exportarInstrumentoUno").visitas({ visitas: rows, miembros, filtroTexto: textoFiltro.join(", ") });
     const fecha = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -369,73 +347,38 @@ router.put("/visitas/:id", requireAuth, requireRol(...ROLES_ESCRIBE), cargarVisi
       return res.json({ ok: true, estado: v.estado, avisos: esquema.avisos(datos) });
     }
 
-    // ---- ENVIAR: se determina el código de infraestructura ----
+    // ---- ENVIAR: el plantel queda clasificado (solo / comparte) y su edificio recibe código INFRA-… ----
     const comparte = datos.comparte_edificio === "SI" && datos.otras_instituciones.length > 0;
-    const miembros = [{ codigo_dea: v.codigo_dea, nombre: datos.nombre_plantel || "" }, ...(comparte ? datos.otras_instituciones : [])];
-    const conCodigo = miembros.filter((m) => m.codigo_dea).map((m) => m.codigo_dea);
-
-    const { edificios, hoja_ok: hojaLeida } = await leerEdificios();
-    // Si va a compartir edificio y la hoja no se pudo leer, no se envía: podría haber un código de
-    // infraestructura ya asignado en la hoja y se crearía uno distinto (edificio partido en dos).
-    if (comparte && coordenadas.configurada() && !hojaLeida) {
-      return res.status(502).json({ error: "No se pudo leer la hoja «Coordenadas Planteles» para verificar el código de infraestructura (Google no respondió). Tus datos siguen como borrador; intenta enviar de nuevo en un momento." });
-    }
-    const existentes = new Set();
-    conCodigo.forEach((c) => { const e = edificioDe(edificios, c); if (e) existentes.add(e.codigo_infraestructura); });
-    if (existentes.size > 1) {
-      return res.status(409).json({
-        error: `Estas instituciones ya pertenecen a edificios distintos (${[...existentes].join(", ")}). Un coordinador debe unificarlos antes de enviar.`,
-      });
-    }
-    const infra = existentes.size === 1 ? [...existentes][0] : v.codigo_dea;
-
-    const cliente = await pool.connect();
+    let clasif;
     try {
-      await cliente.query("BEGIN");
-      await cliente.query(
-        `UPDATE iu_visitas SET datos = $2::jsonb, fecha_visita = $3::date, estado = 'ENVIADA', enviado_en = COALESCE(enviado_en, NOW()),
-                codigo_infraestructura = $4, infra_sincronizada = $5, actualizado_por = $6, actualizado_en = NOW()
-         WHERE id = $1`,
-        [v.id, JSON.stringify(datos), fecha, infra, !comparte, req.usuario.id]
-      );
-      await cliente.query("DELETE FROM iu_edificio_miembros WHERE visita_id = $1", [v.id]);
-      if (comparte) {
-        for (const m of miembros) {
-          await cliente.query(
-            `INSERT INTO iu_edificio_miembros (codigo_infraestructura, codigo_dea, nombre, visita_id)
-             VALUES ($1, NULLIF($2::text, ''), $3::text, $4) ON CONFLICT DO NOTHING`,
-            [infra, m.codigo_dea || "", m.nombre || m.codigo_dea, v.id]
-          );
-        }
-      }
-      await cliente.query("COMMIT");
+      clasif = await infraestructuras.clasificar({
+        codigo_dea: v.codigo_dea, nombre: datos.nombre_plantel || "", comparte, otras: datos.otras_instituciones, usuarioId: req.usuario.id,
+      });
     } catch (err) {
-      await cliente.query("ROLLBACK").catch(() => {});
+      // 409: ya están en edificios distintos; 502: Google no respondió. En ambos casos la visita sigue como borrador.
+      if (err instanceof infraestructuras.ErrorInfra) return res.status(err.status).json({ error: err.message });
       throw err;
-    } finally {
-      cliente.release();
     }
+    const infra = clasif.infra.codigo;
+    const necesitaHoja = clasif.comparte || clasif.quitar.length > 0;
+    await pool.query(
+      `UPDATE iu_visitas SET datos = $2::jsonb, fecha_visita = $3::date, estado = 'ENVIADA', enviado_en = COALESCE(enviado_en, NOW()),
+              codigo_infraestructura = $4, infra_sincronizada = $5, actualizado_por = $6, actualizado_en = NOW()
+       WHERE id = $1`,
+      [v.id, JSON.stringify(datos), fecha, infra, !necesitaHoja, req.usuario.id]
+    );
 
     // La hoja se completa DESPUÉS de guardar: si Google falla, la visita no se pierde (queda «pendiente»).
-    let hoja = comparte ? "no_configurada" : "no_aplica";
-    if (comparte && coordenadas.configurada()) {
-      try {
-        const u = await pool.query("SELECT nombre FROM usuarios WHERE id = $1", [req.usuario.id]);
-        const r = await coordenadas.registrarEdificio(infra, conCodigo, (u.rows[0] && u.rows[0].nombre) || "");
-        hoja = "ok";
-        await pool.query("UPDATE iu_visitas SET infra_sincronizada = TRUE WHERE id = $1", [v.id]);
-        console.log(`Instrumento Uno: edificio ${infra} en Coordenadas Planteles (${r.actualizadas} actualizadas, ${r.agregadas} agregadas, ${r.conflictos.length} en conflicto).`);
-      } catch (err) {
-        hoja = "pendiente";
-        console.error("Instrumento Uno: no se pudo escribir el código de infraestructura en la hoja:", err.message);
-      }
-    }
+    const u = await pool.query("SELECT nombre FROM usuarios WHERE id = $1", [req.usuario.id]);
+    const hoja = await infraestructuras.sincronizarHoja(clasif, (u.rows[0] && u.rows[0].nombre) || "");
+    if (hoja === "ok") await pool.query("UPDATE iu_visitas SET infra_sincronizada = TRUE WHERE id = $1", [v.id]);
+    const hojaLeida = true;
     const final = await leerEdificios();
     res.json({
       ok: true,
       estado: "ENVIADA",
       codigo_infraestructura: infra,
-      comparte,
+      comparte: clasif.comparte,
       edificio: final.edificios.find((e) => e.codigo_infraestructura === infra) || null,
       hoja_coordenadas: hoja,
       avisos: esquema.avisos(datos),
