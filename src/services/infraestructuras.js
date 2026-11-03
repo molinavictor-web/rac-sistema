@@ -429,24 +429,75 @@ async function parroquiasDe(municipio) {
   return [...por.values()].sort((a, b) => a.localeCompare(b, "es"));
 }
 
-async function resumen() {
+// Cifras de las tarjetas. Sin filtros son las globales; con municipio y/o parroquia se calculan solo para ese ámbito
+// (según GESCOLAR): así se ve el avance de la carga por municipio o por parroquia.
+async function resumen({ municipio = "", parroquia = "" } = {}) {
+  const norm = gescolar.normalizar || ((x) => String(x).toUpperCase());
+  const nmun = municipio ? norm(municipio) : "";
+  const npar = parroquia ? norm(parroquia) : "";
   const { edificios, total_gescolar, gescolar_ok } = await obtenerEdificios();
-  const compartidos = edificios.filter((e) => e.cantidad > 1);
-  const enGescolar = edificios.reduce((x, e) => x + e.en_gescolar, 0);
   const esp = (await pool.query("SELECT COUNT(DISTINCT lower(codigo_dea))::int AS planteles, COUNT(*)::int AS espacios FROM infra_espacios")).rows[0];
+
+  if (!nmun && !npar) {
+    const compartidos = edificios.filter((e) => e.cantidad > 1);
+    const enGescolar = edificios.reduce((x, e) => x + e.en_gescolar, 0);
+    return {
+      alcance: "",
+      planteles_con_espacios: esp.planteles,
+      espacios_separados: esp.espacios,
+      gescolar_ok,
+      nombres_planteles: total_gescolar,
+      clasificados: enGescolar,
+      sin_clasificar: Math.max(0, total_gescolar - enGescolar),
+      solos: edificios.filter((e) => e.cantidad === 1).length,
+      edificios_compartidos: compartidos.length,
+      nombres_en_compartidos: compartidos.reduce((x, e) => x + e.cantidad, 0),
+      // Edificios si todo plantel sin clasificar estuviera solo (baja a medida que se registran compartidos).
+      infraestructuras: total_gescolar ? total_gescolar - edificios.reduce((x, e) => x + Math.max(0, e.en_gescolar - 1), 0) : null,
+      codigos_generados: edificios.length,
+    };
+  }
+
+  // Ámbito: planteles de GESCOLAR del municipio / la parroquia elegidos
+  const nombres = await nombresGescolar();
+  if (!nombres) throw new ErrorInfra(502, "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento.");
+  const enAmbito = new Map(); // dea (minúsculas) -> true
+  nombres.forEach((p, k) => {
+    if (nmun && norm(p.municipio) !== nmun) return;
+    if (npar && norm(p.parroquia) !== npar) return;
+    enAmbito.set(k, true);
+  });
+  const edifDe = new Map(); // dea -> { codigo, cantidad }
+  edificios.forEach((e) => e.miembros.forEach((m) => { if (m.codigo_dea) edifDe.set(m.codigo_dea.toLowerCase(), e); }));
+  let clasificados = 0, solos = 0, enCompartidos = 0, restar = 0;
+  const compartidosVistos = new Set();
+  const porEdificio = new Map(); // codigo -> miembros dentro del ámbito
+  enAmbito.forEach((_, k) => {
+    const e = edifDe.get(k);
+    if (!e) return;
+    clasificados++;
+    if (e.cantidad > 1) { enCompartidos++; compartidosVistos.add(e.codigo_infraestructura); } else solos++;
+    porEdificio.set(e.codigo_infraestructura, (porEdificio.get(e.codigo_infraestructura) || 0) + 1);
+  });
+  porEdificio.forEach((n) => { restar += Math.max(0, n - 1); });
+  const total = enAmbito.size;
+  const ids = [...enAmbito.keys()];
+  const espAmbito = ids.length
+    ? (await pool.query("SELECT COUNT(DISTINCT lower(codigo_dea))::int AS planteles, COUNT(*)::int AS espacios FROM infra_espacios WHERE lower(codigo_dea) = ANY($1::text[])", [ids])).rows[0]
+    : { planteles: 0, espacios: 0 };
   return {
-    planteles_con_espacios: esp.planteles,
-    espacios_separados: esp.espacios,
+    alcance: [municipio, parroquia].filter(Boolean).join(" › "),
+    planteles_con_espacios: espAmbito.planteles,
+    espacios_separados: espAmbito.espacios,
     gescolar_ok,
-    nombres_planteles: total_gescolar,
-    clasificados: enGescolar,
-    sin_clasificar: Math.max(0, total_gescolar - enGescolar),
-    solos: edificios.filter((e) => e.cantidad === 1).length,
-    edificios_compartidos: compartidos.length,
-    nombres_en_compartidos: compartidos.reduce((x, e) => x + e.cantidad, 0),
-    // Edificios si todo plantel sin clasificar estuviera solo (baja a medida que se registran compartidos).
-    infraestructuras: total_gescolar ? total_gescolar - edificios.reduce((x, e) => x + Math.max(0, e.en_gescolar - 1), 0) : null,
-    codigos_generados: edificios.length,
+    nombres_planteles: total,
+    clasificados,
+    sin_clasificar: Math.max(0, total - clasificados),
+    solos,
+    edificios_compartidos: compartidosVistos.size,
+    nombres_en_compartidos: enCompartidos,
+    infraestructuras: total ? total - restar : 0,
+    codigos_generados: porEdificio.size,
   };
 }
 

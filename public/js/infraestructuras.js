@@ -2,6 +2,7 @@
 
 const usuario = renderShell("inspecciones-infra", "Infraestructuras");
 const BASE = "/api/inspecciones/infraestructuras";
+let secResumen = 0; // descarta respuestas viejas si el usuario cambia de filtro rápido
 const PUEDE_ESCRIBIR = usuario && ["admin", "insp_coordinador", "insp_ingeniero"].includes(usuario.rol);
 const PUEDE_SINCRONIZAR = usuario && ["admin", "insp_coordinador"].includes(usuario.rol);
 const MUNICIPIOS = ["Acosta", "Aguasay", "Bolívar", "Caripe", "Cedeño", "Ezequiel Zamora", "Libertador", "Maturín", "Piar", "Punceres", "Santa Bárbara", "Sotillo", "Uracoa"];
@@ -36,8 +37,10 @@ function iniciar() {
     </div>`;
   let t = null;
   document.getElementById("q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { pagina = 1; cargarLista(); }, 300); });
-  ["estado", "parroquia"].forEach((id) => document.getElementById(id).addEventListener("change", () => { pagina = 1; cargarLista(); }));
-  document.getElementById("municipio").addEventListener("change", async () => { pagina = 1; await cargarParroquias(); cargarLista(); });
+  document.getElementById("estado").addEventListener("change", () => { pagina = 1; cargarLista(); });
+  // municipio y parroquia también cambian el avance y las tarjetas de arriba
+  document.getElementById("parroquia").addEventListener("change", () => { pagina = 1; cargarResumen(); cargarLista(); });
+  document.getElementById("municipio").addEventListener("change", async () => { pagina = 1; await cargarParroquias(); cargarResumen(); cargarLista(); });
   const sync = document.getElementById("btnSync");
   if (sync) sync.addEventListener("click", sincronizar);
   cargarResumen();
@@ -46,17 +49,21 @@ function iniciar() {
 
 async function cargarResumen() {
   const cont = document.getElementById("tarjetas");
+  const mi = ++secResumen;
   try {
-    const r = await RAC.get(`${BASE}/resumen`);
+    const municipio = (document.getElementById("municipio") || {}).value || "";
+    const parroquia = (document.getElementById("parroquia") || {}).value || "";
+    const r = await RAC.get(`${BASE}/resumen?municipio=${encodeURIComponent(municipio)}&parroquia=${encodeURIComponent(parroquia)}`);
+    if (mi !== secResumen) return;
     const pct = r.nombres_planteles ? Math.round((r.clasificados / r.nombres_planteles) * 100) : 0;
     cont.innerHTML = `
       ${r.hoja_ok ? "" : `<div class="inf-aviso">No se pudo leer la hoja «Coordenadas Planteles»; se muestra lo que ya está guardado en el sistema.</div>`}
       <div class="panel" style="padding:16px 20px; margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><strong>Avance de la clasificación</strong><span>${n(r.clasificados)} de ${n(r.nombres_planteles)} planteles · <strong>${pct}%</strong></span></div>
+        <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><strong>Avance de la clasificación${r.alcance ? ` · ${escapar(r.alcance)}` : ""}</strong><span>${n(r.clasificados)} de ${n(r.nombres_planteles)} planteles · <strong>${pct}%</strong></span></div>
         <div class="inf-barra"><span style="width:${pct}%"></span></div>
       </div>
       <div class="inf-tarjetas">
-        <div class="stat-card"><div class="num">${n(r.nombres_planteles)}</div><div class="lbl">Nombres de planteles (GESCOLAR)</div></div>
+        <div class="stat-card"><div class="num">${n(r.nombres_planteles)}</div><div class="lbl">Nombres de planteles${r.alcance ? "" : " (GESCOLAR)"}</div></div>
         <div class="stat-card"><div class="num">${n(r.sin_clasificar)}</div><div class="lbl">Sin clasificar</div></div>
         <div class="stat-card"><div class="num">${n(r.solos)}</div><div class="lbl">Solos en su edificio</div></div>
         <div class="stat-card"><div class="num">${n(r.edificios_compartidos)}</div><div class="lbl">Edificios compartidos</div><div class="lbl" style="margin-top:2px;">${n(r.nombres_en_compartidos)} nombres en ellos</div></div>
