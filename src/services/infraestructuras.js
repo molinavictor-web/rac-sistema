@@ -382,7 +382,7 @@ async function obtenerEdificios() {
 }
 
 // Planteles de GESCOLAR con su clasificación. estado: sin_clasificar | solo | comparte | (vacío = todos)
-async function listarPlanteles({ q = "", estado = "", municipio = "", limite = 50, pagina = 1 }) {
+async function listarPlanteles({ q = "", estado = "", municipio = "", parroquia = "", limite = 50, pagina = 1 }) {
   const nombres = await nombresGescolar();
   if (!nombres) throw new ErrorInfra(502, "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento.");
   const { rows } = await pool.query(
@@ -405,11 +405,28 @@ async function listarPlanteles({ q = "", estado = "", municipio = "", limite = 5
   lista.forEach((p) => { conteos[p.estado]++; });
   if (estado) lista = lista.filter((p) => p.estado === estado);
   if (nmun) lista = lista.filter((p) => norm(p.municipio) === nmun);
+  const npar = parroquia ? norm(parroquia) : "";
+  if (npar) lista = lista.filter((p) => norm(p.parroquia) === npar);
   if (nq) lista = lista.filter((p) => norm(p.nombre_plantel).includes(nq) || norm(p.codigo_dea).includes(nq));
   lista.sort((a, b) => a.municipio.localeCompare(b.municipio, "es") || a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
   const total = lista.length;
   const desde = (Math.max(1, pagina) - 1) * limite;
   return { planteles: lista.slice(desde, desde + limite), total_filtrado: total, conteos, pagina: Math.max(1, pagina), limite };
+}
+
+// Parroquias de un municipio (según GESCOLAR), sin repetir aunque varíen acentos o mayúsculas.
+async function parroquiasDe(municipio) {
+  const nombres = await nombresGescolar();
+  if (!nombres) throw new ErrorInfra(502, "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento.");
+  const norm = gescolar.normalizar || ((x) => String(x).toUpperCase());
+  const nmun = norm(municipio);
+  const por = new Map();
+  nombres.forEach((p) => {
+    if (!p.parroquia || norm(p.municipio) !== nmun) return;
+    const k = norm(p.parroquia);
+    if (!por.has(k)) por.set(k, p.parroquia);
+  });
+  return [...por.values()].sort((a, b) => a.localeCompare(b, "es"));
 }
 
 async function resumen() {
@@ -433,4 +450,4 @@ async function resumen() {
   };
 }
 
-module.exports = { ErrorInfra, sincronizar, clasificar, sincronizarHoja, obtenerEdificios, listarPlanteles, resumen, validarEspacios, guardarEspacios, espaciosDe };
+module.exports = { ErrorInfra, sincronizar, clasificar, sincronizarHoja, obtenerEdificios, listarPlanteles, parroquiasDe, resumen, validarEspacios, guardarEspacios, espaciosDe };
