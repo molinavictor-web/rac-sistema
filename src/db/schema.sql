@@ -805,3 +805,25 @@ ALTER TABLE infraestructuras ENABLE ROW LEVEL SECURITY;
 ALTER TABLE infra_miembros   ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON infraestructuras, infra_miembros FROM anon, authenticated;
 REVOKE ALL ON SEQUENCE infraestructuras_numero_seq, infraestructuras_id_seq, infra_miembros_id_seq FROM anon, authenticated;
+
+-- Espacios separados (script 13_infra_espacios.sql)
+CREATE TABLE IF NOT EXISTS infra_espacios (
+  id            SERIAL      PRIMARY KEY,
+  codigo_dea    TEXT        NOT NULL,
+  numero        INTEGER     NOT NULL,
+  descripcion   TEXT        NOT NULL,          -- p. ej. "Casa de la Sra. Rosa"
+  referencia    TEXT,                          -- cómo llegar / ubicación
+  distancia     TEXT,                          -- distancia o tiempo desde el edificio principal
+  aulas         INTEGER     CHECK (aulas IS NULL OR aulas BETWEEN 0 AND 200),
+  observaciones TEXT,
+  latitud       DOUBLE PRECISION CHECK (latitud IS NULL OR latitud BETWEEN -90 AND 90),
+  longitud      DOUBLE PRECISION CHECK (longitud IS NULL OR longitud BETWEEN -180 AND 180),
+  creado_por    INTEGER     REFERENCES usuarios(id),
+  creado_en     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_infra_espacio_numero ON infra_espacios (lower(codigo_dea), numero);
+
+ALTER TABLE infra_espacios ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON infra_espacios FROM anon, authenticated;
+REVOKE ALL ON SEQUENCE infra_espacios_id_seq FROM anon, authenticated;

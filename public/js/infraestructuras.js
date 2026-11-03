@@ -59,6 +59,7 @@ async function cargarResumen() {
         <div class="stat-card"><div class="num">${n(r.solos)}</div><div class="lbl">Solos en su edificio</div></div>
         <div class="stat-card"><div class="num">${n(r.edificios_compartidos)}</div><div class="lbl">Edificios compartidos</div><div class="lbl" style="margin-top:2px;">${n(r.nombres_en_compartidos)} nombres en ellos</div></div>
         <div class="stat-card"><div class="num">${r.infraestructuras === null ? "—" : n(r.infraestructuras)}</div><div class="lbl">Infraestructuras (edificios)</div><div class="lbl" style="margin-top:2px;">baja al registrar compartidos</div></div>
+        <div class="stat-card"><div class="num">${n(r.planteles_con_espacios)}</div><div class="lbl">Planteles con espacios separados</div><div class="lbl" style="margin-top:2px;">${n(r.espacios_separados)} espacios adicionales</div></div>
       </div>`;
   } catch (ex) {
     cont.innerHTML = `<div class="panel"><div class="vacio"><strong>No se pudo cargar el resumen</strong>${escapar(ex.message)}</div></div>`;
@@ -83,7 +84,7 @@ async function cargarLista() {
         const [clase, texto] = ETQ[p.estado];
         return `<tr>
           <td><code>${escapar(p.codigo_dea)}</code></td><td>${escapar(p.nombre_plantel)}</td><td>${escapar(p.municipio)}</td><td>${escapar(p.parroquia)}</td>
-          <td><span class="inf-etq ${clase}">${texto}</span>${p.estado === "comparte" ? ` <small>(${p.cantidad} nombres)</small>` : ""}</td>
+          <td><span class="inf-etq ${clase}">${texto}</span>${p.estado === "comparte" ? ` <small>(${p.cantidad} nombres)</small>` : ""}${p.espacios ? ` <span class="inf-etq esp" title="Funciona además en otros espacios separados">+${p.espacios} espacio${p.espacios === 1 ? "" : "s"}</span>` : ""}</td>
           <td>${p.codigo_infraestructura ? `<code class="infra">${escapar(p.codigo_infraestructura)}</code>` : ""}${p.codigo_anterior ? ` <small title="Código que tenía en la hoja Coordenadas Planteles">(hoja: ${escapar(p.codigo_anterior)})</small>` : ""}</td>
           <td style="white-space:nowrap;"><button type="button" class="btn btn-fantasma btn-sm" data-abrir="${escapar(p.codigo_dea)}">${PUEDE_ESCRIBIR ? (p.estado === "sin_clasificar" ? "Clasificar" : "Cambiar") : "Ver"}</button></td>
         </tr>`;
@@ -121,6 +122,7 @@ async function sincronizar() {
 let P = null;            // plantel abierto
 let compartidas = [];    // instituciones elegidas {codigo_dea, nombre}
 let modo = "solo";
+let espacios = [];       // espacios separados del plantel abierto (se envían completos al guardar)
 
 async function abrirPlantel(codigo) {
   try {
@@ -129,6 +131,7 @@ async function abrirPlantel(codigo) {
   const e = P.edificio;
   compartidas = e && e.cantidad > 1 ? e.miembros.filter((m) => !(m.codigo_dea && m.codigo_dea.toLowerCase() === P.codigo_dea.toLowerCase())).map((m) => ({ codigo_dea: m.codigo_dea, nombre: m.nombre })) : [];
   modo = e && e.cantidad > 1 ? "comparte" : "solo";
+  espacios = (P.espacios || []).map((x) => ({ ...x }));
   const fondo = document.createElement("div");
   fondo.className = "inf-fondo"; fondo.id = "infFondo";
   fondo.innerHTML = `<div class="inf-modal" role="dialog" aria-modal="true">
@@ -138,8 +141,9 @@ async function abrirPlantel(codigo) {
     ${PUEDE_ESCRIBIR ? `
     <label class="inf-opcion" id="opSolo"><input type="radio" name="modo" value="solo"><span><strong>Está solo en su edificio</strong><br><small>En ese edificio no funciona otra institución.</small></span></label>
     <label class="inf-opcion" id="opComparte"><input type="radio" name="modo" value="comparte"><span><strong>Comparte el edificio con otra(s) institución(es)</strong><br><small>Busca la otra institución por nombre o código DEA.</small></span></label>
-    <div id="zonaComparte"></div>
-    <div class="inf-error" id="infError"></div>` : `<p class="sub">Solo puedes consultar esta información.</p>`}
+    <div id="zonaComparte"></div>` : `<p class="sub">Solo puedes consultar esta información.</p>`}
+    <div id="zonaEspacios"></div>
+    ${PUEDE_ESCRIBIR ? `<div class="inf-error" id="infError"></div>` : ""}
     <div class="inf-acciones"><button type="button" class="btn btn-fantasma" id="infCerrar">${PUEDE_ESCRIBIR ? "Cancelar" : "Cerrar"}</button>${PUEDE_ESCRIBIR ? `<button type="button" class="btn btn-primario" id="infGuardar">Guardar</button>` : ""}</div>
   </div>`;
   document.body.appendChild(fondo);
@@ -150,6 +154,7 @@ async function abrirPlantel(codigo) {
     document.getElementById("infGuardar").addEventListener("click", guardar);
     pintarModo();
   }
+  pintarEspacios();
 }
 
 function cerrar() {
@@ -212,6 +217,50 @@ async function buscar(texto) {
   }
 }
 
+function pintarEspacios() {
+  const z = document.getElementById("zonaEspacios");
+  if (!z) return;
+  if (!PUEDE_ESCRIBIR) {
+    z.innerHTML = espacios.length ? `<h3 class="inf-h3">Espacios separados del plantel</h3>
+      <ul class="inf-lista">${espacios.map((x) => `<li><span><strong>${escapar(x.subcodigo)}</strong> · ${escapar(x.descripcion)}${x.aulas !== null && x.aulas !== undefined ? ` · ${x.aulas} aula${x.aulas === 1 ? "" : "s"}` : ""}${x.distancia ? ` · ${escapar(x.distancia)}` : ""}${x.referencia ? `<br><small>${escapar(x.referencia)}</small>` : ""}</span></li>`).join("")}</ul>` : "";
+    return;
+  }
+  z.innerHTML = `
+    <h3 class="inf-h3">Espacios separados del mismo plantel</h3>
+    <p class="sub" style="margin:0 0 8px;">Si el plantel (con este mismo código DEA) funciona además en otros sitios separados del edificio principal, por ejemplo un aula en una casa del caserío, agrégalos aquí. Sirve para saber cuántos espacios hay que atender al rehabilitar.</p>
+    ${espacios.map((x, i) => `<div class="inf-esp" data-i="${i}">
+      <div class="inf-esp-cab"><strong>${x.subcodigo ? escapar(x.subcodigo) : `Espacio nuevo`}</strong><button type="button" class="btn btn-fantasma btn-sm" data-quitar-esp="${i}" style="color:#b3261e;">Quitar</button></div>
+      <label>Descripción *<input type="text" data-c="descripcion" value="${escapar(x.descripcion)}" maxlength="150" placeholder="Ej.: Casa de la Sra. Rosa (aula de 1.er grado)"></label>
+      <label>Referencia / cómo llegar<input type="text" data-c="referencia" value="${escapar(x.referencia)}" maxlength="300" placeholder="Ej.: pasando el puente, tercera casa a mano izquierda"></label>
+      <div class="inf-esp-fila">
+        <label>Distancia o tiempo desde el edificio principal<input type="text" data-c="distancia" value="${escapar(x.distancia)}" maxlength="100" placeholder="Ej.: 10 minutos a pie"></label>
+        <label>Aulas o salones<input type="number" data-c="aulas" value="${x.aulas === null || x.aulas === undefined ? "" : x.aulas}" min="0" max="200" step="1"></label>
+      </div>
+      <div class="inf-esp-fila">
+        <label>Latitud (opcional)<input type="text" data-c="latitud" value="${x.latitud === null || x.latitud === undefined ? "" : x.latitud}" placeholder="9.7424"></label>
+        <label>Longitud (opcional)<input type="text" data-c="longitud" value="${x.longitud === null || x.longitud === undefined ? "" : x.longitud}" placeholder="-63.1952"></label>
+      </div>
+      <label>Observaciones<input type="text" data-c="observaciones" value="${escapar(x.observaciones)}" maxlength="500"></label>
+    </div>`).join("")}
+    <button type="button" class="btn btn-fantasma btn-sm" id="infAgregarEsp" ${espacios.length >= 15 ? "disabled" : ""}>+ Agregar espacio separado</button>`;
+  z.querySelectorAll(".inf-esp").forEach((caja) => {
+    const i = Number(caja.dataset.i);
+    caja.querySelectorAll("[data-c]").forEach((inp) => inp.addEventListener("input", () => { espacios[i][inp.dataset.c] = inp.value; }));
+  });
+  z.querySelectorAll("[data-quitar-esp]").forEach((b) => b.addEventListener("click", () => {
+    const x = espacios[Number(b.dataset.quitarEsp)];
+    if (x.id && !window.confirm(`¿Quitar el espacio «${x.descripcion || x.subcodigo}»?`)) return;
+    espacios.splice(Number(b.dataset.quitarEsp), 1); pintarEspacios();
+  }));
+  document.getElementById("infAgregarEsp").addEventListener("click", () => {
+    espacios.push({ id: null, subcodigo: "", descripcion: "", referencia: "", distancia: "", aulas: "", observaciones: "", latitud: "", longitud: "" });
+    pintarEspacios();
+    const cajas = document.querySelectorAll(".inf-esp");
+    const ultima = cajas[cajas.length - 1];
+    if (ultima) { const inp = ultima.querySelector("input"); if (inp) inp.focus(); }
+  });
+}
+
 async function guardar() {
   const err = document.getElementById("infError");
   err.textContent = "";
@@ -221,9 +270,9 @@ async function guardar() {
   const b = document.getElementById("infGuardar");
   b.disabled = true; b.textContent = "Guardando…";
   try {
-    const r = await RAC.post(`${BASE}/clasificar`, { codigo_dea: P.codigo_dea, comparte: modo === "comparte", otras: modo === "comparte" ? compartidas : [] });
+    const r = await RAC.post(`${BASE}/clasificar`, { codigo_dea: P.codigo_dea, comparte: modo === "comparte", otras: modo === "comparte" ? compartidas : [], espacios: espacios.map((x) => ({ id: x.id, descripcion: x.descripcion, referencia: x.referencia, distancia: x.distancia, aulas: x.aulas, observaciones: x.observaciones, latitud: x.latitud, longitud: x.longitud })) });
     const aviso = { pendiente: " (la hoja Coordenadas Planteles no respondió; el código quedó guardado en el sistema)", no_configurada: "" }[r.hoja_coordenadas] || "";
-    mostrarToast(`Guardado: ${r.codigo_infraestructura}${r.comparte ? ` · ${r.edificio ? r.edificio.cantidad : "?"} nombres` : " · solo en su edificio"}${aviso}`);
+    mostrarToast(`Guardado: ${r.codigo_infraestructura}${r.comparte ? ` · ${r.edificio ? r.edificio.cantidad : "?"} nombres` : " · solo en su edificio"}${r.espacios && r.espacios.length ? ` · ${r.espacios.length} espacio${r.espacios.length === 1 ? "" : "s"} separado${r.espacios.length === 1 ? "" : "s"}` : ""}${aviso}`);
     cerrar(); cargarResumen(); cargarLista();
   } catch (ex) {
     err.textContent = ex.message;

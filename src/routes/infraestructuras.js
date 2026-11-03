@@ -6,7 +6,7 @@
 //   GET  /planteles?q=&estado=&municipio=&pagina=   planteles de GESCOLAR con su clasificación
 //   GET  /buscar?q=&excluir=      buscar otra institución (con su edificio, si ya tiene)
 //   GET  /plantel/:codigo         un plantel con su edificio y compañeros
-//   POST /clasificar              { codigo_dea, comparte, otras:[{codigo_dea,nombre}] }
+//   POST /clasificar              { codigo_dea, comparte, otras:[{codigo_dea,nombre}], espacios?:[…] }  (espacios: lista completa de espacios separados; si no viene, no se tocan)
 //   POST /sincronizar             (admin/coordinador) vuelve a importar la hoja Coordenadas Planteles
 
 const express = require("express");
@@ -81,7 +81,9 @@ router.get("/plantel/:codigo", requireAuth, requireRol(...ROLES_LECTURA), async 
       const { edificios } = await infra.obtenerEdificios();
       edificio = edificios.find((e) => e.codigo_infraestructura === rows[0].codigo) || null;
     }
+    const espacios = await infra.espaciosDe(codigo, rows[0] ? rows[0].codigo : "");
     res.json({
+      espacios,
       codigo_dea: codigo,
       nombre_plantel: limpiar(fila.nombre_plantel),
       municipio: limpiar(fila.municipio),
@@ -104,6 +106,13 @@ router.post("/clasificar", requireAuth, requireRol(...ROLES_ESCRIBE), async (req
     if (!fila) return res.status(404).json({ error: `El código ${limpiar(b.codigo_dea)} no existe en GESCOLAR.` });
     const codigo = limpiar(fila[gescolar.CAMPO_CODIGO]);
 
+    let espacios = null;
+    if (b.espacios !== undefined) {
+      const v = infra.validarEspacios(b.espacios);
+      if (v.error) return res.status(400).json({ error: v.error });
+      espacios = v.espacios;
+    }
+
     const otras = [];
     if (comparte) {
       const lista = Array.isArray(b.otras) ? b.otras.slice(0, 10) : [];
@@ -124,6 +133,14 @@ router.post("/clasificar", requireAuth, requireRol(...ROLES_ESCRIBE), async (req
     }
 
     const resultado = await infra.clasificar({ codigo_dea: codigo, nombre: limpiar(fila.nombre_plantel), comparte, otras, usuarioId: req.usuario.id });
+    if (espacios) {
+      try {
+        await infra.guardarEspacios(codigo, espacios, req.usuario.id);
+      } catch (e) {
+        console.error("Infraestructuras: no se pudieron guardar los espacios:", e);
+        return res.status(500).json({ error: "La clasificación se guardó, pero no se pudieron guardar los espacios separados. Intenta de nuevo." });
+      }
+    }
     const u = await pool.query("SELECT nombre FROM usuarios WHERE id = $1", [req.usuario.id]);
     const hoja = await infra.sincronizarHoja(resultado, (u.rows[0] && u.rows[0].nombre) || "");
     const { edificios } = await infra.obtenerEdificios();
@@ -133,6 +150,7 @@ router.post("/clasificar", requireAuth, requireRol(...ROLES_ESCRIBE), async (req
       comparte: resultado.comparte,
       edificio: edificios.find((e) => e.codigo_infraestructura === resultado.infra.codigo) || null,
       hoja_coordenadas: hoja,
+      espacios: await infra.espaciosDe(codigo, resultado.infra.codigo),
     });
   } catch (err) {
     responderError(res, err, "No se pudo guardar la clasificación.");
