@@ -153,6 +153,13 @@ Pantalla "Infraestructuras" (Inspecciones). Archivos: `src/routes/infraestructur
 - **Importación automática:** al abrir la pantalla (como mucho cada 5 min) y al clasificar, el sistema importa la hoja y las
   visitas antiguas del Instrumento Uno. Es repetible sin duplicar. Botón "Sincronizar con la hoja" (admin/coordinador).
   Si Google no responde al clasificar → 502 y no se guarda nada (para no partir un edificio en dos).
+- **Espacios separados (script `13_infra_espacios.sql`, tabla `infra_espacios`):** caso rural en que un mismo plantel (un DEA) funciona
+  en varios sitios físicos distintos (un aula en una casa del caserío, otra a 10 minutos…). El plantel conserva su edificio principal
+  y su código `INFRA-…`; sus espacios adicionales se anotan en la misma ventana de clasificar con descripción, referencia, distancia o
+  tiempo, aulas, coordenadas (opcionales) y observaciones, máximo 15. Cada uno se identifica como `<INFRA del plantel>-E1`, `-E2`…
+  (el número no cambia aunque se quiten otros). No cambian el conteo de edificios ni lo que ve la hoja/bot. Sirven para saber, al
+  rehabilitar, cuántos espacios hay que atender. La lista muestra "+N espacios" y una tarjeta cuenta planteles y espacios.
+  `POST /clasificar` recibe `espacios` (lista completa: sin la clave no se tocan; con id se actualiza, sin id se crea, los ausentes se eliminan).
 - **Roles:** clasifican admin, `insp_coordinador` e `insp_ingeniero`; el resto solo consulta.
 - **Tarjeta "Infraestructuras":** = nombres de GESCOLAR − Σ (instituciones de cada edificio − 1). Baja al registrar compartidos.
 - **Pendiente:** pantalla para unificar edificios en conflicto; opcionalmente migrar los códigos antiguos de la hoja a INFRA-…

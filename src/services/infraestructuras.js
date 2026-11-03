@@ -9,6 +9,9 @@
 // que anota el código en todos). Un edificio importado de la hoja conserva
 // el código que ya tenía allí (codigo_anterior) para no desordenar al bot; los edificios nuevos llevan INFRA-….
 //
+// Espacios separados: un plantel puede funcionar además en otros sitios físicos (caseríos); se guardan aparte (infra_espacios)
+// y no cambian la clasificación ni lo que ve el bot.
+//
 // Reglas:
 //   · Un plantel con código DEA pertenece a UN solo edificio.
 //   · Al decir "comparte con X": si X (o el plantel) ya está en un edificio con varios nombres, se une a ese;
@@ -265,6 +268,94 @@ async function sincronizarHoja(resultado, ingenieroNombre) {
 }
 
 // ---------------------------------------------------------------------------
+// Espacios separados (un mismo plantel funciona en varios sitios físicos)
+// ---------------------------------------------------------------------------
+
+const MAX_ESPACIOS = 15;
+
+function numeroOpcional(v, min, max, etiqueta) {
+  if (v === undefined || v === null || String(v).trim() === "") return { valor: null };
+  const n = Number(String(v).replace(",", "."));
+  if (!Number.isFinite(n) || n < min || n > max) return { error: `${etiqueta} no válido (entre ${min} y ${max}).` };
+  return { valor: n };
+}
+
+// Limpia y valida la lista de espacios que envía la pantalla. Devuelve { espacios } o { error }.
+function validarEspacios(lista) {
+  if (!Array.isArray(lista)) return { error: "Lista de espacios no válida." };
+  if (lista.length > MAX_ESPACIOS) return { error: `Máximo ${MAX_ESPACIOS} espacios separados por plantel.` };
+  const espacios = [];
+  for (let i = 0; i < lista.length; i++) {
+    const e = lista[i] || {};
+    const cual = `Espacio ${i + 1}`;
+    const descripcion = limpiar(e.descripcion);
+    if (!descripcion) return { error: `${cual}: escribe una descripción (por ejemplo «Casa de la Sra. Rosa»).` };
+    if (descripcion.length > 150) return { error: `${cual}: la descripción es demasiado larga (máximo 150 letras).` };
+    const referencia = limpiar(e.referencia);
+    if (referencia.length > 300) return { error: `${cual}: la referencia es demasiado larga (máximo 300 letras).` };
+    const distancia = limpiar(e.distancia);
+    if (distancia.length > 100) return { error: `${cual}: la distancia es demasiado larga (máximo 100 letras).` };
+    const observaciones = limpiar(e.observaciones);
+    if (observaciones.length > 500) return { error: `${cual}: las observaciones son demasiado largas (máximo 500 letras).` };
+    let aulas = null;
+    if (!(e.aulas === undefined || e.aulas === null || String(e.aulas).trim() === "")) {
+      if (!/^\d{1,3}$/.test(String(e.aulas).trim()) || Number(e.aulas) > 200) return { error: `${cual}: las aulas deben ser un número entero (0 a 200).` };
+      aulas = Number(e.aulas);
+    }
+    const lat = numeroOpcional(e.latitud, -90, 90, `${cual}: latitud`);
+    const lon = numeroOpcional(e.longitud, -180, 180, `${cual}: longitud`);
+    if (lat.error || lon.error) return { error: lat.error || lon.error };
+    if ((lat.valor === null) !== (lon.valor === null)) return { error: `${cual}: si indicas coordenadas, escribe latitud y longitud.` };
+    const id = Number.isInteger(Number(e.id)) && Number(e.id) > 0 ? Number(e.id) : null;
+    espacios.push({ id, descripcion, referencia, distancia, aulas, observaciones, latitud: lat.valor, longitud: lon.valor });
+  }
+  return { espacios };
+}
+
+// Reemplaza los espacios del plantel: los que traen id se actualizan (conservan su número), los nuevos reciben el
+// número siguiente y los que ya no vienen se eliminan.
+async function guardarEspacios(codigoDea, espacios, usuarioId = null) {
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    await cliente.query("SELECT pg_advisory_xact_lock($1)", [LOCK_ID + 1]);
+    const actuales = (await cliente.query("SELECT id, numero FROM infra_espacios WHERE lower(codigo_dea) = lower($1)", [codigoDea])).rows;
+    const validos = new Set(actuales.map((a) => a.id));
+    const conservar = new Set(espacios.filter((e) => e.id && validos.has(e.id)).map((e) => e.id));
+    for (const a of actuales) if (!conservar.has(a.id)) await cliente.query("DELETE FROM infra_espacios WHERE id = $1", [a.id]);
+    let siguiente = actuales.reduce((m, a) => Math.max(m, a.numero), 0);
+    for (const e of espacios) {
+      const valores = [e.descripcion, e.referencia || null, e.distancia || null, e.aulas, e.observaciones || null, e.latitud, e.longitud];
+      if (e.id && validos.has(e.id)) {
+        await cliente.query(
+          `UPDATE infra_espacios SET descripcion = $2::text, referencia = $3::text, distancia = $4::text, aulas = $5::int, observaciones = $6::text,
+                  latitud = $7::float8, longitud = $8::float8, actualizado_en = NOW() WHERE id = $1`, [e.id, ...valores]);
+      } else {
+        siguiente += 1;
+        await cliente.query(
+          `INSERT INTO infra_espacios (codigo_dea, numero, descripcion, referencia, distancia, aulas, observaciones, latitud, longitud, creado_por)
+           VALUES ($1::text, $2::int, $3::text, $4::text, $5::text, $6::int, $7::text, $8::float8, $9::float8, $10::int)`, [codigoDea, siguiente, ...valores, usuarioId]);
+      }
+    }
+    await cliente.query("COMMIT");
+  } catch (err) {
+    await cliente.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    cliente.release();
+  }
+}
+
+// Espacios de un plantel con su subcódigo (<INFRA del plantel>-E<n>; sin edificio todavía queda solo E<n>).
+async function espaciosDe(codigoDea, codigoInfra = "") {
+  const { rows } = await pool.query(
+    `SELECT id, numero, descripcion, COALESCE(referencia, '') AS referencia, COALESCE(distancia, '') AS distancia, aulas,
+            COALESCE(observaciones, '') AS observaciones, latitud, longitud
+     FROM infra_espacios WHERE lower(codigo_dea) = lower($1) ORDER BY numero`, [codigoDea]);
+  return rows.map((r) => ({ ...r, subcodigo: `${codigoInfra ? codigoInfra + "-" : ""}E${r.numero}` }));
+}
+
+// ---------------------------------------------------------------------------
 // Consultas
 // ---------------------------------------------------------------------------
 
@@ -300,6 +391,7 @@ async function listarPlanteles({ q = "", estado = "", municipio = "", limite = 5
      FROM infra_miembros m JOIN infraestructuras i ON i.id = m.infraestructura_id WHERE m.codigo_dea IS NOT NULL`
   );
   const clasif = new Map(rows.map((r) => [r.k, r]));
+  const esp = new Map((await pool.query("SELECT lower(codigo_dea) AS k, COUNT(*)::int AS n FROM infra_espacios GROUP BY 1")).rows.map((r) => [r.k, r.n]));
   const nq = gescolar.normalizar ? gescolar.normalizar(q) : q.toUpperCase();
   const nmun = gescolar.normalizar ? gescolar.normalizar(municipio) : municipio.toUpperCase();
   const norm = gescolar.normalizar || ((x) => String(x).toUpperCase());
@@ -307,7 +399,7 @@ async function listarPlanteles({ q = "", estado = "", municipio = "", limite = 5
   nombres.forEach((p, k) => {
     const c = clasif.get(k);
     const est = !c ? "sin_clasificar" : c.cantidad > 1 ? "comparte" : "solo";
-    lista.push({ codigo_dea: p.codigo, nombre_plantel: p.nombre, municipio: p.municipio, parroquia: p.parroquia, estado: est, codigo_infraestructura: c ? c.codigo : "", codigo_anterior: c && c.codigo_anterior ? c.codigo_anterior : "", cantidad: c ? c.cantidad : 0 });
+    lista.push({ codigo_dea: p.codigo, nombre_plantel: p.nombre, municipio: p.municipio, parroquia: p.parroquia, estado: est, codigo_infraestructura: c ? c.codigo : "", codigo_anterior: c && c.codigo_anterior ? c.codigo_anterior : "", cantidad: c ? c.cantidad : 0, espacios: esp.get(k) || 0 });
   });
   const conteos = { total: lista.length, sin_clasificar: 0, solo: 0, comparte: 0 };
   lista.forEach((p) => { conteos[p.estado]++; });
@@ -324,7 +416,10 @@ async function resumen() {
   const { edificios, total_gescolar, gescolar_ok } = await obtenerEdificios();
   const compartidos = edificios.filter((e) => e.cantidad > 1);
   const enGescolar = edificios.reduce((x, e) => x + e.en_gescolar, 0);
+  const esp = (await pool.query("SELECT COUNT(DISTINCT lower(codigo_dea))::int AS planteles, COUNT(*)::int AS espacios FROM infra_espacios")).rows[0];
   return {
+    planteles_con_espacios: esp.planteles,
+    espacios_separados: esp.espacios,
     gescolar_ok,
     nombres_planteles: total_gescolar,
     clasificados: enGescolar,
@@ -338,4 +433,4 @@ async function resumen() {
   };
 }
 
-module.exports = { ErrorInfra, sincronizar, clasificar, sincronizarHoja, obtenerEdificios, listarPlanteles, resumen };
+module.exports = { ErrorInfra, sincronizar, clasificar, sincronizarHoja, obtenerEdificios, listarPlanteles, resumen, validarEspacios, guardarEspacios, espaciosDe };
