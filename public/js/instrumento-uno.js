@@ -38,6 +38,8 @@ function iniciar() {
         <select id="estado" style="padding:9px 12px; border:1px solid #c7d2e0; border-radius:9px;">
           <option value="">Todas</option><option value="BORRADOR">Borradores</option><option value="ENVIADA">Enviadas</option>
         </select>
+        <button type="button" class="btn btn-fantasma" id="btnExcel" title="Descarga las visitas ENVIADAS (con la lista de edificios compartidos)">Descargar Excel</button>
+        <label style="display:flex; align-items:center; gap:6px; font-size:.85rem;"><input type="checkbox" id="excelBorradores"> incluir borradores</label>
       </div>
       <div id="lista"><div class="cargando">Cargando…</div></div>
     </div>`;
@@ -46,6 +48,10 @@ function iniciar() {
   let t = null;
   document.getElementById("buscar").addEventListener("input", () => { clearTimeout(t); t = setTimeout(cargarLista, 300); });
   document.getElementById("estado").addEventListener("change", cargarLista);
+  document.getElementById("btnExcel").addEventListener("click", (e) => {
+    const todas = document.getElementById("excelBorradores").checked;
+    descargarExcel(`${BASE}/visitas.xlsx?estado=${todas ? "TODAS" : "ENVIADA"}`, "INSTRUMENTO_UNO.xlsx", e.currentTarget);
+  });
   cargarLista();
 }
 
@@ -108,5 +114,34 @@ async function eliminar(b) {
   } catch (ex) {
     b.disabled = false;
     mostrarToast(ex.message, true);
+  }
+}
+
+async function descargarExcel(ruta, nombreRespaldo, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = "Generando Excel…";
+  try {
+    const resp = await fetch(ruta, { headers: { Authorization: "Bearer " + RAC.getToken() } });
+    if (resp.status === 401) { RAC.cerrarSesion(); return; }
+    if (!resp.ok) {
+      let mensaje = `Error ${resp.status}`;
+      try { mensaje = (await resp.json()).error || mensaje; } catch (_) { /* sin cuerpo */ }
+      throw new Error(mensaje);
+    }
+    const blob = await resp.blob();
+    const m = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition") || "");
+    const enlace = document.createElement("a");
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = m ? m[1] : nombreRespaldo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 4000);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
   }
 }

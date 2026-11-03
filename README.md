@@ -90,6 +90,8 @@ src/
     validacion.js              # reglas de validación del RAC
     gescolar.js                # lectura/escritura de GESCOLAR para Inspecciones
     coordenadasInfra.js        # columna codigo_infraestructura de Coordenadas Planteles
+    infraestructuras.js        # edificios con código INFRA-000001…, clasificación e importación de la hoja
+    exportarInstrumentoUno.js  # Excel con las respuestas del Instrumento Uno
     exportarExcel.js           # Excel de consolidados y planillas (exceljs)
     instrumentoUnoEsquema.js   # preguntas y validaciones del Instrumento Uno CDCE
   routes/
@@ -109,6 +111,7 @@ src/
     supervision.js             # módulo Supervisión
     inspecciones.js            # módulo Inspecciones (planes, planillas, consolidados)
     instrumentoUno.js          # Instrumento Uno CDCE (/api/inspecciones/instrumento-uno)
+    infraestructuras.js        # clasificar planteles: solo / comparte edificio (/api/inspecciones/infraestructuras)
 public/
   *.html + js/*.js             # pantallas del RAC
   supervision/*.html           # pantallas de Supervisión (JS en js/supervision-*.js)
@@ -170,5 +173,5 @@ npm run dev
 
 - Envío por WhatsApp de los archivos de Drive desde "Consultar planteles".
 - Comandos "Avances" e "info" del bot de WhatsApp.
-- Exportar/consolidar las respuestas del Instrumento Uno y pantalla para
-  unificar edificios en conflicto.
+- Pantalla para unificar edificios compartidos en conflicto (hoy el sistema responde 409 y se resuelve a mano).
+- Opcional: migrar los códigos antiguos de la hoja Coordenadas (DEA / EDIF…) a INFRA-… para uniformar.
