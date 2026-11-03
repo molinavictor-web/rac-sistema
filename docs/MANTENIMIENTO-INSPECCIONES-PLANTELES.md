@@ -108,6 +108,23 @@ Crear/desactivar usuarios: pantalla Usuarios (admin). El primer admin se crea po
   Maturín con avance del Instrumento Uno. "Cargado" = plantel con ≥1 visita `ENVIADA`.
 - El listado completo de endpoints está comentado al inicio de `src/routes/inspecciones.js`.
 
+## 5b. Reportes por plan (Inspecciones → Reportes)
+
+Pantalla `public/inspecciones/reportes.html` + `public/js/inspecciones-reportes.js`; servicio `src/services/reportesInspecciones.js`; ruta
+`src/routes/reportesInspecciones.js` (`/api/inspecciones/reportes`, montada antes de `/api/inspecciones`); Excel con `reportePlan` en `src/services/exportarExcel.js`.
+
+- **Qué hace:** se elige un plan, se marcan columnas de un **catálogo cerrado** (datos del plantel, matrícula total y por nivel, edificio, inspección, director) y se ve la
+  tabla o se descarga en Excel. Hay combinaciones listas (Esencial, Matrícula y edificio, Matrícula por nivel, Seguimiento). La última selección se recuerda en el navegador.
+- **Seguridad:** el servidor valida cada columna pedida contra el catálogo (`COLUMNAS` en el servicio); nunca arma SQL con nombres del navegador. Las columnas del grupo
+  "Director" (nombre y teléfono) solo las ven `admin` e `insp_coordinador` (el servidor responde 403 al resto). Ven el reporte: admin, insp_coordinador, insp_consulta y operador_plantel;
+  no el ingeniero.
+- **De dónde sale cada dato:** identificación, matrícula y director salen de la planilla de cada plantel (copia de GESCOLAR al enlazarlo + correcciones del ingeniero), igual que los
+  consolidados. El edificio sale de Infraestructuras (solo / comparte / sin clasificar, código `INFRA-…`, con quién comparte, espacios separados). La **matrícula del edificio** suma todas sus
+  instituciones con código DEA (las que no están en el plan se toman de GESCOLAR vigente); una institución sin DEA no suma y el reporte lo avisa. Solo cuentan los planteles **activos** del plan.
+- **Para agregar una columna:** añadirla a `COLUMNAS` (y a `PRESETS` si va en una combinación) en `reportesInspecciones.js` y calcular su valor en `armarReportePlan`; la pantalla y el Excel la toman del catálogo.
+- **Pruebas hechas (durante el desarrollo, no están en el repo):** 56 de API y Excel con PostgreSQL real y Google simulado, 19 de pantalla (jsdom), capturas en escritorio y teléfono, y revisión del Excel convertido a PDF con LibreOffice.
+  No se probó contra Google real ni en un teléfono físico. Con muchas columnas, la impresión en una sola hoja queda pequeña: elegir menos columnas para imprimir.
+
 ## 6. Instrumento Uno CDCE
 
 Formulario por pasos (Datos del plantel, Director, Infraestructura, Edificio compartido,
