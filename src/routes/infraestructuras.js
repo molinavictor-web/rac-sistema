@@ -2,7 +2,7 @@
 // comparte edificio, con código INFRA-000001… por edificio (ver services/infraestructuras.js).
 //
 // Montado en /api/inspecciones/infraestructuras (dentro de /api/inspecciones: los perfiles insp_* ya pueden usarlo).
-//   GET  /resumen                 tarjetas: clasificados, sin clasificar, solos, edificios compartidos, infraestructuras
+//   GET  /resumen?municipio=&parroquia=   tarjetas (del ámbito elegido; sin filtros, las globales): clasificados, sin clasificar, solos, edificios compartidos, infraestructuras
 //   GET  /planteles?q=&estado=&municipio=&parroquia=&pagina=   planteles de GESCOLAR con su clasificación
 //   GET  /parroquias?municipio=   parroquias de un municipio (para el filtro)
 //   GET  /buscar?q=&excluir=      buscar otra institución (con su edificio, si ya tiene)
@@ -38,7 +38,7 @@ async function asegurarSync() {
 router.get("/resumen", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   try {
     const s = await asegurarSync();
-    res.json({ ...(await infra.resumen()), hoja_ok: s.hoja_ok });
+    res.json({ ...(await infra.resumen({ municipio: limpiar(req.query.municipio), parroquia: limpiar(req.query.parroquia) })), hoja_ok: s.hoja_ok });
   } catch (err) {
     responderError(res, err, "No se pudo cargar el resumen de infraestructuras.");
   }
