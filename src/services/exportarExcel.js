@@ -3,6 +3,7 @@
 //   · consolidadoOficial(...)     → "LISTADO DE MATERIALES NUEVO <plan>" (rubros × planteles)
 //   · consolidadoAdicionales(...) → materiales adicionales × planteles (para las autoridades)
 //   · planilla(...)               → planilla individual con membrete, firmas y observaciones
+//   · reportePlan(...)            → reporte por plan con las columnas elegidas (matrícula, edificio, inspección…)
 //
 // Los logos están en src/assets/ (los mismos de los archivos oficiales).
 // La librería exceljs se carga solo cuando alguien descarga un Excel, para no
@@ -327,4 +328,83 @@ async function planilla({ inspeccion, rubros, adicionales }) {
   return libro.xlsx.writeBuffer();
 }
 
-module.exports = { consolidadoOficial, consolidadoAdicionales, planilla };
+// ---------------------------------------------------------------------------
+// 4) Reporte por plan (columnas elegidas por la persona)
+// ---------------------------------------------------------------------------
+
+async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, generado_en }) {
+  const ExcelJS = cargarExcelJS();
+  const libro = new ExcelJS.Workbook();
+  libro.creator = "SID — Zona Educativa Monagas";
+  const hoja = libro.addWorksheet(nombreHoja("Reporte", "Reporte"));
+  hoja.properties.tabColor = { argb: "FF1F6FEB" };
+
+  const n = columnas.length;
+  const pxColumna = (ancho) => Math.round((ancho || 14) * 7 + 5);
+  columnas.forEach((c, i) => { hoja.getColumn(i + 1).width = c.ancho || 14; });
+
+  // Logos como en los demás archivos; el segundo solo si la tabla es lo bastante ancha para que no se encimen.
+  hoja.getRow(1).height = 19.5;
+  for (let r = 2; r <= 7; r++) hoja.getRow(r).height = 12.75;
+  logo(libro, hoja, "logo-educacion-grande.png", "png", 0.25, 0.1, 364, 95);
+  let acumulado = 0; let col2 = -1;
+  columnas.forEach((c, i) => { if (col2 < 0 && acumulado >= 400) col2 = i; acumulado += pxColumna(c.ancho); });
+  if (col2 >= 0 && acumulado - 400 >= 363) logo(libro, hoja, "logo-fede-grande.jpg", "jpeg", col2, 0.1, 363, 103);
+
+  const fin = Math.max(1, Math.min(n, 8));
+  hoja.mergeCells(8, 1, 8, fin);
+  celda(hoja.getCell(8, 1), `REPORTE — ${plan.nombre}`, { tam: 16, negrita: true, borde: false, h: "left" });
+  hoja.getRow(8).height = 22;
+
+  const lineas = [`Generado el ${new Date(generado_en).toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit", year: "numeric" })}`];
+  lineas.push(`Planteles: ${resumen.planteles} · Matrícula total: ${Number(resumen.matricula_total).toLocaleString("es-VE")}`);
+  if (resumen.edificios_distintos !== null && resumen.edificios_distintos !== undefined) {
+    lineas.push(`Edificios distintos: ${resumen.edificios_distintos} · Solos: ${resumen.planteles_solos} · Comparten: ${resumen.planteles_comparten} · Sin clasificar: ${resumen.sin_clasificar}`);
+  }
+  hoja.mergeCells(9, 1, 9, fin);
+  celda(hoja.getCell(9, 1), lineas.join("   |   "), { tam: 10, borde: false, h: "left" });
+  hoja.getRow(9).height = 18;
+
+  let fila = 10;
+  (avisos || []).forEach((a) => {
+    hoja.mergeCells(fila, 1, fila, fin);
+    celda(hoja.getCell(fila, 1), `Nota: ${a}`, { tam: 9, borde: false, h: "left", relleno: NARANJA_CLARO });
+    hoja.getRow(fila).height = 26;
+    fila += 1;
+  });
+
+  const filaEnc = fila + 1;
+  hoja.getRow(filaEnc).height = 45;
+  columnas.forEach((c, i) => celda(hoja.getCell(filaEnc, i + 1), c.etiqueta, { tam: 10, negrita: true, color: "FFFFFFFF", relleno: AZUL }));
+
+  filas.forEach((f, k) => {
+    const r = filaEnc + 1 + k;
+    columnas.forEach((c, i) => {
+      const v = f[c.id];
+      const esNum = c.tipo === "entero";
+      celda(hoja.getCell(r, i + 1), v === null || v === undefined ? (esNum ? null : "") : v, {
+        h: esNum ? "right" : "left", ajustar: !esNum, formato: esNum ? "#,##0" : undefined,
+        relleno: k % 2 ? "FFF5F8FC" : undefined,
+      });
+    });
+  });
+
+  if (columnas.some((c) => c.sumable)) {
+    const r = filaEnc + 1 + filas.length;
+    columnas.forEach((c, i) => {
+      const esPrimera = i === 0;
+      const v = c.sumable ? totales[c.id] : (esPrimera ? "TOTAL" : "");
+      celda(hoja.getCell(r, i + 1), v, { negrita: true, relleno: GRIS_CLARO, h: c.sumable ? "right" : "left", formato: c.sumable ? "#,##0" : undefined });
+    });
+  }
+
+  hoja.views = [{ state: "frozen", ySplit: filaEnc, xSplit: Math.min(2, n), zoomScale: 90 }];
+  hoja.autoFilter = { from: { row: filaEnc, column: 1 }, to: { row: filaEnc, column: n } };
+  hoja.pageSetup = { orientation: "landscape", paperSize: 1, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.39, right: 0.39, top: 0.39, bottom: 0.39, header: 0, footer: 0 } };
+  hoja.pageSetup.printTitlesRow = `${filaEnc}:${filaEnc}`;
+
+  return libro.xlsx.writeBuffer();
+}
+
+module.exports = { consolidadoOficial, consolidadoAdicionales, planilla, reportePlan };
+

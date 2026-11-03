@@ -92,7 +92,8 @@ src/
     coordenadasInfra.js        # columna codigo_infraestructura de Coordenadas Planteles
     infraestructuras.js        # edificios con código INFRA-000001…, clasificación e importación de la hoja
     exportarInstrumentoUno.js  # Excel con las respuestas del Instrumento Uno
-    exportarExcel.js           # Excel de consolidados y planillas (exceljs)
+    exportarExcel.js           # Excel de consolidados, planillas y reportes por plan (exceljs)
+    reportesInspecciones.js    # catálogo de columnas y armado de los reportes por plan
     instrumentoUnoEsquema.js   # preguntas y validaciones del Instrumento Uno CDCE
   routes/
     auth.js                    # login
@@ -112,6 +113,7 @@ src/
     inspecciones.js            # módulo Inspecciones (planes, planillas, consolidados)
     instrumentoUno.js          # Instrumento Uno CDCE (/api/inspecciones/instrumento-uno)
     infraestructuras.js        # clasificar planteles: solo / comparte edificio (/api/inspecciones/infraestructuras)
+    reportesInspecciones.js    # reportes por plan con columnas elegibles y Excel (/api/inspecciones/reportes)
 public/
   *.html + js/*.js             # pantallas del RAC
   supervision/*.html           # pantallas de Supervisión (JS en js/supervision-*.js)

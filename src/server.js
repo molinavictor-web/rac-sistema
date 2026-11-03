@@ -52,6 +52,7 @@ const supervisionRoutes = require('./routes/supervision');
 const inspeccionesRoutes = require('./routes/inspecciones');
 const instrumentoUnoRoutes = require('./routes/instrumentoUno');
 const infraestructurasRoutes = require('./routes/infraestructuras');
+const reportesInspeccionesRoutes = require('./routes/reportesInspecciones');
 const app = express();
 
 // Helmet por defecto trae una Content-Security-Policy que bloquea cosas que
@@ -103,6 +104,7 @@ app.use('/api/supervision', supervisionRoutes);
 // El INSTRUMENTO UNO CDCE va antes: su ruta es más específica que /api/inspecciones.
 app.use('/api/inspecciones/instrumento-uno', instrumentoUnoRoutes);
 app.use('/api/inspecciones/infraestructuras', infraestructurasRoutes);
+app.use('/api/inspecciones/reportes', reportesInspeccionesRoutes);
 app.use('/api/inspecciones', inspeccionesRoutes);
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {
