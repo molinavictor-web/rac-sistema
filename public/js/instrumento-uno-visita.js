@@ -79,7 +79,7 @@ async function iniciar() {
     editable = V.puede_editar;
     recuperarBorrador();
     pintar();
-    api("GET", `${BASE}/plantel/${encodeURIComponent(V.codigo_dea)}`).then((p) => { infoEdificioPlantel = p.edificio; if (paso === 3) pintarEdificioInfo(); }).catch(() => {});
+    api("GET", `${BASE}/plantel/${encodeURIComponent(V.codigo_dea)}`).then((p) => { infoEdificioPlantel = p.edificio; if (ESQ.secciones[paso] && ESQ.secciones[paso].id === "edificio") pintarEdificioInfo(); }).catch(() => {});
   } catch (err) {
     contenido.innerHTML = `<div class="panel"><div class="vacio"><strong>No se pudo abrir la visita</strong>${escapar(err.message)}<br><a href="/inspecciones/instrumento-uno.html">Volver a las visitas</a></div></div>`;
   }
@@ -176,13 +176,22 @@ function insigniaEditado(c) {
   return `<span class="iu-edit">· editado</span>${editable ? `<button type="button" class="iu-restablecer" data-reset="${escapar(c.clave)}">Restablecer desde GESCOLAR</button>` : ""}`;
 }
 
+// Opciones de un desplegable; si traen "grupo" se muestran agrupadas.
+function opcionesHtml(c, v) {
+  const una = (o) => `<option value="${escapar(o.valor)}" ${v === o.valor ? "selected" : ""}>${escapar(o.etiqueta)}</option>`;
+  if (!c.opciones.some((o) => o.grupo)) return c.opciones.map(una).join("");
+  const grupos = [];
+  c.opciones.forEach((o) => { let g = grupos.find((x) => x.nombre === o.grupo); if (!g) { g = { nombre: o.grupo, lista: [] }; grupos.push(g); } g.lista.push(o); });
+  return grupos.map((g) => `<optgroup label="${escapar(g.nombre)}">${g.lista.map(una).join("")}</optgroup>`).join("");
+}
+
 function entradaHtml(c) {
   const id = `f_${c.clave}`;
   const v = datos[c.clave];
   const dis = editable ? "" : "disabled";
   if (c.tipo === "parrafo") return `<textarea id="${id}" data-clave="${c.clave}" ${dis}>${escapar(v || "")}</textarea>`;
   if (c.tipo === "select") {
-    return `<select id="${id}" data-clave="${c.clave}" ${dis}><option value="">— Elegir —</option>${c.opciones.map((o) => `<option value="${escapar(o.valor)}" ${v === o.valor ? "selected" : ""}>${escapar(o.etiqueta)}</option>`).join("")}</select>`;
+    return `<select id="${id}" data-clave="${c.clave}" ${dis}><option value="">— Elegir —</option>${opcionesHtml(c, v)}</select>`;
   }
   if (c.tipo === "multi") {
     const marcados = Array.isArray(v) ? v : [];
@@ -199,7 +208,7 @@ function entradaHtml(c) {
 function campoHtml(c) {
   const err = errores[c.clave];
   return `<div class="iu-campo ${err ? "con-error" : ""} ${c.tipo === "parrafo" ? "iu-ancho" : ""}" id="fld-${c.clave}">
-    <label for="f_${c.clave}">${escapar(c.etiqueta)}${c.obligatorio ? ` <span class="req">*</span>` : ""}<span data-slot="${c.clave}">${insigniaEditado(c)}</span></label>
+    <label for="f_${c.clave}">${escapar(c.etiqueta)}${c.obligatorio || c.obligatorioVisible ? ` <span class="req">*</span>` : ""}<span data-slot="${c.clave}">${insigniaEditado(c)}</span></label>
     ${entradaHtml(c)}
     ${c.ayuda ? `<div class="iu-nota">${escapar(c.ayuda)}</div>` : ""}
     <div class="iu-msg-error" data-error="${c.clave}">${err ? escapar(err) : ""}</div>
@@ -225,7 +234,7 @@ function pintarGrupoSecciones() {
 
 function listaHtml() {
   const err = errores.otras_instituciones;
-  return `<div class="iu-grupo"><h3>${escapar(ESQ.secciones[3].lista.etiqueta)}</h3>
+  return `<div class="iu-grupo"><h3>${escapar(ESQ.secciones.find((x) => x.id === "edificio").lista.etiqueta)}</h3>
     <div id="iuEdificioInfo"></div>
     <div id="iuListaWrap" style="display:none;">
       <p class="iu-ayuda">Escribe el código DEA de la otra institución y pulsa Buscar: se trae su nombre de GESCOLAR. Si no tiene código, escribe solo el nombre.</p>
@@ -281,12 +290,15 @@ function actualizarDependencias() {
       av.textContent = sumaMal ? "Las aulas operativas y NO operativas no suman el total de aulas. Revísalo." : "";
     }
   }
-  if (sec.id === "legal") {
-    seccionesCampos()[paso].filter((c) => c.visibleSi).forEach((c) => {
-      const f = document.getElementById(`fld-${c.clave}`);
-      if (f) f.style.display = c.visibleSi.valores.includes(datos[c.visibleSi.clave]) ? "" : "none";
-    });
-  }
+  // campos que dependen de otra respuesta (legal, servicios…): se muestran solo si corresponde; en cascada
+  seccionesCampos()[paso].filter((c) => c.visibleSi).forEach((c) => {
+    const f = document.getElementById(`fld-${c.clave}`);
+    if (!f) return;
+    const a = datos[c.visibleSi.clave];
+    const padre = buscarCampo(c.visibleSi.clave);
+    const padreOculto = padre && padre.visibleSi && document.getElementById(`fld-${padre.clave}`) && document.getElementById(`fld-${padre.clave}`).style.display === "none";
+    f.style.display = !padreOculto && (Array.isArray(a) ? a : [a]).some((x) => c.visibleSi.valores.includes(x)) ? "" : "none";
+  });
   if (sec.id === "edificio") {
     const wrap = document.getElementById("iuListaWrap");
     if (wrap) wrap.style.display = datos.comparte_edificio === "SI" ? "" : "none";
@@ -326,6 +338,7 @@ function enganchar() {
       const marcados = [...bloque.querySelectorAll(`[data-multi="${k}"]:checked`)].map((x) => x.value);
       datos[k] = marcados;
       quitarError(k);
+      actualizarDependencias();
     } else if (t.dataset.instCodigo !== undefined) {
       datos.otras_instituciones[Number(t.dataset.instCodigo)].codigo_dea = t.value.trim().toUpperCase();
     } else if (t.dataset.instNombre !== undefined) {
