@@ -62,6 +62,15 @@ function recordar() {
   try { localStorage.setItem(CLAVE_GUARDADA, JSON.stringify([...seleccion])); } catch (_) { /* opcional */ }
 }
 
+// Borra la tabla y las tarjetas de abajo (para que no quede un resultado viejo que ya no corresponde a lo elegido).
+function limpiarResultado() {
+  ultimo = null;
+  const r = document.getElementById("resultado");
+  if (r) r.innerHTML = "";
+  const e = document.getElementById("repError");
+  if (e) e.textContent = "";
+}
+
 function cargarElegidos() {
   try {
     const g = JSON.parse(localStorage.getItem(CLAVE_ELEGIDOS) || "null");
@@ -113,6 +122,7 @@ function dibujarArmado() {
     <div class="rep-acciones">
       <button type="button" class="btn btn-primario" id="btnVer">Ver reporte</button>
       <button type="button" class="btn btn-fantasma" id="btnExcel">Descargar Excel</button>
+      <button type="button" class="btn btn-fantasma" id="btnLimpiar">Limpiar</button>
     </div>
     <div class="rep-error" id="repError"></div>`;
 
@@ -120,13 +130,15 @@ function dibujarArmado() {
   fuente = PLANES.length ? "plan" : "planteles";
   pintarFuente();
   pintarElegidos();
-  cont.querySelectorAll("[data-fuente]").forEach((b) => b.addEventListener("click", () => { fuente = b.dataset.fuente; pintarFuente(); }));
+  cont.querySelectorAll("[data-fuente]").forEach((b) => b.addEventListener("click", () => { if (fuente !== b.dataset.fuente) { fuente = b.dataset.fuente; pintarFuente(); limpiarResultado(); } }));
   document.getElementById("buscar").addEventListener("input", (e) => {
     clearTimeout(temporizador);
     const q = e.target.value.trim();
     if (q.length < 2) { document.getElementById("sugerencias").innerHTML = ""; return; }
     temporizador = setTimeout(() => buscar(q), 300);
   });
+  const selPlan = document.getElementById("plan");
+  if (selPlan) selPlan.addEventListener("change", limpiarResultado);
   pintarSeleccion();
   cont.querySelectorAll("[data-col]").forEach((chk) => chk.addEventListener("change", () => {
     if (chk.checked) seleccion.add(chk.dataset.col); else seleccion.delete(chk.dataset.col);
@@ -143,6 +155,10 @@ function dibujarArmado() {
     recordar(); pintarSeleccion();
   }));
   document.getElementById("btnVer").addEventListener("click", verReporte);
+  document.getElementById("btnLimpiar").addEventListener("click", () => {
+    if (fuente === "planteles") { elegidos = []; recordarElegidos(); pintarElegidos(); document.getElementById("buscar").value = ""; document.getElementById("sugerencias").innerHTML = ""; }
+    limpiarResultado();
+  });
   document.getElementById("btnExcel").addEventListener("click", (e) => descargarExcel(e.currentTarget));
 }
 
@@ -181,9 +197,9 @@ function pintarElegidos() {
     ? `<div class="rep-nota"><strong>${elegidos.length}</strong> plantel(es) elegido(s) <button type="button" id="quitarTodos" class="rep-link">quitar todos</button></div>` +
       elegidos.map((p) => `<span class="rep-pastilla" title="${escapar(p.codigo_dea)}">${escapar(p.nombre)} <button type="button" data-quitar="${escapar(p.codigo_dea)}" aria-label="Quitar ${escapar(p.nombre)}">×</button></span>`).join("")
     : `<div class="rep-nota">Todavía no has agregado planteles. Busca por nombre o código y toca el que quieras.</div>`;
-  cont.querySelectorAll("[data-quitar]").forEach((b) => b.addEventListener("click", () => { elegidos = elegidos.filter((e) => e.codigo_dea !== b.dataset.quitar); recordarElegidos(); pintarElegidos(); }));
+  cont.querySelectorAll("[data-quitar]").forEach((b) => b.addEventListener("click", () => { elegidos = elegidos.filter((e) => e.codigo_dea !== b.dataset.quitar); recordarElegidos(); pintarElegidos(); limpiarResultado(); }));
   const qt = document.getElementById("quitarTodos");
-  if (qt) qt.addEventListener("click", () => { elegidos = []; recordarElegidos(); pintarElegidos(); });
+  if (qt) qt.addEventListener("click", () => { elegidos = []; recordarElegidos(); pintarElegidos(); limpiarResultado(); });
 }
 
 function pintarSeleccion() {
