@@ -1,0 +1,270 @@
+// inspecciones-consulta-llenar.js — llenar una consulta exprés: se escribe el código DEA, se traen los datos vigentes
+// de las fases de la consulta, se verifican o actualizan y se guarda. Las preguntas salen del esquema del Instrumento Uno
+// (el servidor valida todo; aquí solo se muestran los campos y se ocultan los que dependen de otra respuesta).
+
+const usuario = renderShell("inspecciones-consultas", "Llenar consulta");
+const API = "/api/inspecciones/consultas";
+const idConsulta = Number(new URLSearchParams(window.location.search).get("id")) || 0;
+
+function escapar(v) {
+  return String(v === undefined || v === null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Como RAC.get/put, pero el error lleva los mensajes por campo (errores) que manda el servidor.
+async function api(metodo, ruta, cuerpo) {
+  const resp = await fetch(ruta, {
+    method: metodo,
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + RAC.getToken() },
+    body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
+  });
+  if (resp.status === 401) { RAC.cerrarSesion(); throw new Error("Sesión expirada."); }
+  let data = null;
+  try { data = await resp.json(); } catch (_) { /* sin cuerpo */ }
+  if (!resp.ok) {
+    const e = new Error((data && data.error) || `Error ${resp.status}`);
+    e.errores = (data && data.errores) || null;
+    throw e;
+  }
+  return data;
+}
+
+let CONSULTA = null;   // {id, nombre, fases, titulos_fases}
+let P = null;          // respuesta del plantel abierto
+let datos = {};
+let errores = {};
+let temporizador = null;
+
+if (usuario) iniciar();
+
+async function iniciar() {
+  const cont = document.getElementById("contenido");
+  if (!idConsulta) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Falta elegir la consulta</strong><a href="/inspecciones/consultas.html">Ir a Consultas exprés</a></div></div>`; return; }
+  try {
+    const l = await api("GET", `${API}/`);
+    CONSULTA = l.consultas.find((c) => c.id === idConsulta);
+  } catch (err) {
+    cont.innerHTML = `<div class="panel"><div class="iu-msg-error" style="padding:14px;">${escapar(err.message)}</div></div>`;
+    return;
+  }
+  if (!CONSULTA) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Esa consulta no existe o está cerrada</strong><a href="/inspecciones/consultas.html">Volver a Consultas exprés</a></div></div>`; return; }
+  cont.innerHTML = `
+    <section class="planteles-hero"><div class="planteles-hero-copy">
+      <span class="planteles-eyebrow">CONSULTA EXPRÉS</span>
+      <h1>${escapar(CONSULTA.nombre)}</h1>
+      <p>${CONSULTA.titulos_fases.map(escapar).join(" · ")}</p>
+    </div></section>
+    <div class="panel iu-bloque" id="buscador">
+      <h2>Código DEA del plantel</h2>
+      <div class="ce-fila">
+        <input type="text" id="codigo" placeholder="Código DEA o parte del nombre" autocomplete="off" style="flex:1;">
+        <button type="button" class="btn btn-primario" id="btnAbrir">Abrir plantel</button>
+      </div>
+      <div id="sugerencias"></div>
+      <div class="iu-msg-error" id="errBuscar"></div>
+    </div>
+    <div id="formulario"></div>`;
+  document.getElementById("btnAbrir").addEventListener("click", () => abrir(document.getElementById("codigo").value));
+  document.getElementById("codigo").addEventListener("keydown", (e) => { if (e.key === "Enter") abrir(e.target.value); });
+  document.getElementById("codigo").addEventListener("input", (e) => {
+    clearTimeout(temporizador);
+    const q = e.target.value.trim();
+    if (q.length < 3) { document.getElementById("sugerencias").innerHTML = ""; return; }
+    temporizador = setTimeout(() => sugerir(q), 300);
+  });
+}
+
+async function sugerir(q) {
+  const box = document.getElementById("sugerencias");
+  try {
+    const r = await api("GET", `/api/inspecciones/instrumento-uno/buscar?q=${encodeURIComponent(q)}`);
+    if (document.getElementById("codigo").value.trim() !== q) return;
+    box.innerHTML = r.planteles.length
+      ? `<div class="ce-cajasug">${r.planteles.map((p) => `<button type="button" class="ce-sug" data-dea="${escapar(p.codigo_dea)}">${escapar(p.nombre_plantel)}<small>${escapar(p.codigo_dea)} · ${escapar(p.municipio)}${p.parroquia ? " · " + escapar(p.parroquia) : ""}</small></button>`).join("")}</div>`
+      : "";
+    box.querySelectorAll("[data-dea]").forEach((b) => b.addEventListener("click", () => { document.getElementById("codigo").value = b.dataset.dea; box.innerHTML = ""; abrir(b.dataset.dea); }));
+  } catch (_) { box.innerHTML = ""; }
+}
+
+async function abrir(codigo) {
+  const err = document.getElementById("errBuscar");
+  err.textContent = "";
+  const c = String(codigo || "").trim();
+  if (!c) { err.textContent = "Escribe el código DEA."; return; }
+  const form = document.getElementById("formulario");
+  form.innerHTML = `<div class="panel"><div class="cargando">Abriendo plantel…</div></div>`;
+  try {
+    P = await api("GET", `${API}/${idConsulta}/plantel/${encodeURIComponent(c)}`);
+  } catch (e) {
+    form.innerHTML = "";
+    err.textContent = e.message;
+    return;
+  }
+  document.getElementById("sugerencias").innerHTML = "";
+  datos = JSON.parse(JSON.stringify(P.datos || {}));
+  errores = {};
+  pintar();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---- Dibujo del formulario ----
+
+function etiquetaOrigen(clave) {
+  const m = P.meta && P.meta[clave];
+  if (!m) return "";
+  if (m.fuente === "gescolar") return `<span class="ce-origen">de GESCOLAR</span>`;
+  if (m.fuente === "visita") return `<span class="ce-origen">de la visita</span>`;
+  const f = m.en ? new Date(m.en).toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit" }) : "";
+  return `<span class="ce-origen ${m.verificado_campo ? "campo" : ""}">${m.verificado_campo ? "✓ verificado en campo" : "actualizado"} ${escapar(f)}${m.usuario ? " · " + escapar(m.usuario) : ""}</span>`;
+}
+
+function opcionesHtml(c, v) {
+  const una = (o) => `<option value="${escapar(o.valor)}" ${v === o.valor ? "selected" : ""}>${escapar(o.etiqueta)}</option>`;
+  if (!c.opciones.some((o) => o.grupo)) return c.opciones.map(una).join("");
+  const grupos = [];
+  c.opciones.forEach((o) => { let g = grupos.find((x) => x.nombre === o.grupo); if (!g) { g = { nombre: o.grupo, lista: [] }; grupos.push(g); } g.lista.push(o); });
+  return grupos.map((g) => `<optgroup label="${escapar(g.nombre)}">${g.lista.map(una).join("")}</optgroup>`).join("");
+}
+
+function entradaHtml(c) {
+  const id = `f_${c.clave}`;
+  const v = datos[c.clave];
+  if (c.tipo === "parrafo") return `<textarea id="${id}" data-clave="${c.clave}">${escapar(v || "")}</textarea>`;
+  if (c.tipo === "select") return `<select id="${id}" data-clave="${c.clave}"><option value="">— Elegir —</option>${opcionesHtml(c, v)}</select>`;
+  if (c.tipo === "multi") {
+    const marcados = Array.isArray(v) ? v : [];
+    return `<div class="iu-multi" id="${id}">${c.opciones.map((o) => `<label><input type="checkbox" data-multi="${c.clave}" value="${escapar(o.valor)}" ${marcados.includes(o.valor) ? "checked" : ""}> ${escapar(o.etiqueta)}</label>`).join("")}</div>`;
+  }
+  if (c.tipo === "entero") return `<input type="number" id="${id}" data-clave="${c.clave}" inputmode="numeric" step="1" ${c.min !== undefined ? `min="${c.min}"` : ""} ${c.max !== undefined ? `max="${c.max}"` : ""} value="${escapar(v === undefined ? "" : v)}">`;
+  const modo = c.patron && /\\d/.test(c.patron) ? 'inputmode="numeric"' : "";
+  return `<input type="${c.tipo === "correo" ? "email" : "text"}" id="${id}" data-clave="${c.clave}" ${modo} value="${escapar(v || "")}" autocomplete="off">`;
+}
+
+function campoHtml(c) {
+  const err = errores[c.clave];
+  return `<div class="iu-campo ${err ? "con-error" : ""} ${c.tipo === "parrafo" ? "iu-ancho" : ""}" id="fld-${c.clave}" ${c.dependeDe ? `data-dep="${c.dependeDe}"` : ""}>
+    <label for="f_${c.clave}">${escapar(c.etiqueta)}${c.obligatorio || c.obligatorioVisible ? ` <span class="req">*</span>` : ""}${etiquetaOrigen(c.clave)}</label>
+    ${entradaHtml(c)}
+    ${c.ayuda ? `<div class="iu-nota">${escapar(c.ayuda)}</div>` : ""}
+    <div class="iu-msg-error" data-error="${c.clave}">${err ? escapar(err) : ""}</div>
+  </div>`;
+}
+
+function grupoHtml(g) {
+  return `<div class="iu-grupo"><h3>${escapar(g.titulo)}</h3>${g.ayuda ? `<p class="iu-ayuda">${escapar(g.ayuda)}</p>` : ""}
+    <div class="iu-rejilla ${g.id.startsWith("legal") ? "ancha" : ""}">${g.campos.map(campoHtml).join("")}</div></div>`;
+}
+
+function seccionHtml(s) {
+  return `<div class="panel iu-bloque" style="margin-top:14px;">
+    <h2>${escapar(s.titulo)}</h2>${s.ayuda ? `<p class="iu-ayuda">${escapar(s.ayuda)}</p>` : ""}
+    ${s.campos.length ? `<div class="iu-dos">${s.campos.map(campoHtml).join("")}</div>` : ""}
+    ${(s.grupos || []).map(grupoHtml).join("")}
+  </div>`;
+}
+
+function pintar() {
+  const form = document.getElementById("formulario");
+  form.innerHTML = `
+    <div class="panel iu-bloque" style="margin-top:14px;">
+      <strong>${escapar(P.plantel.nombre_plantel)}</strong>
+      <div class="iu-nota">${escapar(P.plantel.codigo_dea)} · ${escapar(P.plantel.municipio)}${P.plantel.parroquia ? " · " + escapar(P.plantel.parroquia) : ""}</div>
+      <p class="iu-ayuda" style="margin-top:8px;">Revisa lo que ya está cargado: si está bien, déjalo; si cambió, corrígelo. Lo que quede vacío y sea obligatorio hay que completarlo.</p>
+    </div>
+    ${P.secciones.map(seccionHtml).join("")}
+    <div class="panel iu-bloque" style="margin-top:14px;">
+      <div class="iu-campo iu-ancho"><label for="nota">Nota del cambio (opcional)</label>
+        <textarea id="nota" maxlength="500" placeholder="Ej.: se construyeron 3 aulas por proyecto comunal; el terreno cedió con la crecida de la quebrada."></textarea>
+        <div class="iu-nota">Queda guardada junto al cambio y explica, por ejemplo, un salto de matrícula o aulas inhabilitadas.</div></div>
+      <div class="iu-campo"><div class="iu-multi"><label><input type="checkbox" id="verificado"> Verificado en campo (confirmé estos datos en el plantel)</label></div></div>
+    </div>
+    <div class="iu-barra"><div class="izq"><div class="iu-msg-error" id="resumenError"></div></div>
+      <div class="der"><button type="button" class="btn btn-fantasma" id="btnOtro">Cancelar</button><button type="button" class="btn btn-primario" id="btnGuardar" ${P.puede_guardar ? "" : "disabled"}>Guardar</button></div></div>`;
+  enganchar();
+  actualizarVisibilidad();
+}
+
+// Campos de las fases, aplanados
+function todosCampos() {
+  const r = [];
+  P.secciones.forEach((s) => { r.push(...s.campos); (s.grupos || []).forEach((g) => r.push(...g.campos)); });
+  return r;
+}
+
+function cumple(c) {
+  const v = c.visibleSi;
+  if (!v) return true;
+  const padre = todosCampos().find((x) => x.clave === v.clave);
+  const padreOculto = padre && padre.visibleSi && !cumple(padre);
+  if (padreOculto) return false;
+  const a = datos[v.clave];
+  if (v.mayorQue !== undefined) return Number(a) > v.mayorQue;
+  return (Array.isArray(a) ? a : [a]).some((x) => v.valores.includes(x));
+}
+
+function actualizarVisibilidad() {
+  todosCampos().forEach((c) => {
+    const f = document.getElementById(`fld-${c.clave}`);
+    if (!f) return;
+    let ver = cumple(c);
+    if (ver && c.dependeDe && c.dependeDe.startsWith("matricula_")) ver = Number(datos[c.dependeDe]) > 0;
+    if (ver && c.clave === "cancha_techada") ver = (Number(datos.canchas_operativas) || 0) + (Number(datos.canchas_no_operativas) || 0) > 0;
+    f.style.display = ver ? "" : "none";
+  });
+}
+
+function enganchar() {
+  const form = document.getElementById("formulario");
+  const alCambiar = (e) => {
+    const t = e.target;
+    if (t.dataset.clave) {
+      datos[t.dataset.clave] = t.value;
+    } else if (t.dataset.multi) {
+      datos[t.dataset.multi] = [...form.querySelectorAll(`[data-multi="${t.dataset.multi}"]:checked`)].map((x) => x.value);
+    } else return;
+    const k = t.dataset.clave || t.dataset.multi;
+    delete errores[k];
+    const fe = document.getElementById(`fld-${k}`);
+    if (fe) { fe.classList.remove("con-error"); const m = fe.querySelector(".iu-msg-error"); if (m) m.textContent = ""; }
+    actualizarVisibilidad();
+  };
+  form.addEventListener("input", alCambiar);
+  form.addEventListener("change", (e) => { if (e.target.tagName === "SELECT" || e.target.type === "checkbox") alCambiar(e); });
+  document.getElementById("btnOtro").addEventListener("click", () => { form.innerHTML = ""; P = null; document.getElementById("codigo").value = ""; document.getElementById("codigo").focus(); });
+  document.getElementById("btnGuardar").addEventListener("click", guardar);
+}
+
+async function guardar() {
+  const b = document.getElementById("btnGuardar");
+  const resumen = document.getElementById("resumenError");
+  resumen.textContent = "";
+  b.disabled = true;
+  const envio = {};
+  todosCampos().forEach((c) => { const v = datos[c.clave]; envio[c.clave] = v === undefined ? "" : v; });
+  try {
+    const r = await api("PUT", `${API}/${idConsulta}/plantel/${encodeURIComponent(P.plantel.codigo_dea)}`, {
+      datos: envio, nota: document.getElementById("nota").value, verificado: document.getElementById("verificado").checked,
+    });
+    const avisos = (r.avisos || []).map((a) => `<div class="iu-aviso">${escapar(a)}</div>`).join("");
+    document.getElementById("formulario").innerHTML = `
+      <div class="iu-resultado"><strong>Guardado.</strong> ${r.cambios ? `${r.cambios} dato(s) actualizado(s) en ${escapar(r.plantel.nombre_plantel)}.` : `No hubo cambios en ${escapar(r.plantel.nombre_plantel)}.`}
+        ${avisos}
+        <div style="margin-top:12px;"><button type="button" class="btn btn-primario" id="btnSiguiente">Otro plantel</button> <a class="btn btn-fantasma" style="text-decoration:none;" href="/inspecciones/consultas.html">Volver a las consultas</a></div>
+      </div>`;
+    document.getElementById("btnSiguiente").addEventListener("click", () => { document.getElementById("formulario").innerHTML = ""; P = null; const c = document.getElementById("codigo"); c.value = ""; c.focus(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  } catch (e) {
+    b.disabled = false;
+    if (e.errores) {
+      const nota = document.getElementById("nota").value;
+      const ver = document.getElementById("verificado").checked;
+      errores = e.errores;
+      pintar();
+      document.getElementById("nota").value = nota;
+      document.getElementById("verificado").checked = ver;
+      const primero = todosCampos().find((c) => errores[c.clave]);
+      document.getElementById("resumenError").textContent = `Revisa ${Object.keys(errores).length} campo(s) marcado(s).`;
+      if (primero) { const f = document.getElementById(`fld-${primero.clave}`); if (f) f.scrollIntoView({ behavior: "smooth", block: "center" }); }
+    } else {
+      resumen.textContent = e.message;
+    }
+  }
+}

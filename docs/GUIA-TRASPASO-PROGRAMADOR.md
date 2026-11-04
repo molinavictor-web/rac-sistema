@@ -238,6 +238,8 @@ Importa automáticamente la hoja (como mucho cada 5 min). Si Google no responde 
 (fusión, conflicto 409, espacios separados): sección 6b de `MANTENIMIENTO-INSPECCIONES-PLANTELES.md`.
 
 **Reportes por plan** — `src/routes/reportesInspecciones.js`, `src/services/reportesInspecciones.js`, `public/inspecciones/reportes.html`, `public/js/inspecciones-reportes.js`.
+
+**Consultas exprés y Cambios recientes** — `src/routes/consultasExpres.js`, `src/services/consultasExpres.js`, `scripts/sql/14_consultas_expres.sql`, `public/inspecciones/consultas.html`, `consulta-llenar.html`, `cambios.html` y sus `public/js/inspecciones-*.js`. El dato vigente de un plantel = última visita enviada + `iu_valores` más recientes; ver sección 6c del documento de mantenimiento.
 Catálogo cerrado de columnas en el servidor (`COLUMNAS`); el servidor valida lo que pide el navegador y oculta/rechaza las columnas de contacto del director a quien no es admin o coordinador.
 Detalle en la sección 5b de `MANTENIMIENTO-INSPECCIONES-PLANTELES.md`.
 

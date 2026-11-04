@@ -188,6 +188,20 @@ Pantalla "Infraestructuras" (Inspecciones). Archivos: `src/routes/infraestructur
 - **Tarjeta "Infraestructuras":** = nombres de GESCOLAR − Σ (instituciones de cada edificio − 1). Baja al registrar compartidos.
 - **Pendiente:** pantalla para unificar edificios en conflicto; opcionalmente migrar los códigos antiguos de la hoja a INFRA-…
 
+## 6c. Consultas exprés y Cambios recientes
+
+Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualquier plantel, empezando por el código DEA.
+
+- **Quién**: crean y cierran consultas `admin` e `insp_coordinador`; los ingenieros solo llenan las abiertas. "Cambios recientes" es solo del `admin`.
+- **Fases disponibles**: Plantel, Director, Infraestructura, Servicios, Legal (Edificio compartido no entra todavía).
+- **Dato vigente**: lo último enviado en una visita (`iu_visitas.datos`) más lo guardado después en `iu_valores` (gana lo más reciente). `valor = null` en JSON significa "se borró a propósito". Los reportes leen este dato vigente.
+- **Historial**: cada cambio queda en `iu_cambios` (quién, cuándo, valor anterior y nuevo, nota). "Volver al anterior" solo funciona si el valor actual sigue siendo el que se guardó (si no, responde 409).
+- **Motivo de inhabilitación de aulas** (`aulas_motivo`, `aulas_motivo_otro`): aparece solo si aulas no operativas > 0; se guarda por plantel, no por aula. Los reportes traen "Motivo..." y "Aulas inhabilitadas por fuerza mayor".
+- **Validaciones**: la suma de aulas es aviso para el personal (no bloquea).
+- **SQL**: `scripts/sql/14_consultas_expres.sql` (tablas `iu_consultas`, `iu_valores`, `iu_cambios`, con RLS). Hay que ejecutarlo en Supabase antes de usar la pantalla.
+- **Archivos**: `src/routes/consultasExpres.js`, `src/services/consultasExpres.js`, `public/inspecciones/{consultas,consulta-llenar,cambios}.html`, `public/js/inspecciones-{consultas,consulta-llenar,cambios}.js`.
+- **Pendiente (etapa 2)**: acceso del director con código DEA + clave única por plantel, límite de intentos y validaciones bloqueantes.
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada

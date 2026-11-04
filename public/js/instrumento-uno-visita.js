@@ -297,7 +297,8 @@ function actualizarDependencias() {
     const a = datos[c.visibleSi.clave];
     const padre = buscarCampo(c.visibleSi.clave);
     const padreOculto = padre && padre.visibleSi && document.getElementById(`fld-${padre.clave}`) && document.getElementById(`fld-${padre.clave}`).style.display === "none";
-    f.style.display = !padreOculto && (Array.isArray(a) ? a : [a]).some((x) => c.visibleSi.valores.includes(x)) ? "" : "none";
+    const cumple = c.visibleSi.mayorQue !== undefined ? Number(a) > c.visibleSi.mayorQue : (Array.isArray(a) ? a : [a]).some((x) => c.visibleSi.valores.includes(x));
+    f.style.display = !padreOculto && cumple ? "" : "none";
   });
   if (sec.id === "edificio") {
     const wrap = document.getElementById("iuListaWrap");
