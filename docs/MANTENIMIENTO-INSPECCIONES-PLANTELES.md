@@ -198,6 +198,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Historial**: cada cambio queda en `iu_cambios` (quién, cuándo, valor anterior y nuevo, nota). "Volver al anterior" solo funciona si el valor actual sigue siendo el que se guardó (si no, responde 409).
 - **Motivo de inhabilitación de aulas** (`aulas_motivo`, `aulas_motivo_otro`): aparece solo si aulas no operativas > 0; se guarda por plantel, no por aula. Los reportes traen "Motivo..." y "Aulas inhabilitadas por fuerza mayor".
 - **Validaciones**: la suma de aulas es aviso para el personal (no bloquea).
+- **Eliminar una consulta**: botón «Eliminar» (admin y coordinador). Los datos ya guardados NO se borran; solo desaparece la consulta de la lista.
 - **SQL**: `scripts/sql/14_consultas_expres.sql` (tablas `iu_consultas`, `iu_valores`, `iu_cambios`, con RLS). Hay que ejecutarlo en Supabase antes de usar la pantalla.
 - **Archivos**: `src/routes/consultasExpres.js`, `src/services/consultasExpres.js`, `public/inspecciones/{consultas,consulta-llenar,cambios}.html`, `public/js/inspecciones-{consultas,consulta-llenar,cambios}.js`.
 - **Pendiente (etapa 2)**: acceso del director con código DEA + clave única por plantel, límite de intentos y validaciones bloqueantes.

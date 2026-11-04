@@ -96,8 +96,21 @@ function dibujarLista() {
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
         ${c.estado === "ABIERTA" && LISTA.puede_llenar ? `<a class="btn btn-primario" style="text-decoration:none;" href="/inspecciones/consulta-llenar.html?id=${c.id}">Llenar</a>` : ""}
         ${LISTA.puede_crear ? `<button type="button" class="btn btn-fantasma" data-estado="${c.estado === "ABIERTA" ? "CERRADA" : "ABIERTA"}" data-id="${c.id}">${c.estado === "ABIERTA" ? "Cerrar consulta" : "Reabrir"}</button>` : ""}
+        ${LISTA.puede_crear ? `<button type="button" class="btn btn-fantasma" data-eliminar="${c.id}" data-nombre="${escapar(c.nombre)}">Eliminar</button>` : ""}
       </div>
     </div>`).join("");
+  cont.querySelectorAll("[data-eliminar]").forEach((b) => b.addEventListener("click", async () => {
+    if (!window.confirm(`¿Eliminar la consulta «${b.dataset.nombre}»?\n\nLos datos que ya se guardaron con ella NO se borran: siguen en los planteles y en «Cambios recientes». Solo desaparece la consulta de la lista.`)) return;
+    b.disabled = true;
+    try {
+      await RAC.del(`${API}/${b.dataset.eliminar}`);
+      mostrarToast("Consulta eliminada.");
+      await cargar();
+    } catch (e) {
+      mostrarToast(e.message, true);
+      b.disabled = false;
+    }
+  }));
   cont.querySelectorAll("[data-estado]").forEach((b) => b.addEventListener("click", async () => {
     b.disabled = true;
     try {

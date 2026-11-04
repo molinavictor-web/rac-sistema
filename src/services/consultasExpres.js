@@ -157,6 +157,13 @@ async function cambiarConsulta(id, { nombre, estado }) {
   if (!r.rowCount) throw new ErrorConsulta(404, "Consulta no encontrada.");
 }
 
+// Elimina la consulta. Los datos que ya se guardaron con ella NO se pierden:
+// los valores y el historial quedan (la columna consulta_id pasa a NULL).
+async function eliminarConsulta(id) {
+  const r = await pool.query("DELETE FROM iu_consultas WHERE id = $1", [id]);
+  if (!r.rowCount) throw new ErrorConsulta(404, "Consulta no encontrada.");
+}
+
 async function obtenerConsulta(id) {
   const c = (await pool.query("SELECT * FROM iu_consultas WHERE id = $1", [id])).rows[0];
   if (!c) throw new ErrorConsulta(404, "Consulta no encontrada.");
@@ -304,6 +311,6 @@ async function revertirCambio(id, usuarioId) {
 }
 
 module.exports = {
-  ErrorConsulta, FASES, camposDeFases, datosVigentesLote, listarConsultas, crearConsulta, cambiarConsulta,
+  ErrorConsulta, FASES, camposDeFases, datosVigentesLote, listarConsultas, crearConsulta, cambiarConsulta, eliminarConsulta,
   obtenerConsulta, abrirPlantel, guardarPlantel, cambiosRecientes, revertirCambio,
 };
