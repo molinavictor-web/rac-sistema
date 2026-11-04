@@ -193,7 +193,8 @@ Pantalla "Infraestructuras" (Inspecciones). Archivos: `src/routes/infraestructur
 Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualquier plantel, empezando por el código DEA.
 
 - **Quién**: crean y cierran consultas `admin` e `insp_coordinador`; los ingenieros solo llenan las abiertas. "Cambios recientes" es solo del `admin`.
-- **Fases disponibles**: Plantel, Director, Infraestructura, Servicios, Legal (Edificio compartido no entra todavía).
+- **Fases disponibles**: Plantel, Director, Infraestructura, Servicios, Edificio compartido y Legal.
+- **Fase Edificio compartido**: al abrir un plantel ya clasificado se trae lo que dice Infraestructuras (la fuente que manda). Al guardar usa la MISMA clasificación de la pantalla Infraestructuras (`infraestructuras.clasificar` + `sincronizarHoja`): código `INFRA-…`, hoja «Coordenadas Planteles», y los mismos avisos (409 si las instituciones ya están en edificios distintos; 502 si Google no responde: en ambos casos no se guarda nada). Si la hoja falla después de guardar, queda «pendiente». Los cambios quedan en «Cambios recientes» pero NO se revierten ahí: se corrigen desde Infraestructuras.
 - **Dato vigente**: lo último enviado en una visita (`iu_visitas.datos`) más lo guardado después en `iu_valores` (gana lo más reciente). `valor = null` en JSON significa "se borró a propósito". Los reportes leen este dato vigente.
 - **Historial**: cada cambio queda en `iu_cambios` (quién, cuándo, valor anterior y nuevo, nota). "Volver al anterior" solo funciona si el valor actual sigue siendo el que se guardó (si no, responde 409).
 - **Motivo de inhabilitación de aulas** (`aulas_motivo`, `aulas_motivo_otro`): aparece solo si aulas no operativas > 0; se guarda por plantel, no por aula. Los reportes traen "Motivo..." y "Aulas inhabilitadas por fuerza mayor".

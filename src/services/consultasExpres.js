@@ -8,10 +8,13 @@
 // y se puede revertir. Los reportes leen el dato vigente con datosVigentesLote().
 //
 // Etapa 1: la llenan usuarios del sistema (origen "personal"). El campo `origen` ya admite "director" para la etapa 2.
-// La fase "Edificio compartido" no está disponible todavía (necesita la sincronización con Infraestructuras).
+// La fase "Edificio compartido" NO se guarda solo como dato: al guardar usa la misma clasificación de la pantalla
+// Infraestructuras (código INFRA-…, hoja «Coordenadas Planteles», mismos avisos 409/502). Esos cambios quedan en el
+// historial pero NO se revierten desde «Cambios recientes»: se corrigen en Infraestructuras.
 
 const { pool } = require("../db/pool");
 const gescolar = require("./gescolar");
+const infraestructuras = require("./infraestructuras");
 const esquema = require("./instrumentoUnoEsquema");
 
 class ErrorConsulta extends Error {
@@ -22,8 +25,10 @@ class ErrorConsulta extends Error {
   }
 }
 
-// Fases disponibles = secciones del instrumento, menos Edificio compartido (todavía).
-const FASES = esquema.SECCIONES.filter((s) => s.id !== "edificio").map((s) => ({ id: s.id, titulo: s.titulo }));
+// Fases disponibles = secciones del instrumento.
+const FASES = esquema.SECCIONES.map((s) => ({ id: s.id, titulo: s.titulo }));
+// Claves de la fase Edificio: no se revierten desde Cambios recientes (se corrigen en Infraestructuras).
+const CLAVES_EDIFICIO = ["comparte_edificio", "otras_instituciones"];
 const IDS_FASES = new Set(FASES.map((f) => f.id));
 
 function seccionesDe(fases) {
@@ -35,8 +40,41 @@ function camposDeFases(fases) {
   seccionesDe(fases).forEach((s) => {
     r.push(...s.campos);
     (s.grupos || []).forEach((g) => r.push(...g.campos));
+    // la lista de otras instituciones del edificio también es un dato de la fase
+    if (s.lista) r.push({ clave: s.lista.clave, etiqueta: s.lista.etiqueta, tipo: "lista" });
   });
   return r;
+}
+
+const limpio = (v) => String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+
+// Identidad de una institución de la lista: su código DEA o, si no tiene, su nombre (sin acentos ni mayúsculas).
+function claveInstitucion(o) {
+  const c = limpio(o && o.codigo_dea).toLowerCase();
+  return c || "n:" + esquema.normalizar(limpio(o && o.nombre));
+}
+function listaIgual(a, b) {
+  const f = (x) => (Array.isArray(x) ? x : []).map(claveInstitucion).sort().join("|");
+  return f(a) === f(b);
+}
+
+// Cómo está hoy el plantel en el módulo Infraestructuras (la fuente que manda para el edificio).
+async function estadoEdificio(codigoDea) {
+  const k = limpio(codigoDea).toLowerCase();
+  const { rows } = await pool.query(
+    `SELECT i.codigo, m2.codigo_dea, m2.nombre
+     FROM infra_miembros m
+     JOIN infraestructuras i ON i.id = m.infraestructura_id
+     JOIN infra_miembros m2 ON m2.infraestructura_id = i.id
+     WHERE lower(m.codigo_dea) = $1 ORDER BY m2.id`, [k]);
+  if (!rows.length) return { clasificado: false, comparte: false, codigo: null, otras: [], miembros: [] };
+  const otras = rows
+    .filter((r) => limpio(r.codigo_dea).toLowerCase() !== k)
+    .map((r) => ({ codigo_dea: limpio(r.codigo_dea).toUpperCase(), nombre: limpio(r.nombre) }));
+  return {
+    clasificado: true, comparte: rows.length > 1, codigo: rows[0].codigo, otras,
+    miembros: rows.map((r) => ({ codigo_dea: limpio(r.codigo_dea), nombre: limpio(r.nombre) })),
+  };
 }
 
 function igual(a, b) {
@@ -111,7 +149,19 @@ async function datosParaLlenar(codigo, fila, fases) {
     if (datos[c] !== undefined) { salida[c] = datos[c]; metaSalida[c] = meta[c]; }
     else if (deGescolar[c] !== undefined) { salida[c] = deGescolar[c]; metaSalida[c] = { fuente: "gescolar" }; }
   });
-  return { datos: salida, meta: metaSalida, gescolar: deGescolar };
+  let edificio = null;
+  if (fases.includes("edificio")) {
+    const est = await estadoEdificio(codigo);
+    if (est.clasificado) {
+      salida.comparte_edificio = est.comparte ? "SI" : "NO";
+      salida.otras_instituciones = est.comparte ? est.otras : [];
+      metaSalida.comparte_edificio = { fuente: "infraestructuras" };
+      metaSalida.otras_instituciones = { fuente: "infraestructuras" };
+      if (est.comparte) edificio = { codigo_infraestructura: est.codigo, cantidad: est.miembros.length, miembros: est.miembros };
+    }
+    if (!Array.isArray(salida.otras_instituciones)) salida.otras_instituciones = [];
+  }
+  return { datos: salida, meta: metaSalida, gescolar: deGescolar, edificio };
 }
 
 // ---------------------------------------------------------------------------
@@ -183,11 +233,11 @@ async function abrirPlantel(consulta, codigoPedido) {
   }
   if (!fila) throw new ErrorConsulta(404, `El código ${codigo} no existe en GESCOLAR.`);
   const dea = String(fila[gescolar.CAMPO_CODIGO] || "").trim();
-  const { datos, meta } = await datosParaLlenar(dea, fila, consulta.fases);
+  const { datos, meta, edificio } = await datosParaLlenar(dea, fila, consulta.fases);
   return {
     plantel: { codigo_dea: dea, nombre_plantel: String(fila.nombre_plantel || "").replace(/\s+/g, " ").trim(), municipio: String(fila.municipio || "").trim(), parroquia: String(fila.parroquia || "").trim() },
     secciones: seccionesDe(consulta.fases),
-    datos, meta,
+    datos, meta, edificio,
     avisos: esquema.avisos(datos),
   };
 }
@@ -206,6 +256,44 @@ async function guardarPlantel({ consulta, codigoPedido, datos: entrada, nota, ve
   const { datos, errores } = esquema.validar(mezcla, { enviar: true, claves });
   if (Object.keys(errores).length) throw new ErrorConsulta(400, "Revisa los campos marcados.", { errores });
 
+  // ---- Fase Edificio: se clasifica en Infraestructuras ANTES de guardar; si falla (409/502) no se guarda nada ----
+  let clasif = null;
+  let hoja = null;
+  const conEdificio = consulta.fases.includes("edificio");
+  if (conEdificio) {
+    const comparte = datos.comparte_edificio === "SI" && datos.otras_instituciones.length > 0;
+    if (comparte) {
+      const errs = {};
+      try {
+        for (let i = 0; i < datos.otras_instituciones.length; i++) {
+          const o = datos.otras_instituciones[i];
+          if (!o.codigo_dea) continue;
+          if (o.codigo_dea.toLowerCase() === dea.toLowerCase()) { errs[`otras_instituciones.${i}`] = "Ese es el mismo plantel."; continue; }
+          const f = await gescolar.obtenerPlantel(o.codigo_dea);
+          if (!f) { errs[`otras_instituciones.${i}`] = `El código ${o.codigo_dea} no existe en GESCOLAR. Si no tiene código, déjalo vacío y escribe solo el nombre.`; continue; }
+          o.codigo_dea = limpio(f[gescolar.CAMPO_CODIGO]);
+          o.nombre = limpio(f.nombre_plantel) || o.nombre;
+        }
+      } catch (err) {
+        console.error("Consultas exprés: GESCOLAR:", err.message);
+        throw new ErrorConsulta(502, "No se pudo consultar GESCOLAR para verificar las otras instituciones. Intenta de nuevo en un momento.");
+      }
+      if (Object.keys(errs).length) throw new ErrorConsulta(400, "Revisa los campos marcados.", { errores: errs });
+    }
+    const est = await estadoEdificio(dea);
+    const hayQueClasificar = !est.clasificado || est.comparte !== comparte || (comparte && !listaIgual(datos.otras_instituciones, est.otras));
+    if (hayQueClasificar) {
+      try {
+        clasif = await infraestructuras.clasificar({
+          codigo_dea: dea, nombre: abierto.plantel.nombre_plantel, comparte, otras: datos.otras_instituciones, usuarioId: usuario.id,
+        });
+      } catch (err) {
+        if (err instanceof infraestructuras.ErrorInfra) throw new ErrorConsulta(err.status, err.message, err.extra);
+        throw err;
+      }
+    }
+  }
+
   const anterior = abierto.datos;
   const marcaCampo = Boolean(verificado);
   const textoNota = String(nota || "").replace(/\s+/g, " ").trim().slice(0, 500) || null;
@@ -217,7 +305,7 @@ async function guardarPlantel({ consulta, codigoPedido, datos: entrada, nota, ve
       const k = c.clave;
       const nuevo = datos[k] === undefined ? null : datos[k];
       const viejo = anterior[k] === undefined ? null : anterior[k];
-      const cambio = !igual(nuevo, viejo);
+      const cambio = k === "otras_instituciones" ? !listaIgual(nuevo, viejo) : !igual(nuevo, viejo);
       if (cambio) {
         cambios += 1;
         await cliente.query(
@@ -242,7 +330,14 @@ async function guardarPlantel({ consulta, codigoPedido, datos: entrada, nota, ve
   } finally {
     cliente.release();
   }
-  return { cambios, avisos: esquema.avisos(datos), plantel: abierto.plantel };
+  // La hoja se completa DESPUÉS de guardar: si Google falla, lo guardado no se pierde (queda «pendiente»).
+  let edificio = null;
+  if (clasif) {
+    const u = (await pool.query("SELECT nombre FROM usuarios WHERE id = $1", [usuario.id])).rows[0];
+    hoja = await infraestructuras.sincronizarHoja(clasif, (u && u.nombre) || "");
+    edificio = { codigo_infraestructura: clasif.infra.codigo, comparte: clasif.comparte, hoja_coordenadas: hoja };
+  }
+  return { cambios, avisos: esquema.avisos(datos), plantel: abierto.plantel, edificio };
 }
 
 // ---------------------------------------------------------------------------
@@ -265,12 +360,13 @@ async function cambiosRecientes({ municipio, q, limite }) {
     console.error("Cambios recientes: GESCOLAR:", err.message);
   }
   const etiquetas = new Map(esquema.todosLosCampos().map((c) => [c.clave, c]));
+  etiquetas.set("otras_instituciones", { clave: "otras_instituciones", etiqueta: "Otras instituciones del edificio" });
   const mun = String(municipio || "").trim().toLowerCase();
   const texto = esquema.normalizar(q || "");
   const lista = rows.map((r) => {
     const p = plantel.get(String(r.codigo_dea).toLowerCase()) || { nombre: "", municipio: "" };
     const c = etiquetas.get(r.clave);
-    return { ...r, plantel: p.nombre, municipio: p.municipio, pregunta: c ? c.etiqueta : r.clave, anterior: legible(c, r.valor_anterior), nuevo: legible(c, r.valor_nuevo) };
+    return { ...r, plantel: p.nombre, municipio: p.municipio, pregunta: c ? c.etiqueta : r.clave, no_reversible: CLAVES_EDIFICIO.includes(r.clave), anterior: legible(c, r.valor_anterior), nuevo: legible(c, r.valor_nuevo) };
   }).filter((r) => (!mun || r.municipio.toLowerCase() === mun)
     && (!texto || esquema.normalizar(`${r.plantel} ${r.codigo_dea}`).includes(texto)));
   return lista.slice(0, Math.min(Math.max(Number(limite) || 200, 1), 500));
@@ -278,6 +374,9 @@ async function cambiosRecientes({ municipio, q, limite }) {
 
 function legible(campo, v) {
   if (v === null || v === undefined) return "—";
+  if (campo && campo.clave === "otras_instituciones") {
+    return Array.isArray(v) && v.length ? v.map((o) => (o.codigo_dea ? `${o.nombre || ""} (${o.codigo_dea})` : o.nombre || "")).join("; ") : "—";
+  }
   const una = (x) => {
     const op = campo && campo.opciones ? campo.opciones.find((o) => o.valor === x) : null;
     return op ? op.etiqueta : String(x);
@@ -290,6 +389,9 @@ async function revertirCambio(id, usuarioId) {
   const c = (await pool.query("SELECT * FROM iu_cambios WHERE id = $1", [id])).rows[0];
   if (!c) throw new ErrorConsulta(404, "Cambio no encontrado.");
   if (c.revertido_en) throw new ErrorConsulta(409, "Este cambio ya se revirtió.");
+  if (CLAVES_EDIFICIO.includes(c.clave)) {
+    throw new ErrorConsulta(409, "Los cambios de edificio compartido no se revierten aquí: se corrigen desde la pantalla Infraestructuras.");
+  }
   const actual = (await pool.query("SELECT valor FROM iu_valores WHERE codigo_dea = $1 AND clave = $2", [c.codigo_dea, c.clave])).rows[0];
   if (!actual || !igual(actual.valor, c.valor_nuevo)) {
     throw new ErrorConsulta(409, "Ese dato ya cambió después. Revierte primero el cambio más reciente de esa pregunta.");

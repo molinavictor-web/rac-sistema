@@ -70,7 +70,7 @@ function dibujar() {
       <td>${escapar(c.anterior)}</td>
       <td>${escapar(c.nuevo)}${c.nota ? `<br><span class="nota">“${escapar(c.nota)}”</span>` : ""}</td>
       <td>${escapar(c.usuario || "")}<br><small>${escapar(c.consulta || "")}</small></td>
-      <td>${c.revertido_en ? "<small>revertido</small>" : `<button type="button" class="btn btn-fantasma" data-rev="${c.id}">Volver al anterior</button>`}</td>
+      <td>${c.revertido_en ? "<small>revertido</small>" : c.no_reversible ? "<small>Se corrige en Infraestructuras</small>" : `<button type="button" class="btn btn-fantasma" data-rev="${c.id}">Volver al anterior</button>`}</td>
     </tr>`).join("")}</tbody></table></div></div>`;
   cont.querySelectorAll("[data-rev]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("¿Volver al dato anterior?")) return;
