@@ -33,6 +33,9 @@ let P = null;          // respuesta del plantel abierto
 let datos = {};
 let errores = {};
 let temporizador = null;
+const infoFilas = {};          // texto de ayuda por fila de «otras instituciones»
+const sugerenciasPorFila = {};
+const temporizadoresSug = {};
 
 if (usuario) iniciar();
 
@@ -101,7 +104,9 @@ async function abrir(codigo) {
   }
   document.getElementById("sugerencias").innerHTML = "";
   datos = JSON.parse(JSON.stringify(P.datos || {}));
+  if (P.secciones.some((x) => x.lista) && !Array.isArray(datos.otras_instituciones)) datos.otras_instituciones = [];
   errores = {};
+  Object.keys(infoFilas).forEach((k) => delete infoFilas[k]);
   pintar();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -113,6 +118,7 @@ function etiquetaOrigen(clave) {
   if (!m) return "";
   if (m.fuente === "gescolar") return `<span class="ce-origen">de GESCOLAR</span>`;
   if (m.fuente === "visita") return `<span class="ce-origen">de la visita</span>`;
+  if (m.fuente === "infraestructuras") return `<span class="ce-origen">de Infraestructuras</span>`;
   const f = m.en ? new Date(m.en).toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit" }) : "";
   return `<span class="ce-origen ${m.verificado_campo ? "campo" : ""}">${m.verificado_campo ? "✓ verificado en campo" : "actualizado"} ${escapar(f)}${m.usuario ? " · " + escapar(m.usuario) : ""}</span>`;
 }
@@ -159,7 +165,88 @@ function seccionHtml(s) {
     <h2>${escapar(s.titulo)}</h2>${s.ayuda ? `<p class="iu-ayuda">${escapar(s.ayuda)}</p>` : ""}
     ${s.campos.length ? `<div class="iu-dos">${s.campos.map(campoHtml).join("")}</div>` : ""}
     ${(s.grupos || []).map(grupoHtml).join("")}
+    ${s.lista ? listaHtml(s) : ""}
   </div>`;
+}
+
+// ---- Edificio compartido: otras instituciones que funcionan en el mismo edificio ----
+function listaHtml(s) {
+  const e = P.edificio;
+  const err = errores.otras_instituciones;
+  return `<div class="iu-grupo" id="iuListaWrap" style="display:none;"><h3>${escapar(s.lista.etiqueta)}</h3>
+    ${e ? `<div class="iu-aviso">Este plantel ya figura en el edificio <strong>${escapar(e.codigo_infraestructura)}</strong> con ${e.cantidad} nombres: ${e.miembros.map((m) => escapar(m.nombre || m.codigo_dea)).join(" · ")}.</div>` : ""}
+    <p class="iu-ayuda">Escribe el código DEA de la otra institución y pulsa Buscar: se trae su nombre de GESCOLAR. Si no tiene código, escribe solo el nombre.</p>
+    <div id="iuLista"></div>
+    <button type="button" class="btn btn-fantasma btn-sm" id="btnAgregarInst">+ Agregar otra institución</button>
+    <div class="iu-msg-error" id="errLista">${err ? escapar(err) : ""}</div>
+  </div>`;
+}
+
+function pintarLista() {
+  const cont = document.getElementById("iuLista");
+  if (!cont) return;
+  cont.innerHTML = (datos.otras_instituciones || []).map((o, i) => {
+    const e = errores[`otras_instituciones.${i}`];
+    return `<div class="iu-inst" data-fila="${i}">
+      <div><input type="text" placeholder="Código DEA" data-inst-codigo="${i}" value="${escapar(o.codigo_dea || "")}"><button type="button" class="btn btn-fantasma btn-sm" data-buscar="${i}" style="margin-top:6px;">Buscar</button></div>
+      <div><input type="text" placeholder="Nombre de la institución" data-inst-nombre="${i}" value="${escapar(o.nombre || "")}">
+        <div class="iu-sugerencias" data-sug="${i}" style="display:none;"></div>
+        <div class="iu-nota" data-info-fila="${i}">${escapar(infoFilas[i] || "")}</div>
+        ${e ? `<div class="iu-msg-error">${escapar(e)}</div>` : ""}</div>
+      <button type="button" class="btn btn-fantasma btn-sm" data-quitar="${i}">Quitar</button>
+    </div>`;
+  }).join("") || `<div class="iu-nota">Todavía no has agregado ninguna.</div>`;
+}
+
+async function buscarInstitucion(i) {
+  const o = datos.otras_instituciones[i];
+  const codigo = (o.codigo_dea || "").trim().toUpperCase();
+  const info = document.querySelector(`[data-info-fila="${i}"]`);
+  if (!codigo) { if (info) info.textContent = "Escribe un código DEA para buscar."; return; }
+  if (codigo.toLowerCase() === P.plantel.codigo_dea.toLowerCase()) { if (info) info.textContent = "Ese es el mismo plantel."; return; }
+  if (info) info.textContent = "Buscando…";
+  try {
+    const p = await api("GET", `/api/inspecciones/instrumento-uno/plantel/${encodeURIComponent(codigo)}`);
+    o.codigo_dea = p.codigo_dea;
+    o.nombre = p.nombre_plantel;
+    infoFilas[i] = p.edificio ? `Ya figura en el edificio ${p.edificio.codigo_infraestructura} (${p.edificio.cantidad} nombres).` : `${p.municipio}${p.parroquia ? " · " + p.parroquia : ""}`;
+    delete errores[`otras_instituciones.${i}`];
+    pintarLista();
+  } catch (err) {
+    infoFilas[i] = err.message;
+    if (info) info.textContent = err.message;
+  }
+}
+
+function sugerirInstitucion(i, texto) {
+  clearTimeout(temporizadoresSug[i]);
+  const cont = document.querySelector(`[data-sug="${i}"]`);
+  if (!cont) return;
+  if (String(texto).trim().length < 3) { cont.style.display = "none"; return; }
+  temporizadoresSug[i] = setTimeout(async () => {
+    try {
+      const r = await api("GET", `/api/inspecciones/instrumento-uno/buscar?q=${encodeURIComponent(texto.trim())}&excluir=${encodeURIComponent(P.plantel.codigo_dea)}`);
+      sugerenciasPorFila[i] = r.planteles;
+      const c = document.querySelector(`[data-sug="${i}"]`);
+      if (!c) return;
+      c.innerHTML = r.planteles.length
+        ? r.planteles.map((p, k) => `<button type="button" class="iu-sug" data-fila="${i}" data-elegir="${k}"><strong>${escapar(p.nombre_plantel)}</strong><small>${escapar(p.codigo_dea)} · ${escapar(p.municipio)}${p.parroquia ? " · " + escapar(p.parroquia) : ""}</small></button>`).join("") +
+          `<div class="iu-nota" style="padding:4px 8px;">¿No está en la lista? Deja el nombre como lo escribiste (sin código).</div>`
+        : `<div class="iu-nota" style="padding:6px 8px;">Sin coincidencias en GESCOLAR. Se guardará solo con el nombre que escribiste.</div>`;
+      c.style.display = "";
+    } catch (_) { /* se puede seguir escribiendo el nombre a mano */ }
+  }, 300);
+}
+
+function elegirSugerencia(i, k) {
+  const p = (sugerenciasPorFila[i] || [])[k];
+  if (!p) return;
+  const o = datos.otras_instituciones[i];
+  o.codigo_dea = p.codigo_dea;
+  o.nombre = p.nombre_plantel;
+  delete errores[`otras_instituciones.${i}`];
+  infoFilas[i] = `${p.municipio}${p.parroquia ? " · " + p.parroquia : ""}`;
+  pintarLista();
 }
 
 function pintar() {
@@ -180,6 +267,7 @@ function pintar() {
     <div class="iu-barra"><div class="izq"><div class="iu-msg-error" id="resumenError"></div></div>
       <div class="der"><button type="button" class="btn btn-fantasma" id="btnOtro">Cancelar</button><button type="button" class="btn btn-primario" id="btnGuardar" ${P.puede_guardar ? "" : "disabled"}>Guardar</button></div></div>`;
   enganchar();
+  pintarLista();
   actualizarVisibilidad();
 }
 
@@ -202,6 +290,8 @@ function cumple(c) {
 }
 
 function actualizarVisibilidad() {
+  const wrap = document.getElementById("iuListaWrap");
+  if (wrap) wrap.style.display = datos.comparte_edificio === "SI" ? "" : "none";
   todosCampos().forEach((c) => {
     const f = document.getElementById(`fld-${c.clave}`);
     if (!f) return;
@@ -214,6 +304,16 @@ function actualizarVisibilidad() {
 
 function enganchar() {
   const form = document.getElementById("formulario");
+  // #formulario se conserva al redibujar: los oyentes se registran UNA sola vez (si no, cada botón actuaría varias veces)
+  if (!form.dataset.enganchado) {
+    form.dataset.enganchado = "1";
+    enlazarFormulario(form);
+  }
+  document.getElementById("btnOtro").addEventListener("click", () => { form.innerHTML = ""; P = null; document.getElementById("codigo").value = ""; document.getElementById("codigo").focus(); });
+  document.getElementById("btnGuardar").addEventListener("click", guardar);
+}
+
+function enlazarFormulario(form) {
   const alCambiar = (e) => {
     const t = e.target;
     if (t.dataset.clave) {
@@ -227,11 +327,28 @@ function enganchar() {
     if (fe) { fe.classList.remove("con-error"); const m = fe.querySelector(".iu-msg-error"); if (m) m.textContent = ""; }
     actualizarVisibilidad();
   };
+  // lista de otras instituciones (no son campos del esquema)
+  form.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.dataset.instCodigo !== undefined) { datos.otras_instituciones[Number(t.dataset.instCodigo)].codigo_dea = t.value.trim().toUpperCase(); return; }
+    if (t.dataset.instNombre !== undefined) {
+      const i = Number(t.dataset.instNombre);
+      datos.otras_instituciones[i].nombre = t.value;
+      sugerirInstitucion(i, t.value);
+    }
+  });
+  form.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.id === "btnAgregarInst") { datos.otras_instituciones.push({ codigo_dea: "", nombre: "" }); pintarLista(); return; }
+    if (b.dataset.quitar !== undefined) { datos.otras_instituciones.splice(Number(b.dataset.quitar), 1); pintarLista(); return; }
+    if (b.dataset.buscar !== undefined) { buscarInstitucion(Number(b.dataset.buscar)); return; }
+    if (b.dataset.elegir !== undefined) { elegirSugerencia(Number(b.dataset.fila), Number(b.dataset.elegir)); }
+  });
   form.addEventListener("input", alCambiar);
   form.addEventListener("change", (e) => { if (e.target.tagName === "SELECT" || e.target.type === "checkbox") alCambiar(e); });
-  document.getElementById("btnOtro").addEventListener("click", () => { form.innerHTML = ""; P = null; document.getElementById("codigo").value = ""; document.getElementById("codigo").focus(); });
-  document.getElementById("btnGuardar").addEventListener("click", guardar);
 }
+
 
 async function guardar() {
   const b = document.getElementById("btnGuardar");
@@ -240,11 +357,16 @@ async function guardar() {
   b.disabled = true;
   const envio = {};
   todosCampos().forEach((c) => { const v = datos[c.clave]; envio[c.clave] = v === undefined ? "" : v; });
+  if (P.secciones.some((x) => x.lista)) envio.otras_instituciones = datos.otras_instituciones || [];
   try {
     const r = await api("PUT", `${API}/${idConsulta}/plantel/${encodeURIComponent(P.plantel.codigo_dea)}`, {
       datos: envio, nota: document.getElementById("nota").value, verificado: document.getElementById("verificado").checked,
     });
-    const avisos = (r.avisos || []).map((a) => `<div class="iu-aviso">${escapar(a)}</div>`).join("");
+    const ed = r.edificio;
+    const avisoEdificio = ed
+      ? `<div class="iu-aviso" style="${ed.hoja_coordenadas === "pendiente" ? "" : "background:#eef6ee;"}">Edificio: <strong>${escapar(ed.codigo_infraestructura)}</strong> (${ed.comparte ? "comparte con otra(s) institución(es)" : "el plantel está solo en su edificio"}).${ed.hoja_coordenadas === "pendiente" ? " <strong>La hoja «Coordenadas Planteles» quedó pendiente</strong> (Google no respondió): se completa al sincronizar en Infraestructuras." : ""}</div>`
+      : "";
+    const avisos = avisoEdificio + (r.avisos || []).map((a) => `<div class="iu-aviso">${escapar(a)}</div>`).join("");
     document.getElementById("formulario").innerHTML = `
       <div class="iu-resultado"><strong>Guardado.</strong> ${r.cambios ? `${r.cambios} dato(s) actualizado(s) en ${escapar(r.plantel.nombre_plantel)}.` : `No hubo cambios en ${escapar(r.plantel.nombre_plantel)}.`}
         ${avisos}

@@ -80,6 +80,17 @@ router.patch("/:id", requireAuth, requireRol(...ROLES_CREAN), async (req, res) =
   }
 });
 
+router.delete("/:id", requireAuth, requireRol(...ROLES_CREAN), async (req, res) => {
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Consulta inválida." });
+  try {
+    await consultas.eliminarConsulta(id);
+    res.json({ ok: true });
+  } catch (err) {
+    responder(res, err, "No se pudo eliminar la consulta.");
+  }
+});
+
 router.get("/:id/plantel/:codigo", requireAuth, requireRol(...ROLES_LLENAN), async (req, res) => {
   const id = entero(req.params.id);
   if (!id) return res.status(400).json({ error: "Consulta inválida." });
