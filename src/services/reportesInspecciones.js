@@ -23,6 +23,8 @@
 
 const { pool } = require("../db/pool");
 const gescolar = require("./gescolar");
+const consultasExpres = require("./consultasExpres");
+const esquemaIU = require("./instrumentoUnoEsquema");
 const infra = require("./infraestructuras");
 
 // ---------------------------------------------------------------------------
@@ -67,6 +69,8 @@ const COLUMNAS = [
   { id: "aulas_total", grupo: "proyeccion", etiqueta: "Aulas (total)", tipo: "entero", sumable: true, ancho: 10 },
   { id: "aulas_operativas", grupo: "proyeccion", etiqueta: "Aulas operativas", tipo: "entero", sumable: true, ancho: 11 },
   { id: "aulas_no_operativas", grupo: "proyeccion", etiqueta: "Aulas NO operativas", tipo: "entero", sumable: true, ancho: 11 },
+  { id: "aulas_motivo", grupo: "proyeccion", etiqueta: "Motivo de inhabilitación de las aulas", tipo: "texto", ancho: 34 },
+  { id: "aulas_fuerza_mayor", grupo: "proyeccion", etiqueta: "¿Por causa de fuerza mayor?", tipo: "texto", ancho: 14 },
   { id: "alumnos_por_aula", grupo: "proyeccion", etiqueta: "Alumnos por aula operativa (hoy)", tipo: "decimal", ancho: 14 },
   { id: "proy_alumnos_min", grupo: "proyeccion", etiqueta: "Alumnos adicionales posibles (25 por aula)", tipo: "entero", sumable: true, ancho: 16 },
   { id: "proy_alumnos_max", grupo: "proyeccion", etiqueta: "Alumnos adicionales posibles (30 por aula)", tipo: "entero", sumable: true, ancho: 16 },
@@ -95,7 +99,7 @@ const PRESETS = [
   { id: "esencial", etiqueta: "Esencial", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "edificio_estado", "edificio_codigo"] },
   { id: "matricula_edificio", etiqueta: "Matrícula y edificio", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "edificio_estado", "edificio_codigo", "edificio_instituciones", "edificio_comparte_con", "edificio_matricula", "espacios_separados"] },
   { id: "matricula_niveles", etiqueta: "Matrícula por nivel", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "mat_maternal", "mat_preescolar", "mat_primaria", "mat_media_general", "mat_media", "mat_tecnica", "mat_adulto", "mat_especial"] },
-  { id: "proyeccion_aulas", etiqueta: "Proyección de aulas", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "aulas_total", "aulas_operativas", "aulas_no_operativas", "alumnos_por_aula", "proy_alumnos_min", "proy_alumnos_max", "proy_mesas_min", "proy_mesas_max"] },
+  { id: "proyeccion_aulas", etiqueta: "Proyección de aulas", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "aulas_total", "aulas_operativas", "aulas_no_operativas", "aulas_motivo", "aulas_fuerza_mayor", "alumnos_por_aula", "proy_alumnos_min", "proy_alumnos_max", "proy_mesas_min", "proy_mesas_max"] },
   { id: "seguimiento", etiqueta: "Seguimiento de la inspección", columnas: ["codigo", "nombre", "municipio", "parroquia", "insp_estado", "insp_fecha", "insp_responsable", "insp_rubros", "insp_adicionales"] },
 ];
 
@@ -240,6 +244,7 @@ function fechaISO(valor) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
 }
 
+const etiquetaMotivo = (m) => { const o = esquemaIU.MOTIVOS_AULAS.find((x) => x.valor === m); return o ? o.etiqueta : m; };
 const ETIQUETA_EDIFICIO = { solo: "Solo en su edificio", comparte: "Comparte edificio", sin_clasificar: "Sin clasificar" };
 
 // Núcleo: arma el reporte a partir de una lista de "entradas" ya resueltas.
@@ -260,18 +265,15 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
       .rows.forEach((r) => adic.set(r.inspeccion_id, r.n));
   }
 
-  // Aulas: última visita ENVIADA del Instrumento Uno de cada plantel.
+  // Aulas: dato vigente del plantel = última visita ENVIADA del Instrumento Uno + lo cargado después por consultas exprés.
   const pideProyeccion = columnas.some((c) => c.grupo === "proyeccion");
   const aulas = new Map();
   if (pideProyeccion && deas.length) {
-    (await pool.query(
-      `SELECT DISTINCT ON (lower(codigo_dea)) lower(codigo_dea) AS k, datos
-       FROM iu_visitas WHERE estado = 'ENVIADA' AND lower(codigo_dea) = ANY($1::text[])
-       ORDER BY lower(codigo_dea), enviado_en DESC NULLS LAST, id DESC`,
-      [deas]
-    )).rows.forEach((r) => {
-      const d = r.datos || {};
-      aulas.set(r.k, { total: aEntero(d.aulas_total), operativas: aEntero(d.aulas_operativas), no_operativas: aEntero(d.aulas_no_operativas) });
+    (await consultasExpres.datosVigentesLote(deas)).forEach((d, k) => {
+      aulas.set(k, {
+        total: aEntero(d.aulas_total), operativas: aEntero(d.aulas_operativas), no_operativas: aEntero(d.aulas_no_operativas),
+        motivos: Array.isArray(d.aulas_motivo) ? d.aulas_motivo : [], motivo_otro: texto(d.aulas_motivo_otro),
+      });
     });
   }
 
@@ -346,6 +348,8 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
       aulas_total: au ? au.total : null,
       aulas_operativas: oper,
       aulas_no_operativas: noOper,
+      aulas_motivo: au && au.motivos.length ? au.motivos.map((m) => (m === "OTRO" && au.motivo_otro ? `Otro: ${au.motivo_otro}` : etiquetaMotivo(m))).join(", ") : "",
+      aulas_fuerza_mayor: !au || noOper === null ? "" : au.motivos.some((m) => esquemaIU.MOTIVOS_FUERZA_MAYOR.includes(m)) ? "Sí" : noOper > 0 ? (au.motivos.length ? "No" : "Sin motivo") : "",
       alumnos_por_aula: porAula,
       proy_alumnos_min: noOper === null ? null : noOper * ALUMNOS_POR_AULA_MIN,
       proy_alumnos_max: noOper === null ? null : noOper * ALUMNOS_POR_AULA_MAX,
@@ -389,7 +393,9 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
   const sinMat = filas.filter((f) => f.mat_total === null).length;
   if (sinMat) avisos.push(`${sinMat} plantel(es) no tienen matrícula registrada.`);
   if (pideProyeccion) {
-    avisos.push(`Proyección de capacidad: supone rehabilitar todas las aulas no operativas, entre ${ALUMNOS_POR_AULA_MIN} y ${ALUMNOS_POR_AULA_MAX} alumnos por aula (un solo turno) y una mesa-silla por alumno adicional. No es matrícula real: depende de que haya niños sin cupo.`);
+    avisos.push(`Proyección de capacidad: supone rehabilitar todas las aulas no operativas, entre ${ALUMNOS_POR_AULA_MIN} y ${ALUMNOS_POR_AULA_MAX} alumnos por aula (un solo turno) y una mesa-silla por alumno adicional. No es matrícula real: depende de que haya niños sin cupo. El dato de aulas es el más reciente entre la última visita enviada y las consultas exprés.`);
+    const fm = filas.filter((f) => f.aulas_fuerza_mayor === "Sí").length;
+    if (fm) avisos.push(`${fm} plantel(es) tienen aulas inhabilitadas por causas de fuerza mayor (incendio, inundación, deslizamiento, terreno cedido u otra catástrofe). El motivo se registra por plantel, no por aula.`);
     if (sinAulas) avisos.push(`${sinAulas} plantel(es) no tienen una visita ENVIADA del Instrumento Uno: sin datos de aulas.`);
     if (subocupados) avisos.push(`${subocupados} plantel(es) ya tienen menos de ${ALUMNOS_POR_AULA_MIN} alumnos por aula operativa: rehabilitar más aulas probablemente no genere matrícula adicional (conviene revisar la demanda).`);
   }
@@ -410,6 +416,8 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
       // Proyección de aulas (solo si el reporte la incluye)
       con_datos_de_aulas: pideProyeccion ? filas.filter((f) => f.aulas_total !== null || f.aulas_no_operativas !== null).length : null,
       aulas_no_operativas: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.aulas_no_operativas === "number" ? f.aulas_no_operativas : 0), 0) : null,
+      planteles_fuerza_mayor: pideProyeccion ? filas.filter((f) => f.aulas_fuerza_mayor === "Sí").length : null,
+      aulas_no_operativas_fuerza_mayor: pideProyeccion ? filas.filter((f) => f.aulas_fuerza_mayor === "Sí").reduce((x, f) => x + (typeof f.aulas_no_operativas === "number" ? f.aulas_no_operativas : 0), 0) : null,
       alumnos_adicionales_min: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.proy_alumnos_min === "number" ? f.proy_alumnos_min : 0), 0) : null,
       alumnos_adicionales_max: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.proy_alumnos_max === "number" ? f.proy_alumnos_max : 0), 0) : null,
     },

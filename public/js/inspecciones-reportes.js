@@ -267,7 +267,7 @@ function dibujarResultado() {
     <div class="rep-tarjetas">
       ${tarjeta(res.planteles, "Planteles")}
       ${tarjeta(res.matricula_total, "Matrícula total")}
-      ${conProy ? tarjeta(res.aulas_no_operativas, "Aulas no operativas") + tarjeta(res.alumnos_adicionales_min, "Alumnos adicionales (mín.)") + tarjeta(res.alumnos_adicionales_max, "Alumnos adicionales (máx.)") : ""}
+      ${conProy ? tarjeta(res.aulas_no_operativas, "Aulas no operativas") + tarjeta(res.alumnos_adicionales_min, "Alumnos adicionales (mín.)") + tarjeta(res.alumnos_adicionales_max, "Alumnos adicionales (máx.)") + (res.planteles_fuerza_mayor ? tarjeta(res.planteles_fuerza_mayor, "Planteles con aulas perdidas por fuerza mayor") : "") : ""}
       ${conEdificio ? tarjeta(res.edificios_distintos, "Edificios distintos") + tarjeta(res.planteles_solos, "Solos en su edificio") + tarjeta(res.planteles_comparten, "Comparten edificio") + tarjeta(res.sin_clasificar, "Sin clasificar") : ""}
     </div>
     ${(r.avisos || []).map((a) => `<div class="rep-aviso">${escapar(a)}</div>`).join("")}

@@ -363,6 +363,7 @@ async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, ge
   }
   if (resumen.alumnos_adicionales_min !== null && resumen.alumnos_adicionales_min !== undefined) {
     lineas.push(`Aulas no operativas: ${resumen.aulas_no_operativas} · Alumnos adicionales posibles: ${Number(resumen.alumnos_adicionales_min).toLocaleString("es-VE")} a ${Number(resumen.alumnos_adicionales_max).toLocaleString("es-VE")}`);
+    if (resumen.planteles_fuerza_mayor) lineas.push(`Planteles con aulas inhabilitadas por fuerza mayor: ${resumen.planteles_fuerza_mayor}`);
   }
   hoja.mergeCells(9, 1, 9, fin);
   celda(hoja.getCell(9, 1), lineas.join("   |   "), { tam: 10, borde: false, h: "left" });

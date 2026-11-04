@@ -84,6 +84,19 @@ const SUMINISTRO_GAS = [
   { valor: "NINGUNO", etiqueta: "No tiene suministro de gas" },
 ];
 
+// Por qué hay aulas inhabilitadas. Las cuatro primeras y "otra catástrofe" son causas de fuerza mayor.
+const MOTIVOS_AULAS = [
+  { valor: "INCENDIO", etiqueta: "Incendio" },
+  { valor: "INUNDACION", etiqueta: "Inundación o desborde de quebrada" },
+  { valor: "DESLIZAMIENTO", etiqueta: "Deslizamiento de tierra" },
+  { valor: "TERRENO_CEDIDO", etiqueta: "Terreno cedido o falla del suelo" },
+  { valor: "CATASTROFE", etiqueta: "Otra catástrofe natural" },
+  { valor: "DETERIORO", etiqueta: "Deterioro o falta de mantenimiento" },
+  { valor: "VANDALISMO", etiqueta: "Vandalismo o robo" },
+  { valor: "OTRO", etiqueta: "Otro (escribir cuál)" },
+];
+const MOTIVOS_FUERZA_MAYOR = ["INCENDIO", "INUNDACION", "DESLIZAMIENTO", "TERRENO_CEDIDO", "CATASTROFE"];
+
 const PATRON_CEDULA = "^\\d{6,9}$";
 // 11 dígitos: fijos 02xx (p. ej. 0291 de Monagas) y móviles 0412, 0414, 0416, 0424, 0426.
 const PATRON_TELEFONO = "^0(2\\d{2}|4(12|14|16|24|26))\\d{7}$";
@@ -151,6 +164,8 @@ const SECCIONES = [
       entero("aulas_total", "Número de aulas (total)", 0, 200, { obligatorio: true, gescolar: ["cant_aulas"] }),
       entero("aulas_operativas", "Aulas operativas", 0, 200, { obligatorio: true }),
       entero("aulas_no_operativas", "Aulas NO operativas", 0, 200, { obligatorio: true }),
+      { clave: "aulas_motivo", etiqueta: "¿Por qué están inhabilitadas las aulas?", tipo: "multi", obligatorioVisible: true, opciones: MOTIVOS_AULAS, visibleSi: { clave: "aulas_no_operativas", mayorQue: 0 }, ayuda: "Marca todas las que apliquen." },
+      { clave: "aulas_motivo_otro", etiqueta: "¿Cuál otro motivo?", tipo: "texto", obligatorioVisible: true, visibleSi: { clave: "aulas_motivo", valores: ["OTRO"] } },
       entero("canchas_operativas", "Canchas operativas", 0, 20, { obligatorio: true }),
       entero("canchas_no_operativas", "Canchas NO operativas", 0, 20, { obligatorio: true }),
       { clave: "cancha_techada", etiqueta: "¿Hay cancha techada?", tipo: "select", opciones: SI_NO, ayuda: "Obligatoria si hay alguna cancha.", dependeDe: "canchas" },
@@ -299,13 +314,16 @@ function aTexto(v) {
 function esVisible(c, datos) {
   if (!c.visibleSi) return true;
   const a = datos[c.visibleSi.clave];
+  if (c.visibleSi.mayorQue !== undefined) return Number(a) > c.visibleSi.mayorQue;
   return (Array.isArray(a) ? a : [a]).some((x) => c.visibleSi.valores.includes(x));
 }
 
 // Limpia y valida las respuestas. Con enviar=false (borrador) solo se exige que lo escrito sea válido;
 // con enviar=true además se exigen los campos obligatorios y las reglas cruzadas.
 // Devuelve { datos, errores } (errores: clave → mensaje).
-function validar(entrada, { enviar = false } = {}) {
+// Con `claves` (un Set) solo se exigen y cruzan las reglas de esas preguntas (consultas exprés por fases).
+function validar(entrada, { enviar = false, claves = null } = {}) {
+  const incluye = (k) => !claves || claves.has(k);
   const e = entrada && typeof entrada === "object" ? entrada : {};
   const datos = {};
   const errores = {};
@@ -375,25 +393,25 @@ function validar(entrada, { enviar = false } = {}) {
 
   if (enviar) {
     todosLosCampos().forEach((c) => {
-      if (!c.obligatorio || errores[c.clave]) return;
+      if (!c.obligatorio || errores[c.clave] || !incluye(c.clave)) return;
       // las secciones por nivel solo se exigen si el nivel tiene matrícula
       if (c.dependeDe && c.dependeDe.startsWith("matricula_") && !(Number(datos[c.dependeDe]) > 0)) return;
       const v = datos[c.clave];
       if (v === undefined || (Array.isArray(v) && !v.length)) errores[c.clave] = "Obligatorio.";
     });
-    todosLosCampos().filter((c) => c.obligatorioVisible && esVisible(c, datos)).forEach((c) => {
+    todosLosCampos().filter((c) => c.obligatorioVisible && incluye(c.clave) && esVisible(c, datos)).forEach((c) => {
       if (!errores[c.clave] && (datos[c.clave] === undefined || datos[c.clave] === "")) errores[c.clave] = "Obligatorio.";
     });
-    if (!datos.director_telefono && !datos.director_telefono_movil && !errores.director_telefono && !errores.director_telefono_movil) {
+    if (incluye("director_telefono") && !datos.director_telefono && !datos.director_telefono_movil && !errores.director_telefono && !errores.director_telefono_movil) {
       errores.director_telefono_movil = "Indica al menos un teléfono (fijo o móvil).";
     }
-    if ((Number(datos.canchas_operativas) || 0) + (Number(datos.canchas_no_operativas) || 0) > 0 && !datos.cancha_techada && !errores.cancha_techada) {
+    if (incluye("cancha_techada") && (Number(datos.canchas_operativas) || 0) + (Number(datos.canchas_no_operativas) || 0) > 0 && !datos.cancha_techada && !errores.cancha_techada) {
       errores.cancha_techada = "Indica si la cancha es techada.";
     }
     ["legal_edificio", "legal_terreno"].forEach((p) => {
-      if (datos[`${p}_documento`] === "SI" && !datos[`${p}_tipo`] && !errores[`${p}_tipo`]) errores[`${p}_tipo`] = "Indica qué tipo de documento tiene.";
+      if (incluye(`${p}_tipo`) && datos[`${p}_documento`] === "SI" && !datos[`${p}_tipo`] && !errores[`${p}_tipo`]) errores[`${p}_tipo`] = "Indica qué tipo de documento tiene.";
     });
-    if (datos.comparte_edificio === "SI" && !otras.length && !errores.otras_instituciones) {
+    if (incluye("comparte_edificio") && datos.comparte_edificio === "SI" && !otras.length && !errores.otras_instituciones) {
       errores.otras_instituciones = "Agrega la otra institución que funciona en el edificio (con su código DEA, o solo el nombre si no tiene).";
     }
   }
@@ -409,6 +427,6 @@ function avisos(datos) {
 }
 
 module.exports = {
-  SECCIONES, MUNICIPIOS, NIVELES, ESTADO_ESPACIO, PATRON_CODIGO,
+  SECCIONES, MUNICIPIOS, NIVELES, ESTADO_ESPACIO, PATRON_CODIGO, MOTIVOS_AULAS, MOTIVOS_FUERZA_MAYOR, esVisible,
   todosLosCampos, valoresDeGescolar, validar, avisos, normalizar,
 };
