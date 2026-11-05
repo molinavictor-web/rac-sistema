@@ -93,6 +93,7 @@ src/
     infraestructuras.js        # edificios con código INFRA-000001…, clasificación e importación de la hoja
     exportarInstrumentoUno.js  # Excel con las respuestas del Instrumento Uno
     exportarExcel.js           # Excel de consolidados, planillas y reportes por plan (exceljs)
+    directoresSupervision.js   # compara directores GESCOLAR vs Supervisión y arma el plan de actualización
     reportesInspecciones.js    # catálogo de columnas y armado de los reportes por plan
     consultasExpres.js         # consultas exprés: dato vigente, historial y reversión
     instrumentoUnoEsquema.js   # preguntas y validaciones del Instrumento Uno CDCE

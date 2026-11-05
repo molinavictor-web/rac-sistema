@@ -211,6 +211,13 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   Eliminar un archivo lo manda a la **papelera de Drive** (recuperable ~30 días); solo
   permite archivos que estén dentro de la carpeta de ese plantel.
 - `directorioDirectores.js`: edita solo las columnas del director en GESCOLAR.
+  **«Actualizar con los datos de Supervisión»** (solo admin, en la pantalla de RAC): compara GESCOLAR con la tabla
+  `directores_supervision` y, tras una vista previa, escribe en la hoja. Reglas (`src/services/directoresSupervision.js`):
+  cédula DISTINTA → se reemplaza todo (nombre, cédula, teléfonos y correo; lo que Supervisión no tenga queda vacío);
+  cédula igual → solo se completan vacíos (nombre incompleto, teléfono vacío); lo demás no se toca. Teléfonos en formato
+  de la hoja (10 dígitos sin el 0 inicial; móvil y fijo). Cada aplicación queda en `directorio_sincronizaciones`
+  (`scripts/sql/15_directorio_sincronizaciones.sql`, con valores anteriores) y se puede **Restaurar** (respeta lo que
+  alguien haya editado después). Aplicar dos veces no repite cambios.
 - `gescolar.js`: lee TODA la hoja GESCOLAR (caché de 15 min — un cambio hecho directo en la
   hoja puede tardar hasta 15 min en verse). Escribe solo `RESPONSABLE`, columnas `PLAN …` y las del director.
 

@@ -12,6 +12,8 @@ const usuario = window.location.pathname.startsWith("/inspecciones/")
 let temporizadorBusqueda = null;
 let plantelEnEdicion = null;
 const puedeEditar = usuario && (usuario.rol === "admin" || usuario.rol === "operador_plantel");
+// Actualizar la hoja con los datos de directores de Supervisión: solo admin y solo desde la pantalla de RAC.
+const puedeSincronizar = usuario && usuario.rol === "admin" && !window.location.pathname.startsWith("/inspecciones/");
 
 if (usuario) dibujarPanel();
 
@@ -25,6 +27,20 @@ function dibujarPanel() {
         <p>Datos de contacto del director de cada plantel · fuente: GESCOLAR.</p>
       </div>
     </section>
+
+    ${puedeSincronizar ? `
+    <div class="panel" id="panelSupervision" style="margin-bottom:14px;">
+      <div style="padding:16px 20px;">
+        <h2 style="margin:0 0 4px; font-size:1.05rem;">Actualizar con los datos de Supervisión</h2>
+        <p style="margin:0 0 12px; color:var(--muted); font-size:.85rem;">Compara el director de GESCOLAR con el de Supervisión. Si la cédula es distinta, GESCOLAR quedó viejo y se reemplaza (nombre, cédula, teléfonos y correo). Si la cédula coincide, solo se completan vacíos. Primero ves una vista previa; no se escribe nada hasta que confirmes.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primario" id="btnVistaPrevia">Ver vista previa</button>
+          <button type="button" class="btn btn-fantasma" id="btnHistorialSync">Ver actualizaciones hechas</button>
+        </div>
+        <div class="error-msg" id="errorSync" style="margin-top:10px;"></div>
+        <div id="resultadoSync" style="margin-top:12px;"></div>
+      </div>
+    </div>` : ""}
 
     <div class="panel">
       <div style="padding: 16px 20px 0;">
@@ -44,6 +60,10 @@ function dibujarPanel() {
   });
 
   mostrarEstadoInicial();
+  if (puedeSincronizar) {
+    document.getElementById("btnVistaPrevia").addEventListener("click", verVistaPrevia);
+    document.getElementById("btnHistorialSync").addEventListener("click", verHistorialSync);
+  }
 }
 
 function mostrarEstadoInicial() {
@@ -183,6 +203,126 @@ formDirector.addEventListener("submit", async (e) => {
     btn.textContent = "Guardar cambios";
   }
 });
+
+// ---- Actualizar con Supervisión (admin) ----
+const ETIQUETAS_CAMPO = {
+  director_nombre: "Director", documento_identidad: "Cédula", tipo_documento: "Tipo doc.",
+  telefono_movil_director: "Móvil", telefono_director: "Teléfono", correo: "Correo",
+};
+let PLAN = null;
+
+function mostrarErrorSync(mensaje) {
+  const e = document.getElementById("errorSync");
+  e.textContent = mensaje || "";
+  e.classList.toggle("visible", Boolean(mensaje));
+}
+
+async function verVistaPrevia() {
+  mostrarErrorSync("");
+  const cont = document.getElementById("resultadoSync");
+  const btn = document.getElementById("btnVistaPrevia");
+  btn.disabled = true;
+  cont.innerHTML = `<div class="cargando">Comparando GESCOLAR con Supervisión…</div>`;
+  try {
+    PLAN = await RAC.get("/api/directorio-directores/sincronizar-supervision/vista-previa");
+    dibujarVistaPrevia();
+  } catch (err) {
+    cont.innerHTML = "";
+    mostrarErrorSync(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function dibujarVistaPrevia() {
+  const cont = document.getElementById("resultadoSync");
+  const r = PLAN.resumen;
+  const ficha = (n, t) => `<div style="flex:1; min-width:140px; padding:10px 12px; border:1px solid var(--line,#e0e7f0); border-radius:10px;"><div style="font-size:1.3rem; font-weight:700;">${n}</div><div style="font-size:.8rem; color:var(--muted);">${t}</div></div>`;
+  cont.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      ${ficha(r.reemplazar, "directores que se REEMPLAZAN (cédula distinta)")}
+      ${ficha(r.completar, "planteles donde se COMPLETAN vacíos")}
+      ${ficha(r.sin_cambio, "sin cambios")}
+      ${ficha(r.revisar_nombre + r.revisar_telefono, "diferencias que NO se tocan (nombre/teléfono ya con dato)")}
+    </div>
+    <p style="margin:10px 0; font-size:.82rem; color:var(--muted);">${r.solo_gescolar} planteles están solo en GESCOLAR y ${r.solo_supervision} solo en Supervisión: no se tocan.</p>
+    ${PLAN.cambios.length ? `
+    <div class="filtros" style="margin-bottom:8px;">
+      <select id="filtroTipoSync"><option value="">Todos los cambios</option><option value="REEMPLAZO">Solo reemplazos</option><option value="COMPLETAR">Solo vacíos</option></select>
+      <input type="text" id="filtroTextoSync" placeholder="Filtrar por plantel o código..." style="flex:1; min-width:220px;">
+    </div>
+    <div class="tabla-responsive" style="max-height:420px; overflow:auto;"><table id="tablaPlanSync"></table></div>
+    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button type="button" class="btn btn-primario" id="btnAplicarSync">Aplicar ${PLAN.cambios.length} cambios en la hoja GESCOLAR</button>
+      <span style="font-size:.8rem; color:var(--muted);">Queda registro de quién y cuándo, y se puede restaurar.</span>
+    </div>` : `<div class="vacio"><strong>No hay nada que actualizar</strong>GESCOLAR ya está al día con Supervisión.</div>`}`;
+  if (PLAN.cambios.length) {
+    document.getElementById("filtroTipoSync").addEventListener("change", dibujarTablaPlan);
+    document.getElementById("filtroTextoSync").addEventListener("input", dibujarTablaPlan);
+    document.getElementById("btnAplicarSync").addEventListener("click", aplicarSync);
+    dibujarTablaPlan();
+  }
+}
+
+function dibujarTablaPlan() {
+  const tipo = document.getElementById("filtroTipoSync").value;
+  const q = document.getElementById("filtroTextoSync").value.trim().toLowerCase();
+  const lista = PLAN.cambios.filter((c) => (!tipo || c.tipo === tipo) && (!q || `${c.plantel} ${c.codigo}`.toLowerCase().includes(q)));
+  const vista = lista.slice(0, 300);
+  document.getElementById("tablaPlanSync").innerHTML = `
+    <thead><tr><th>Plantel</th><th>Cambio</th><th>Dato</th><th>Antes</th><th>Después</th></tr></thead>
+    <tbody>${vista.map((c) => c.campos.map((x, i) => `<tr>
+      ${i === 0 ? `<td rowspan="${c.campos.length}"><strong>${escapar(c.plantel)}</strong><br><small>${escapar(c.codigo)} · ${escapar(c.municipio)}</small></td><td rowspan="${c.campos.length}">${c.tipo === "REEMPLAZO" ? "Reemplazo" : "Completar"}</td>` : ""}
+      <td>${escapar(ETIQUETAS_CAMPO[x.campo] || x.campo)}</td><td>${escapar(x.antes) || "—"}</td><td><strong>${escapar(x.despues) || "(vacío)"}</strong></td></tr>`).join("")).join("")}</tbody>
+    ${lista.length > vista.length ? `<caption style="caption-side:bottom; padding:8px; color:var(--muted); font-size:.8rem;">Se muestran los primeros ${vista.length} de ${lista.length} planteles; al aplicar se escriben todos.</caption>` : ""}`;
+}
+
+async function aplicarSync() {
+  const r = PLAN.resumen;
+  if (!window.confirm(`Se va a escribir en la hoja GESCOLAR:\n\n• ${r.reemplazar} directores reemplazados\n• ${r.completar} planteles con vacíos completados\n\nQueda registro y se puede restaurar. ¿Aplicar?`)) return;
+  mostrarErrorSync("");
+  const btn = document.getElementById("btnAplicarSync");
+  btn.disabled = true;
+  btn.textContent = "Escribiendo en la hoja…";
+  try {
+    const res = await RAC.post("/api/directorio-directores/sincronizar-supervision/aplicar", { confirmar: true });
+    mostrarToast(`Hoja actualizada: ${res.aplicados} planteles.`);
+    document.getElementById("resultadoSync").innerHTML = `<div class="vacio"><strong>Listo: ${res.aplicados} planteles actualizados (${res.celdas || 0} datos)</strong>Si algo no quedó bien, entra a «Ver actualizaciones hechas» y usa «Restaurar».</div>`;
+    PLAN = null;
+  } catch (err) {
+    mostrarErrorSync(err.message);
+    btn.disabled = false;
+    btn.textContent = `Aplicar ${PLAN.cambios.length} cambios en la hoja GESCOLAR`;
+  }
+}
+
+async function verHistorialSync() {
+  mostrarErrorSync("");
+  const cont = document.getElementById("resultadoSync");
+  try {
+    const { historial } = await RAC.get("/api/directorio-directores/sincronizar-supervision/historial");
+    cont.innerHTML = historial.length ? `<div class="tabla-responsive"><table>
+      <thead><tr><th>Cuándo</th><th>Quién</th><th>Reemplazos</th><th>Completados</th><th></th></tr></thead>
+      <tbody>${historial.map((h) => `<tr><td>${escapar(new Date(h.creado_en).toLocaleString("es-VE"))}</td><td>${escapar(h.usuario || "")}</td>
+        <td>${h.resumen.reemplazar}</td><td>${h.resumen.completar}</td>
+        <td>${h.revertido_en ? "<small>restaurada</small>" : `<button type="button" class="btn btn-fantasma" data-restaurar="${h.id}">Restaurar</button>`}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="vacio"><strong>Todavía no se ha hecho ninguna actualización</strong></div>`;
+    cont.querySelectorAll("[data-restaurar]").forEach((b) => b.addEventListener("click", async () => {
+      if (!window.confirm("¿Devolver la hoja GESCOLAR a como estaba antes de esa actualización?\n\nSolo se restauran los datos que nadie haya cambiado después.")) return;
+      b.disabled = true;
+      try {
+        const r = await RAC.post(`/api/directorio-directores/sincronizar-supervision/${b.dataset.restaurar}/revertir`, {});
+        mostrarToast(`Restaurados ${r.restauradas} datos${r.omitidas ? ` (${r.omitidas} se dejaron porque alguien los cambió después)` : ""}.`);
+        verHistorialSync();
+      } catch (err) {
+        mostrarErrorSync(err.message);
+        b.disabled = false;
+      }
+    }));
+  } catch (err) {
+    mostrarErrorSync(err.message);
+  }
+}
 
 function escapar(valor) {
   if (valor === undefined || valor === null) return "";
