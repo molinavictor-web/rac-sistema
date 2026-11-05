@@ -20,7 +20,7 @@ BEGIN
   -- 2) Tablas del módulo Inspecciones: activar RLS (sin políticas = la API pública no ve nada).
   FOREACH t IN ARRAY ARRAY['catalogo_materiales','planes_atencion','inspecciones','inspeccion_inspectores',
                            'plan_inspecciones','inspeccion_materiales','adicionales_catalogo','adicional_alias',
-                           'inspeccion_adicionales','iu_visitas','iu_edificio_miembros','iu_consultas','iu_valores','iu_cambios','directorio_sincronizaciones','responsable_cambios'] LOOP
+                           'inspeccion_adicionales','iu_visitas','iu_edificio_miembros','iu_consultas','iu_valores','iu_cambios','directorio_sincronizaciones','responsable_cambios','ingenieros_catalogo','plantel_equipo'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
       EXECUTE format('REVOKE ALL ON public.%I FROM anon, authenticated', t);

@@ -315,8 +315,11 @@ function ingenierosHtml(p) {
 async function abrirAsignacion(inspeccionId, nombrePlantel) {
   let responsables = [];
   let cuentas = [];
+  let listaOficial = false; // con lista oficial de ingenieros no se permite escribir nombres nuevos
   try {
-    responsables = (await RAC.get("/api/inspecciones/responsables")).responsables || [];
+    const r = await RAC.get("/api/inspecciones/responsables");
+    responsables = r.responsables || [];
+    listaOficial = r.catalogo === true;
   } catch (err) {
     mostrarToast(err.message, true);
     return;
@@ -334,7 +337,7 @@ async function abrirAsignacion(inspeccionId, nombrePlantel) {
   if (actual && !responsables.some((r) => r.nombre === actual)) {
     opciones.push(`<option value="${escapar(actual)}" selected>${escapar(actual)}</option>`);
   }
-  opciones.push(`<option value="__otro__">Otro nombre…</option>`);
+  if (!listaOficial) opciones.push(`<option value="__otro__">Otro nombre…</option>`);
 
   const filasCuentas = cuentas.length
     ? cuentas.map((g) => `

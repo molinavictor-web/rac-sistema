@@ -204,15 +204,21 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Archivos**: `src/routes/consultasExpres.js`, `src/services/consultasExpres.js`, `public/inspecciones/{consultas,consulta-llenar,cambios}.html`, `public/js/inspecciones-{consultas,consulta-llenar,cambios}.js`.
 - **Pendiente (etapa 2)**: acceso del director con código DEA + clave única por plantel, límite de intentos y validaciones bloqueantes.
 
-## 6d. Ingenieros: asignar el responsable de cualquier plantel
-- Pantalla **Inspecciones → Ingenieros**. El conteo sale **solo de la columna RESPONSABLE de GESCOLAR** (no depende de que el
-  plantel esté en un plan). Un plantel tiene **un solo ingeniero a cargo**; en las planillas de materiales el primer ingeniero es el encargado.
-- `admin` e `insp_coordinador` ven «Asignar plantel» (buscar plantel con o sin plan y elegir ingeniero: los nombres que ya existen en GESCOLAR
-  u «Otro (nombre nuevo)»), «Cambiar», «Quitar» en cada plantel y «Historial de asignaciones». Los demás perfiles solo consultan.
-- Cada fila muestra una barra y cuánto se aleja del promedio (para vigilar que el reparto sea equitativo).
-- Backend en `src/routes/inspecciones.js`: `GET /ingenieros/buscar-plantel`, `POST /ingenieros/asignar-plantel`, `GET /ingenieros/historial`.
-  Escribe solo la celda RESPONSABLE (`gescolar.asignarResponsable`) y guarda el cambio en `responsable_cambios`
-  (`scripts/sql/16_responsable_cambios.sql`, ejecutar una vez en Supabase). Si la hoja falla no se cambia ni se registra nada.
+## 6d. Ingenieros: responsable, equipo y lista oficial
+- Pantalla **Inspecciones → Ingenieros**. Por ingeniero: **a cargo** (columna RESPONSABLE de GESCOLAR; un solo ingeniero por plantel),
+  **en equipo** (otros planteles donde participó) y **participación** = a cargo + en equipo. Insignias 1.º/2.º/3.º para los 3 valores
+  más altos de «a cargo» (los empatados comparten insignia). Cada fila muestra la diferencia contra el promedio.
+- **Equipo** = tabla `plantel_equipo` (se llena desde esta pantalla) **más** los ingenieros anotados en las planillas del plantel
+  (`inspeccion_inspectores`). Si el equipo incluye al responsable no se cuenta dos veces.
+- **Lista oficial** (`ingenieros_catalogo`, `scripts/sql/17_ingenieros_lista_equipo.sql`): con ingenieros activos en la lista, el
+  responsable y el equipo solo se eligen de ella (también en Planes de atención). Si la lista queda vacía, vuelve a aceptar nombres libres.
+  Solo `admin`: **Agregar**, **Editar** (cambia el nombre en la lista, en la columna RESPONSABLE de GESCOLAR, en equipos y en planillas;
+  si GESCOLAR falla no se cambia nada), **Retirar/Reactivar** (conserva historial) y **Eliminar** (solo si no tiene nada registrado).
+- `admin` e `insp_coordinador`: «Asignar plantel» (con o sin plan), «Editar» y «Quitar» por plantel, «Historial de asignaciones»
+  (`responsable_cambios`, `scripts/sql/16_responsable_cambios.sql`). Solo `admin`: «Corregir nombres» (valores de RESPONSABLE
+  escritos distinto a la lista oficial, con sugerencia y sin escribir hasta aplicar).
+- Backend en `src/routes/inspecciones.js` bajo `/ingenieros/...` (buscar-plantel, asignar-plantel, historial, catalogo, equipo,
+  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16 y luego 17.
 
 ## 7. Módulos de consulta de planteles
 
