@@ -7,6 +7,9 @@
 //   GET   /planes/:id/registro-gescolar             vista previa: qué se escribiría en la columna «PLAN <nombre>» de GESCOLAR (solo admin)
 //   POST  /planes/:id/registro-gescolar             escribe el nombre del plan en su columna «PLAN <nombre>» de GESCOLAR, en sus planteles activos (solo admin)
 //   GET   /responsables                             ingenieros que ya figuran como RESPONSABLE en GESCOLAR (con su conteo)
+//   GET   /ingenieros/buscar-plantel?q=             (gestión) buscar plantel en GESCOLAR con su responsable actual
+//   POST  /ingenieros/asignar-plantel               (gestión) asignar/quitar el ingeniero responsable de cualquier plantel (con o sin plan)
+//   GET   /ingenieros/historial                     (gestión) últimos cambios de responsable
 //   PUT   /inspeccion/:id/asignaciones              asignar a una planilla: responsable (se escribe en GESCOLAR) y/o cuentas con acceso
 //   GET   /dashboard                                cifras de la pantalla principal (atendidos, con inspección, por tipo y municipio)
 //   GET   /mis-planillas                            las planillas asignadas al ingeniero en sesión
@@ -1537,6 +1540,100 @@ router.put("/inspeccion/:id/asignaciones", requireAuth, requireRol(...ROLES_GEST
     falloInterno(res, err, "No se pudo guardar la asignación.");
   } finally {
     if (cliente) cliente.release();
+  }
+});
+
+// ---- Asignar el ingeniero responsable a CUALQUIER plantel (con o sin plan) ----
+// Un plantel tiene UN solo ingeniero a cargo: la columna RESPONSABLE de GESCOLAR. De ahí sale la estadística
+// de la pantalla Ingenieros. Aquí no hace falta que el plantel esté en un plan ni que tenga inspección.
+// Cada cambio queda en responsable_cambios (quién, cuándo, valor anterior y nuevo).
+router.get("/ingenieros/buscar-plantel", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const q = texto(req.query.q);
+  if (q.length < 2) return res.status(400).json({ error: "Escribe al menos 2 caracteres para buscar." });
+  try {
+    const r = await gescolar.buscarPlanteles(q);
+    res.json({
+      total: r.total,
+      limitado: r.limitado,
+      planteles: r.planteles.map((p) => {
+        const nombre = limpiarTexto(p.RESPONSABLE);
+        return {
+          cod_plantel: limpiarTexto(p[gescolar.CAMPO_CODIGO]),
+          nombre_plantel: limpiarTexto(p[gescolar.CAMPO_NOMBRE]),
+          municipio: limpiarTexto(p.municipio),
+          parroquia: limpiarTexto(p.parroquia),
+          responsable: nombre && !SIN_RESPONSABLE.test(nombre) ? nombre : "",
+        };
+      }),
+    });
+  } catch (err) {
+    console.error("Error consultando GESCOLAR:", err);
+    res.status(502).json({ error: "No se pudo consultar la hoja de GESCOLAR. Verifica que esté compartida con la cuenta de servicio." });
+  }
+});
+
+router.post("/ingenieros/asignar-plantel", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const cuerpo = req.body || {};
+  const codigo = limpiarTexto(cuerpo.codigo_dea);
+  if (!codigo) return res.status(400).json({ error: "Indica el plantel." });
+  let nombre = null;
+  if (cuerpo.responsable !== null && cuerpo.responsable !== undefined && String(cuerpo.responsable).trim() !== "") {
+    nombre = limpiarTexto(cuerpo.responsable);
+    if (!NOMBRE_RESPONSABLE.test(nombre) || SIN_RESPONSABLE.test(nombre)) {
+      return res.status(400).json({ error: "El nombre del ingeniero debe tener entre 3 y 80 caracteres (letras, números, espacios, punto, apóstrofo o guion)." });
+    }
+  }
+  try {
+    const plantel = await gescolar.obtenerPlantel(codigo);
+    if (!plantel) return res.status(404).json({ error: `El plantel ${codigo} no está en GESCOLAR.` });
+    const previo = limpiarTexto(plantel.RESPONSABLE);
+    const anterior = previo && !SIN_RESPONSABLE.test(previo) ? previo : "";
+
+    if (nombre) {
+      // Si ya existe en GESCOLAR con otra escritura (mayúsculas, acentos, espacios), se respeta la de allá.
+      const { grupos } = agruparResponsables(await gescolar.cargarGescolar());
+      const igual = grupos.find((g) => claveNombre(g.nombre) === claveNombre(nombre));
+      nombre = igual ? igual.nombre : nombre.toUpperCase();
+    }
+    const nuevo = nombre || "";
+    if (claveNombre(nuevo) === claveNombre(anterior)) {
+      return res.json({ ok: true, sin_cambio: true, anterior, responsable: anterior });
+    }
+    try {
+      await gescolar.asignarResponsable(codigo, nuevo);
+    } catch (err) {
+      console.error("Error escribiendo RESPONSABLE en GESCOLAR:", err);
+      return res.status(err.noEncontrado ? 404 : 502).json({
+        error: err.noEncontrado
+          ? err.message
+          : "No se pudo escribir en GESCOLAR. Verifica que la hoja esté compartida como Editor con la cuenta de servicio. No se cambió nada.",
+      });
+    }
+    try {
+      await pool.query(
+        "INSERT INTO responsable_cambios (codigo_dea, plantel, anterior, nuevo, usuario_id) VALUES ($1, $2, $3, $4, $5)",
+        [codigo, limpiarTexto(plantel[gescolar.CAMPO_NOMBRE]), anterior, nuevo, req.usuario.id]
+      );
+    } catch (err) {
+      // El cambio en GESCOLAR ya se hizo; si falla el registro se avisa en el servidor y no se deshace.
+      console.error("No se pudo guardar el historial de responsables:", err.message);
+    }
+    res.json({ ok: true, anterior, responsable: nuevo });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo asignar el ingeniero.");
+  }
+});
+
+router.get("/ingenieros/historial", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.codigo_dea, c.plantel, c.anterior, c.nuevo, c.creado_en, u.nombre AS usuario
+       FROM responsable_cambios c LEFT JOIN usuarios u ON u.id = c.usuario_id
+       ORDER BY c.creado_en DESC, c.id DESC LIMIT 100`
+    );
+    res.json({ cambios: rows });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo cargar el historial de asignaciones.");
   }
 });
 

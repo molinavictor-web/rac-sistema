@@ -204,6 +204,16 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Archivos**: `src/routes/consultasExpres.js`, `src/services/consultasExpres.js`, `public/inspecciones/{consultas,consulta-llenar,cambios}.html`, `public/js/inspecciones-{consultas,consulta-llenar,cambios}.js`.
 - **Pendiente (etapa 2)**: acceso del director con código DEA + clave única por plantel, límite de intentos y validaciones bloqueantes.
 
+## 6d. Ingenieros: asignar el responsable de cualquier plantel
+- Pantalla **Inspecciones → Ingenieros**. El conteo sale **solo de la columna RESPONSABLE de GESCOLAR** (no depende de que el
+  plantel esté en un plan). Un plantel tiene **un solo ingeniero a cargo**; en las planillas de materiales el primer ingeniero es el encargado.
+- `admin` e `insp_coordinador` ven «Asignar plantel» (buscar plantel con o sin plan y elegir ingeniero: los nombres que ya existen en GESCOLAR
+  u «Otro (nombre nuevo)»), «Cambiar», «Quitar» en cada plantel y «Historial de asignaciones». Los demás perfiles solo consultan.
+- Cada fila muestra una barra y cuánto se aleja del promedio (para vigilar que el reparto sea equitativo).
+- Backend en `src/routes/inspecciones.js`: `GET /ingenieros/buscar-plantel`, `POST /ingenieros/asignar-plantel`, `GET /ingenieros/historial`.
+  Escribe solo la celda RESPONSABLE (`gescolar.asignarResponsable`) y guarda el cambio en `responsable_cambios`
+  (`scripts/sql/16_responsable_cambios.sql`, ejecutar una vez en Supabase). Si la hoja falla no se cambia ni se registra nada.
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada
