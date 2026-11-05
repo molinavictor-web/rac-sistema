@@ -221,7 +221,7 @@ van **antes** de `/api/inspecciones`. Si se invierte, las rutas específicas que
 Lee GESCOLAR (Sheets) y los archivos de Drive por código DEA; muestra foto de fachada y mapa; permite coordenadas manuales (hoja Coordenadas)
 y subir/borrar archivos (OAuth).
 
-**Directorio de directores** — `src/routes/directorioDirectores.js`: edita solo las columnas del director en GESCOLAR.
+**Directorio de directores** — `src/routes/directorioDirectores.js`: edita solo las columnas del director en GESCOLAR; incluye «Actualizar con Supervisión» (vista previa, aplicar, restaurar) apoyado en `src/services/directoresSupervision.js` y `scripts/sql/15_directorio_sincronizaciones.sql`.
 
 **Planes y planillas (Inspecciones)** — `src/routes/inspecciones.js` (el listado de endpoints está comentado al inicio).
 Al enlazar un plantel a un plan se guarda una **copia** de su fila de GESCOLAR en `inspecciones.membrete` (JSONB); las correcciones del
