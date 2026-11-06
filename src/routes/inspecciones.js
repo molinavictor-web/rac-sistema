@@ -2261,8 +2261,39 @@ router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), as
         parroquia: p ? limpiarTexto(p.parroquia) : "",
       });
     }
+    // Rehabilitaciones: el ingeniero de rehabilitación de cada plantel en cada plan (plan_inspecciones.ingeniero_rehab).
+    // Un mismo plantel en dos planes son dos rehabilitaciones. Los desenlazados no cuentan.
+    const rehabs = new Map(); // clave → [{ codigo_dea, plan, ejecucion, ... }]
+    try {
+      const rr = (await pool.query(
+        `SELECT pi.codigo_dea, pi.ingeniero_rehab, pi.ejecucion, pi.avance_historico, p.nombre AS plan
+         FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id
+         WHERE pi.desenlazado_en IS NULL AND pi.ingeniero_rehab IS NOT NULL AND pi.ingeniero_rehab <> ''
+         ORDER BY p.creado_en DESC, p.id DESC`)).rows;
+      for (const f of rr) {
+        const pe = persona(f.ingeniero_rehab);
+        const k = claveNombre(pe.nombre);
+        const cod = String(f.codigo_dea || "").trim();
+        const p = infoPlantel.get(cod.toLowerCase());
+        if (!rehabs.has(k)) rehabs.set(k, []);
+        rehabs.get(k).push({
+          codigo_dea: cod,
+          nombre_plantel: p ? limpiarTexto(p[gescolar.CAMPO_NOMBRE]) : "",
+          municipio: p ? limpiarTexto(p.municipio) : "",
+          parroquia: p ? limpiarTexto(p.parroquia) : "",
+          plan: f.plan,
+          ejecucion: f.ejecucion,
+          avance_historico: f.avance_historico === null || f.avance_historico === undefined ? null : Number(f.avance_historico),
+        });
+      }
+    } catch (err) {
+      if (err.code !== "42703") throw err; // todavía sin la columna ingeniero_rehab (script 19 sin ejecutar)
+    }
     const ingenieros = [...personas.values()].map((pe) => ({
       nombre: pe.nombre,
+      rehabilitaciones: (rehabs.get(claveNombre(pe.nombre)) || []),
+      rehab_en_ejecucion: (rehabs.get(claveNombre(pe.nombre)) || []).filter((x) => x.ejecucion !== "CERRADO").length,
+      rehab_cerradas: (rehabs.get(claveNombre(pe.nombre)) || []).filter((x) => x.ejecucion === "CERRADO").length,
       en_lista: pe.en_lista,
       tipo: pe.tipo,
       total: pe.planteles.length,

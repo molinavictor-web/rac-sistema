@@ -235,8 +235,10 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Regla:** un plantel EN_EJECUCION en un plan no se puede agregar (ni volver a enlazar) a otro plan. Al cerrarlo queda libre; al agregarlo
   al plan nuevo se crea una planilla nueva y la anterior queda archivada. **Cerrado sigue sumando** en el consolidado de su plan
   (los consolidados solo excluyen los desenlazados). Con la ejecución cerrada no se cambia el ingeniero de rehabilitación.
-- Script: `scripts/sql/19_ejecucion_plantel.sql` (ejecutar ANTES de publicar). Pendiente: avance en % por fase de rehabilitación y las
-  estadísticas por ingeniero de rehabilitaciones en ejecución y cerradas.
+- Script: `scripts/sql/19_ejecucion_plantel.sql` (ejecutar ANTES de publicar). Pendiente: avance en % por fase de rehabilitación.
+- **Estadística por ingeniero** (pantalla Ingenieros, `GET /resumen-ingenieros`): cada ingeniero muestra inspecciones a cargo (GESCOLAR), rehabilitaciones en
+  ejecución, rehabilitaciones cerradas, en equipo y participación (inspecciones a cargo + equipo; las rehabilitaciones no entran en ese total). Las rehabilitaciones salen de
+  `plan_inspecciones.ingeniero_rehab` (los desenlazados no cuentan; un plantel en dos planes son dos rehabilitaciones) y se listan en el detalle con su plan y estado.
 
 ## 6f. Tipo de plan y planes históricos
 - Cada plan tiene un **tipo** (`planes_atencion.tipo`): `BRICOMILES`, `GOTAS_DE_AMOR`, `ESCUELAS_VANDALIZADAS` o `ATENCION_ESPECIAL`
