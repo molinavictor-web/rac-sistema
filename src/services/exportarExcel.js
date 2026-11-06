@@ -411,7 +411,7 @@ async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, ge
 }
 
 // Avance de la rehabilitación de un plan: una fila por plantel con el % de cada fase y el avance general.
-// fases: [{id, nombre, peso}], filas: [{estado, municipio, parroquia, codigo_dea, nombre_plantel, situacion,
+// fases: [{id, nombre, peso}], filas: [{estado, municipio, parroquia, codigo_dea, nombre_plantel,
 //   fases: {fase_id: {porcentaje, aplica}} | null, avance, fuente}], avancePlan: promedio del plan.
 async function avancePlan({ plan, fases, filas, avancePlan: promedioPlan, generado_en }) {
   const ExcelJS = cargarExcelJS();
@@ -423,7 +423,6 @@ async function avancePlan({ plan, fases, filas, avancePlan: promedioPlan, genera
   const fijas = [
     { etiqueta: "N°", ancho: 5 }, { etiqueta: "Estado", ancho: 11 }, { etiqueta: "Municipio", ancho: 16 },
     { etiqueta: "Parroquia", ancho: 18 }, { etiqueta: "Código DEA", ancho: 14 }, { etiqueta: "Nombre del plantel", ancho: 46 },
-    { etiqueta: "Situación", ancho: 15 },
   ];
   const columnas = [
     ...fijas,
@@ -459,7 +458,7 @@ async function avancePlan({ plan, fases, filas, avancePlan: promedioPlan, genera
   filas.forEach((f, k) => {
     const r = filaEnc + 1 + k;
     const relleno = k % 2 ? "FFF5F8FC" : undefined;
-    [k + 1, f.estado, f.municipio, f.parroquia, f.codigo_dea, f.nombre_plantel, f.situacion].forEach((v, i) =>
+    [k + 1, f.estado, f.municipio, f.parroquia, f.codigo_dea, f.nombre_plantel].forEach((v, i) =>
       celda(hoja.getCell(r, i + 1), v, { h: i === 0 ? "center" : "left", relleno, ajustar: i >= 2 }));
     fases.forEach((fa, j) => {
       const c = hoja.getCell(r, fijas.length + j + 1);

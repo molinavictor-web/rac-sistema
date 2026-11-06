@@ -2641,7 +2641,6 @@ router.get("/planes/:id/avance.xlsx", requireAuth, requireRol(...ROLES_LECTURA),
         estado: valorGescolar(r.membrete, { candidatos: ["estado", "entidad_federal"] }) || "Monagas",
         municipio: d.municipio, parroquia: d.parroquia, codigo_dea: r.codigo_dea,
         nombre_plantel: d.institucion || r.codigo_dea,
-        situacion: r.ejecucion === "CERRADO" ? "Ejecución cerrada" : "En ejecución",
         fases: porFase, avance: a.avance, fuente: a.fuente,
       };
     }).sort((x, y) => x.municipio.localeCompare(y.municipio, "es") || x.parroquia.localeCompare(y.parroquia, "es") || x.nombre_plantel.localeCompare(y.nombre_plantel, "es"));
