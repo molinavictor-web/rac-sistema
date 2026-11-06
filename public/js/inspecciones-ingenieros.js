@@ -85,7 +85,7 @@ const fmt = (n) => n.toLocaleString("es-VE", { maximumFractionDigits: 1 });
 function bloqueDe(g, ctx) {
   const { apoyo, promedio, maximo, puestos, q } = ctx;
   const medida = apoyo ? g.en_equipo : g.total;
-  const todos = (apoyo ? [] : g.planteles).concat(g.planteles_equipo || []);
+  const todos = (apoyo ? [] : g.planteles).concat(g.planteles_equipo || [], apoyo ? [] : (g.rehabilitaciones || []));
   const porNombre = q && g.nombre.toLowerCase().includes(q);
   const filtrados = q && !porNombre ? todos.filter((p) => coincide(p, q)) : todos;
   if (q && !porNombre && !filtrados.length) return "";
@@ -98,6 +98,17 @@ function bloqueDe(g, ctx) {
   if (abierto) {
     const aCargoVis = apoyo ? [] : (q && !porNombre ? g.planteles.filter((p) => coincide(p, q)) : g.planteles);
     const equipoVis = q && !porNombre ? (g.planteles_equipo || []).filter((p) => coincide(p, q)) : (g.planteles_equipo || []);
+    const rehabTodas = apoyo ? [] : (g.rehabilitaciones || []);
+    const rehabVis = q && !porNombre ? rehabTodas.filter((p) => coincide(p, q)) : rehabTodas;
+    const filasRh = rehabVis.map((p) => `<tr>
+      <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
+      <td>${escapar(p.nombre_plantel)}</td>
+      <td>${escapar(p.plan)}</td>
+      <td>${p.ejecucion === "CERRADO"
+        ? `<span style="color:#276749; font-weight:600;">Cerrada</span>${p.avance_historico !== null && p.avance_historico !== undefined && p.avance_historico < 100 ? `<br><span style="color:var(--muted); font-size:.74rem;">avance ${fmt(p.avance_historico)} %</span>` : ""}`
+        : `<span style="color:#2b6cb0; font-weight:600;">En ejecución</span>`}</td>
+      <td style="white-space:nowrap;"><a class="btn btn-fantasma btn-sm" href="/inspecciones/plantel.html?cod=${encodeURIComponent(p.codigo_dea)}">Ver ficha</a></td>
+    </tr>`).join("");
     const filas = aCargoVis.map((p) => `<tr>
       <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
       <td>${escapar(p.nombre_plantel)}</td>
@@ -117,12 +128,17 @@ function bloqueDe(g, ctx) {
         <thead><tr><th>Código</th><th>Plantel</th><th>Municipio · Parroquia</th><th>Tarea</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table></div>` : ""}
+      ${rehabVis.length ? `<div style="font-weight:600; font-size:.8rem; margin:10px 0 2px;">Rehabilitaciones a su cargo (${rehabVis.length})</div>
+      <div class="tabla-responsive"><table>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Plan</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${filasRh}</tbody>
+      </table></div>` : ""}
       ${equipoVis.length ? `<div style="font-weight:600; font-size:.8rem; margin:10px 0 2px;">Participó en el equipo (${equipoVis.length})</div>
       <div class="tabla-responsive"><table>
         <thead><tr><th>Código</th><th>Plantel</th><th>Municipio · Parroquia</th><th></th></tr></thead>
         <tbody>${filasEq}</tbody>
       </table></div>` : ""}
-      ${!aCargoVis.length && !equipoVis.length ? `<p style="color:var(--muted); font-size:.82rem; margin:10px 0 0;">Todavía no tiene planteles registrados.</p>` : ""}
+      ${!aCargoVis.length && !equipoVis.length && !rehabVis.length ? `<p style="color:var(--muted); font-size:.82rem; margin:10px 0 0;">Todavía no tiene planteles registrados.</p>` : ""}
     </div>`;
   }
   const puesto = RESUMEN.lista_oficial && !g.en_lista ? 0 : puestos.get(medida) || 0;
@@ -132,8 +148,8 @@ function bloqueDe(g, ctx) {
   const chip = dif === 0 ? "en el promedio" : `${dif > 0 ? "+" : "−"}${fmt(Math.abs(dif))} vs promedio`;
   const colorChip = dif > 0.5 ? "background:#fff7ed; color:#9c4221;" : dif < -0.5 ? "background:#ebf4ff; color:#2c5282;" : "background:#e6f4ea; color:#276749;";
   const ancho = maximo ? Math.round((medida / maximo) * 100) : 0;
-  const cifra = (n, rotulo) => `<span style="text-align:center; line-height:1.1; min-width:62px;"><span style="font-size:1.2rem; font-weight:700;">${n}</span><br><span style="font-size:.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;">${rotulo}</span></span>`;
-  const cifras = apoyo ? cifra(g.en_equipo, "en equipo") : `${cifra(g.total, "a cargo")}${cifra(g.en_equipo, "en equipo")}${cifra(g.participacion, "participación")}`;
+  const cifra = (n, rotulo) => `<span style="text-align:center; line-height:1.1; min-width:70px;"><span style="font-size:1.2rem; font-weight:700;">${n}</span><br><span style="font-size:.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;">${rotulo}</span></span>`;
+  const cifras = apoyo ? cifra(g.en_equipo, "en equipo") : `${cifra(g.total, "inspecciones a cargo")}${cifra(g.rehab_en_ejecucion || 0, "rehab. en ejecución")}${cifra(g.rehab_cerradas || 0, "rehab. cerradas")}${cifra(g.en_equipo, "en equipo")}${cifra(g.participacion, "participación")}`;
   return `<div style="border-top:1px solid var(--borde, #e3e9f1);">
     <div style="display:flex; align-items:center; gap:12px; padding:12px 20px; flex-wrap:wrap;">
       <div style="flex:1 1 200px; min-width:0;">

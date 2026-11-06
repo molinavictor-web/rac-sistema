@@ -235,8 +235,10 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Regla:** un plantel EN_EJECUCION en un plan no se puede agregar (ni volver a enlazar) a otro plan. Al cerrarlo queda libre; al agregarlo
   al plan nuevo se crea una planilla nueva y la anterior queda archivada. **Cerrado sigue sumando** en el consolidado de su plan
   (los consolidados solo excluyen los desenlazados). Con la ejecución cerrada no se cambia el ingeniero de rehabilitación.
-- Script: `scripts/sql/19_ejecucion_plantel.sql` (ejecutar ANTES de publicar). Pendiente: avance en % por fase de rehabilitación y las
-  estadísticas por ingeniero de rehabilitaciones en ejecución y cerradas.
+- Script: `scripts/sql/19_ejecucion_plantel.sql` (ejecutar ANTES de publicar). Pendiente: avance en % por fase de rehabilitación.
+- **Estadística por ingeniero** (pantalla Ingenieros, `GET /resumen-ingenieros`): cada ingeniero muestra inspecciones a cargo (GESCOLAR), rehabilitaciones en
+  ejecución, rehabilitaciones cerradas, en equipo y participación (inspecciones a cargo + equipo; las rehabilitaciones no entran en ese total). Las rehabilitaciones salen de
+  `plan_inspecciones.ingeniero_rehab` (los desenlazados no cuentan; un plantel en dos planes son dos rehabilitaciones) y se listan en el detalle con su plan y estado.
 
 ## 6f. Tipo de plan y planes históricos
 - Cada plan tiene un **tipo** (`planes_atencion.tipo`): `BRICOMILES`, `GOTAS_DE_AMOR`, `ESCUELAS_VANDALIZADAS` o `ATENCION_ESPECIAL`
@@ -245,7 +247,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   «Avance al cerrar»). Es solo informativo.
 - `scripts/sql/20_tipo_plan_y_avance_historico.sql` (columnas) y `21_carga_planes_2024.sql` (carga de BRICOMILES 2024, ESCUELAS VANDALIZADAS 2024 y
   GOTAS DE AMOR 2024: planteles con ejecución CERRADA, planilla vacía `origen = 'HISTORICA'` e ingeniero de rehabilitación del Plan Maestro).
-  El script 21 se puede repetir sin duplicar. Un plantel cerrado en un plan histórico puede entrar a un plan nuevo (se crea planilla nueva).
+  El script 21 se puede repetir sin duplicar. `22_gotas_2024_siete_planteles.sql` agrega al plan GOTAS DE AMOR 2024 otros 7 planteles que GESCOLAR marca como Gota de Amor 2024 (plan con 20; cerrados, sin ingeniero ni porcentaje). Un plantel cerrado en un plan histórico puede entrar a un plan nuevo (se crea planilla nueva).
 - Para que cuenten como atendidos con su año en el dashboard, el admin usa **Registrar plan en GESCOLAR** en cada plan.
 
 ## 7. Módulos de consulta de planteles
