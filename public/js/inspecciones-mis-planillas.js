@@ -38,9 +38,13 @@ async function cargar() {
   }
 }
 
+let REHABS = [];
+
 async function cargarRehabilitaciones() {
   try {
-    const { rehabilitaciones } = await RAC.get("/api/inspecciones/mis-rehabilitaciones");
+    const { rehabilitaciones, fases } = await RAC.get("/api/inspecciones/mis-rehabilitaciones");
+    REHABS = rehabilitaciones;
+    const FASES = fases || [];
     if (!rehabilitaciones.length) return;
     document.getElementById("panelRehab").style.display = "block";
     const filas = rehabilitaciones.map((r) => `<tr>
@@ -48,10 +52,16 @@ async function cargarRehabilitaciones() {
       <td>${escapar(r.nombre_plantel)}<br><span style="color:var(--muted); font-size:.78rem;">${[escapar(r.municipio), escapar(r.parroquia)].filter(Boolean).join(" · ")}</span></td>
       <td>${escapar(r.plan_nombre)}</td>
       <td>${r.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
+      <td>${r.avance === undefined ? "—" : AvanceFases.barra(r.avance)}${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" || !FASES.length ? "" : `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-avance-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}">Registrar avance</button></div>`}</td>
       <td>${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" ? "" : `<button type="button" class="btn btn-primario btn-sm" data-cerrar-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}" data-nombre="${escapar(r.nombre_plantel)}">Cerrar ejecución</button>`}</td>
     </tr>`).join("");
     document.getElementById("tablaRehab").innerHTML = `<div class="tabla-responsive"><table>
-      <thead><tr><th>Código</th><th>Plantel</th><th>Plan</th><th>Estado</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`;
+      <thead><tr><th>Código</th><th>Plantel</th><th>Plan</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`;
+    document.querySelectorAll("[data-avance-rehab]").forEach((b) => b.addEventListener("click", () => {
+      const r = REHABS.find((x) => x.inspeccion_id === Number(b.dataset.avanceRehab) && x.plan_id === Number(b.dataset.plan));
+      if (!r) return;
+      AvanceFases.abrir({ planId: r.plan_id, inspeccionId: r.inspeccion_id, nombrePlantel: r.nombre_plantel, fases: FASES, valores: r.fases || [], onGuardado: cargarRehabilitaciones });
+    }));
     document.querySelectorAll("[data-cerrar-rehab]").forEach((b) => b.addEventListener("click", async () => {
       if (!window.confirm(`¿Cerrar la ejecución de «${b.dataset.nombre}»?\n\nQuedará libre para entrar a otro plan.`)) return;
       try {
