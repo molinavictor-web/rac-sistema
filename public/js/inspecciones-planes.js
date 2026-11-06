@@ -138,11 +138,21 @@ function dibujarPlan() {
       </div>
     </section>
 
+    ${plan.avance !== null && plan.avance !== undefined && PLAN_ABIERTO.fases && PLAN_ABIERTO.fases.length ? `
+    <div class="panel" style="margin-bottom:16px;">
+      <div style="padding:14px 20px;">
+        <div style="font-weight:600; font-size:.9rem; margin-bottom:6px;">Avance general de la rehabilitación del plan</div>
+        ${AvanceFases.barra(plan.avance)}
+        <div style="color:var(--muted); font-size:.76rem; margin-top:4px;">Promedio del avance de sus planteles activos. El avance de cada plantel sale de sus fases: ${PLAN_ABIERTO.fases.map((f) => escapar(f.nombre) + " " + String(f.peso).replace(".", ",") + "%").join(" · ")}.</div>
+      </div>
+    </div>` : ""}
+
     <div class="panel" style="margin-bottom:16px;">
       <div style="padding:14px 20px; display:flex; gap:10px; flex-wrap:wrap;">
         <button type="button" class="btn btn-fantasma btn-sm" id="btnVolver">← Todos los planes</button>
         ${PUEDE_GESTIONAR ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnEditarPlan">Editar nombre</button>
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>` : ""}
+        ${PUEDE_GESTIONAR && PLAN_ABIERTO.fases ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnFasesPesos" title="Fases de la rehabilitación y cuánto pesa cada una en el avance">Fases y pesos</button>` : ""}
         ${usuario && usuario.rol === "admin" ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnRegistrarGescolar" title="Escribe el nombre del plan en la columna propia del plan en GESCOLAR («PLAN <nombre>»)">Registrar plan en GESCOLAR</button>` : ""}
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
@@ -170,6 +180,8 @@ function dibujarPlan() {
   document.getElementById("btnVolver").addEventListener("click", volverALista);
   const btnReg = document.getElementById("btnRegistrarGescolar");
   if (btnReg) btnReg.addEventListener("click", () => abrirRegistroGescolar(plan));
+  const btnFases = document.getElementById("btnFasesPesos");
+  if (btnFases) btnFases.addEventListener("click", () => AvanceFases.abrirPesos({ fases: PLAN_ABIERTO.fases, onGuardado: recargarPlan }));
   if (PUEDE_GESTIONAR) {
     document.getElementById("btnEditarPlan").addEventListener("click", () => abrirModalPlan("editar"));
     document.getElementById("btnEstadoPlan").addEventListener("click", cambiarEstadoPlan);
@@ -207,6 +219,7 @@ function pintarPlanteles() {
         : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
       <td style="font-size:.82rem;">${ingenierosHtml(p)}</td>
       <td style="font-size:.82rem;">${rehabilitacionHtml(p, abierto)}</td>
+      <td style="font-size:.82rem;">${avanceHtml(p, abierto)}</td>
       <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}&plan=${Number(plan.id)}">${p.activo && PUEDE_GESTIONAR ? "Planilla" : "Ver planilla"}</a></td>
       <td style="white-space:nowrap;">${abierto && PUEDE_GESTIONAR ? (p.activo
         ? (p.ejecucion === "CERRADO"
@@ -220,13 +233,20 @@ function pintarPlanteles() {
   cont.innerHTML = `
     <div class="tabla-responsive">
       <table>
-        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Inspección (responsable)</th><th>Rehabilitación</th><th>Materiales</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Inspección (responsable)</th><th>Rehabilitación</th><th>Avance</th><th>Materiales</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
     </div>
   `;
   cont.querySelectorAll("[data-asignar]").forEach((b) => {
     b.addEventListener("click", () => abrirAsignacion(Number(b.dataset.asignar), b.dataset.nombre));
+  });
+  cont.querySelectorAll("[data-avance]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const p = PLAN_ABIERTO.planteles.find((x) => x.inspeccion_id === Number(b.dataset.avance));
+      if (!p) return;
+      AvanceFases.abrir({ planId: PLAN_ABIERTO.plan.id, inspeccionId: p.inspeccion_id, nombrePlantel: p.nombre_plantel || p.codigo_dea, fases: PLAN_ABIERTO.fases, valores: p.fases || [], onGuardado: recargarPlan });
+    });
   });
   cont.querySelectorAll("[data-rehab]").forEach((b) => {
     b.addEventListener("click", () => abrirRehabilitacion(Number(b.dataset.rehab), b.dataset.nombre, b.dataset.actual));
@@ -321,6 +341,14 @@ function rehabilitacionHtml(p, planAbierto) {
   const puede = planAbierto && PUEDE_GESTIONAR && p.ejecucion !== "CERRADO";
   const boton = puede ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-rehab="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}" data-actual="${escapar(p.ingeniero_rehab || "")}">${p.ingeniero_rehab ? "Cambiar" : "Asignar"}</button></div>` : "";
   return nombre + boton;
+}
+
+function avanceHtml(p, planAbierto) {
+  if (!p.activo || p.avance === undefined) return `<span style="color:var(--muted);">—</span>`;
+  const nota = p.avance_fuente === "historico" ? "al cerrar" : p.avance_fuente === "sin_datos" ? "sin registrar" : "";
+  const puede = planAbierto && PUEDE_GESTIONAR && p.ejecucion !== "CERRADO" && PLAN_ABIERTO.fases && PLAN_ABIERTO.fases.length;
+  const boton = puede ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-avance="${Number(p.inspeccion_id)}">Registrar avance</button></div>` : "";
+  return AvanceFases.barra(p.avance, nota) + boton;
 }
 
 async function abrirRehabilitacion(inspeccionId, nombrePlantel, actual) {

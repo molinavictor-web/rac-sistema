@@ -261,6 +261,20 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   Además, **Registrar plan en GESCOLAR** ahora vacía en esa columna las marcas de planteles que ya no están en el plan (la vista previa las lista antes de confirmar),
   así la hoja queda igual que el plan. Solo se toca la columna de ese plan.
 
+## 6h. Avance de la rehabilitación por fases
+- **Script `25_avance_fases_rehabilitacion.sql`** (ejecutar una vez en Supabase; debe responder «Success. No rows returned»): crea `fases_rehabilitacion` (fases con su peso; arranca con
+  Cubierta de techo 30 %, Instalaciones eléctricas 20 %, Instalaciones sanitarias 20 %, Pintura interna/externa 20 %, Albañilería/herrería 10 %) y `avance_fases` (% de cada fase por plantel y plan).
+  Sin el script la pantalla funciona igual que antes (simplemente no aparece el avance).
+- **Fases y pesos** (botón en la pantalla de un plan; admin y coordinador): se pueden renombrar, cambiar el peso, agregar (hasta 12) y quitar. **Los pesos deben sumar exactamente 100 %**
+  (si no, no deja guardar). Cambiar un peso recalcula el avance de todos los planteles; una fase quitada queda inactiva (no se borra lo registrado) y deja de contar.
+- **Registrar avance** (botón por plantel; admin, coordinador y el ingeniero de rehabilitación asignado, también desde «Mis planillas»): % de 0 a 100 por fase, o «No aplica».
+  Se bloquea si la ejecución del plantel o el plan están cerrados (hay que reabrirlos).
+- **Cálculo:** avance del plantel = Σ(% de la fase × peso) / Σ(peso de las fases que aplican); una fase «No aplica» reparte su peso entre las demás; una fase sin registrar cuenta 0 %.
+  Si el plantel no tiene nada registrado, se muestra su avance histórico (planes viejos) o 0 %. **Avance del plan = promedio de sus planteles activos** (cada plantel pesa igual).
+- API: `GET/PUT /api/inspecciones/fases-rehabilitacion`, `PUT /api/inspecciones/planes/:id/planteles/:inspeccionId/avance`; `GET /planes/:id` y `GET /mis-rehabilitaciones` devuelven `avance`, `fases` y (planes) `plan.avance`.
+- Archivos: `src/routes/inspecciones.js`, `public/js/inspecciones-avance.js` (ventanas compartidas), `inspecciones-planes.js`, `inspecciones-mis-planillas.js`.
+- Pruebas: `test33` (58 comprobaciones con PostgreSQL real y pantallas simuladas).
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada

@@ -295,7 +295,19 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req,
       })
       .sort((a, b) => Number(b.activo) - Number(a.activo) || a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
 
-    res.json({ plan: { ...plan.rows[0], tipo_nombre: TIPOS_PLAN[plan.rows[0].tipo] || plan.rows[0].tipo }, planteles, tipos: TIPOS_PLAN });
+    // Avance por fases (si todavía no se ejecutó el script 25, esto queda vacío y lo demás sigue igual).
+    const av = await avanceDePlanteles(planteles.filter((p) => p.activo).map((p) => ({ plan_id: planId, inspeccion_id: p.inspeccion_id, avance_historico: p.avance_historico })));
+    let avancePlan = null;
+    if (av.mapa) {
+      const activosPl = planteles.filter((p) => p.activo);
+      planteles.forEach((p) => {
+        const a = av.mapa.get(`${planId}:${p.inspeccion_id}`);
+        if (a) { p.avance = a.avance; p.avance_fuente = a.fuente; p.fases = a.fases; }
+      });
+      if (activosPl.length) avancePlan = redondear2(activosPl.reduce((acc, p) => acc + (p.avance === null || p.avance === undefined ? 0 : p.avance), 0) / activosPl.length);
+    }
+
+    res.json({ plan: { ...plan.rows[0], tipo_nombre: TIPOS_PLAN[plan.rows[0].tipo] || plan.rows[0].tipo, avance: avancePlan }, planteles, tipos: TIPOS_PLAN, fases: av.fases });
   } catch (err) {
     falloInterno(res, err, "No se pudo cargar el plan.");
   }
@@ -714,7 +726,15 @@ router.get("/mis-rehabilitaciones", requireAuth, requireRol("insp_ingeniero"), a
         };
       })
       .sort((a, b) => (a.ejecucion === b.ejecucion ? 0 : a.ejecucion === "EN_EJECUCION" ? -1 : 1) || a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
-    res.json({ rehabilitaciones });
+    // Avance por fases (vacío si todavía no se ejecutó el script 25).
+    const av = await avanceDePlanteles(rehabilitaciones.map((r) => ({ plan_id: r.plan_id, inspeccion_id: r.inspeccion_id, avance_historico: null })));
+    if (av.mapa) {
+      rehabilitaciones.forEach((r) => {
+        const a = av.mapa.get(`${r.plan_id}:${r.inspeccion_id}`);
+        if (a) { r.avance = a.avance; r.fases = a.fases; }
+      });
+    }
+    res.json({ rehabilitaciones, fases: av.fases });
   } catch (err) {
     falloInterno(res, err, "No se pudieron cargar tus rehabilitaciones.");
   }
@@ -2630,6 +2650,191 @@ router.get("/inspeccion/:id/planilla.xlsx", requireAuth, requireRol(...ROLES_PLA
     enviarExcel(res, buffer, nombreArchivo("PLANILLA", i.codigo_dea, i.datos_plantel.institucion));
   } catch (err) {
     falloInterno(res, err, "No se pudo generar el Excel de la planilla.");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Avance de la rehabilitación por fases (script 25)
+// ---------------------------------------------------------------------------
+// - fases_rehabilitacion: fases de la obra con su peso (%); las activas suman 100. Editan: admin y coordinador.
+// - avance_fases: % de cada fase por plantel y plan, o "no aplica" (su peso se reparte entre las demás).
+// - Avance del plantel = Σ(% de la fase × peso) / Σ(peso de las fases que aplican).
+//   Si todavía no hay datos por fase, se muestra el avance_historico (planes viejos) o 0.
+// - Avance del plan = promedio del avance de sus planteles activos (cada plantel pesa igual).
+// Registran el avance: admin, coordinador y el ingeniero de rehabilitación asignado.
+
+const SIN_TABLAS_FASES = "42P01";
+
+function redondear2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+async function cargarFasesActivas() {
+  const { rows } = await pool.query("SELECT id, nombre, peso::float AS peso, orden FROM fases_rehabilitacion WHERE activa ORDER BY orden, id");
+  return rows;
+}
+
+function calcularAvance(fases, registros, avanceHistorico) {
+  let num = 0;
+  let den = 0;
+  fases.forEach((f) => {
+    const r = registros.get(f.id);
+    const aplica = r ? r.aplica : true;
+    if (!aplica) return;
+    num += (r ? r.porcentaje : 0) * f.peso;
+    den += f.peso;
+  });
+  if (registros.size > 0) return { avance: den > 0 ? redondear2(num / den) : null, fuente: "fases" };
+  if (avanceHistorico !== null && avanceHistorico !== undefined) return { avance: Number(avanceHistorico), fuente: "historico" };
+  return { avance: 0, fuente: "sin_datos" };
+}
+
+// pares: [{ plan_id, inspeccion_id, avance_historico }] → Map "plan:inspeccion" → { avance, fuente, fases: [{fase_id, porcentaje, aplica}] }
+// Si todavía no se ejecutó el script 25 devuelve { fases: [], mapa: null } y el resto de la pantalla sigue igual.
+async function avanceDePlanteles(pares) {
+  try {
+    const fases = await cargarFasesActivas();
+    const mapa = new Map();
+    if (!pares.length) return { fases, mapa };
+    const { rows } = await pool.query(
+      "SELECT plan_id, inspeccion_id, fase_id, porcentaje::float AS porcentaje, aplica FROM avance_fases WHERE plan_id = ANY($1::int[]) AND inspeccion_id = ANY($2::int[])",
+      [[...new Set(pares.map((p) => p.plan_id))], [...new Set(pares.map((p) => p.inspeccion_id))]]
+    );
+    const porClave = new Map();
+    rows.forEach((r) => {
+      const k = `${r.plan_id}:${r.inspeccion_id}`;
+      if (!porClave.has(k)) porClave.set(k, new Map());
+      porClave.get(k).set(r.fase_id, { porcentaje: r.porcentaje, aplica: r.aplica });
+    });
+    pares.forEach((p) => {
+      const k = `${p.plan_id}:${p.inspeccion_id}`;
+      const registros = porClave.get(k) || new Map();
+      const calc = calcularAvance(fases, registros, p.avance_historico);
+      mapa.set(k, {
+        ...calc,
+        fases: fases.map((f) => {
+          const r = registros.get(f.id);
+          return { fase_id: f.id, porcentaje: r ? r.porcentaje : 0, aplica: r ? r.aplica : true };
+        }),
+      });
+    });
+    return { fases, mapa };
+  } catch (err) {
+    if (err.code !== SIN_TABLAS_FASES) throw err;
+    return { fases: [], mapa: null };
+  }
+}
+
+router.get("/fases-rehabilitacion", requireAuth, requireRol(...ROLES_PLANILLA), async (req, res) => {
+  try {
+    const fases = await cargarFasesActivas();
+    res.json({ fases, suma: redondear2(fases.reduce((a, f) => a + f.peso, 0)) });
+  } catch (err) {
+    if (err.code === SIN_TABLAS_FASES) return res.status(503).json({ error: "Falta ejecutar el script 25 en Supabase." });
+    falloInterno(res, err, "No se pudieron cargar las fases.");
+  }
+});
+
+router.put("/fases-rehabilitacion", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const lista = (req.body || {}).fases;
+  if (!Array.isArray(lista) || lista.length < 1 || lista.length > 12) return res.status(400).json({ error: "Indica entre 1 y 12 fases." });
+  const limpias = [];
+  const vistos = new Set();
+  for (const f of lista) {
+    const nombre = limpiarTexto(f && f.nombre);
+    if (nombre.length < 2 || nombre.length > 80) return res.status(400).json({ error: "Cada fase necesita un nombre de 2 a 80 caracteres." });
+    const clave = claveNombre(nombre);
+    if (vistos.has(clave)) return res.status(400).json({ error: `La fase «${nombre}» está repetida.` });
+    vistos.add(clave);
+    const peso = Number(String(f.peso === undefined || f.peso === null ? "" : f.peso).replace(",", "."));
+    if (!Number.isFinite(peso) || peso < 0 || peso > 100) return res.status(400).json({ error: `El peso de «${nombre}» debe estar entre 0 y 100.` });
+    const id = f.id === undefined || f.id === null || f.id === "" ? null : entero(f.id);
+    if (f.id !== undefined && f.id !== null && f.id !== "" && !id) return res.status(400).json({ error: "Fase inválida." });
+    limpias.push({ id, nombre, peso: redondear2(peso) });
+  }
+  const suma = redondear2(limpias.reduce((a, f) => a + f.peso, 0));
+  if (Math.abs(suma - 100) > 0.005) return res.status(400).json({ error: `Los pesos suman ${suma}% y deben sumar exactamente 100%.` });
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    const existentes = (await cliente.query("SELECT id FROM fases_rehabilitacion")).rows.map((r) => r.id);
+    const conservar = [];
+    for (let i = 0; i < limpias.length; i++) {
+      const f = limpias[i];
+      if (f.id) {
+        if (!existentes.includes(f.id)) { const e = new Error("fase inexistente"); e.http400 = "Una de las fases ya no existe. Recarga la pantalla."; throw e; }
+        await cliente.query("UPDATE fases_rehabilitacion SET nombre = $2, peso = $3, orden = $4, activa = TRUE, actualizado_en = NOW() WHERE id = $1", [f.id, f.nombre, f.peso, i + 1]);
+        conservar.push(f.id);
+      } else {
+        const ins = await cliente.query("INSERT INTO fases_rehabilitacion (nombre, peso, orden) VALUES ($1, $2, $3) RETURNING id", [f.nombre, f.peso, i + 1]);
+        conservar.push(ins.rows[0].id);
+      }
+    }
+    // Las fases que se quitan de la lista se desactivan (no se borran: conservan lo ya registrado, pero dejan de contar).
+    await cliente.query("UPDATE fases_rehabilitacion SET activa = FALSE, actualizado_en = NOW() WHERE activa AND NOT (id = ANY($1::int[]))", [conservar]);
+    await cliente.query("COMMIT");
+  } catch (err) {
+    await cliente.query("ROLLBACK").catch(() => {});
+    if (err.http400) return res.status(400).json({ error: err.http400 });
+    if (err.code === SIN_TABLAS_FASES) return res.status(503).json({ error: "Falta ejecutar el script 25 en Supabase." });
+    return falloInterno(res, err, "No se pudieron guardar las fases.");
+  } finally {
+    cliente.release();
+  }
+  try {
+    const fases = await cargarFasesActivas();
+    res.json({ ok: true, fases, suma: redondear2(fases.reduce((a, f) => a + f.peso, 0)) });
+  } catch (err) {
+    falloInterno(res, err, "Se guardó, pero no se pudo recargar la lista de fases.");
+  }
+});
+
+router.put("/planes/:id/planteles/:inspeccionId/avance", requireAuth, requireRol(...ROLES_GESTION, "insp_ingeniero"), async (req, res) => {
+  const planId = entero(req.params.id);
+  const inspeccionId = entero(req.params.inspeccionId);
+  if (!planId || !inspeccionId) return res.status(400).json({ error: "Datos inválidos." });
+  const lista = (req.body || {}).fases;
+  if (!Array.isArray(lista) || !lista.length || lista.length > 12) return res.status(400).json({ error: "Indica el avance de las fases." });
+  try {
+    const fila = await filaDeEjecucion(planId, inspeccionId);
+    if (!fila) return res.status(404).json({ error: "Ese plantel no está enlazado a este plan." });
+    if (req.usuario.rol === "insp_ingeniero" && !(await esIngenieroDeRehabilitacion(req.usuario.id, fila.ingeniero_rehab))) {
+      return res.status(403).json({ error: "Solo el ingeniero de rehabilitación asignado, el coordinador o el administrador pueden registrar el avance." });
+    }
+    if (fila.plan_estado === "CERRADO") return res.status(409).json({ error: "El plan está cerrado: reábrelo para cambiar sus planteles." });
+    if (fila.ejecucion === "CERRADO") return res.status(409).json({ error: "La ejecución de este plantel está cerrada. Reábrela para cambiar el avance." });
+    const activas = await cargarFasesActivas();
+    const idsActivas = new Set(activas.map((f) => f.id));
+    const filas = [];
+    const repetidas = new Set();
+    for (const f of lista) {
+      const faseId = entero(f && f.fase_id);
+      if (!faseId || !idsActivas.has(faseId)) return res.status(400).json({ error: "Una de las fases no existe o ya no está activa. Recarga la pantalla." });
+      if (repetidas.has(faseId)) return res.status(400).json({ error: "Una fase viene repetida." });
+      repetidas.add(faseId);
+      const aplica = f.aplica === false ? false : true;
+      let pct = 0;
+      if (aplica) {
+        pct = Number(String(f.porcentaje === undefined || f.porcentaje === null || f.porcentaje === "" ? 0 : f.porcentaje).replace(",", "."));
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) return res.status(400).json({ error: "Cada porcentaje debe estar entre 0 y 100." });
+      }
+      filas.push({ faseId, pct: redondear2(pct), aplica });
+    }
+    for (const f of filas) {
+      await pool.query(
+        `INSERT INTO avance_fases (plan_id, inspeccion_id, fase_id, porcentaje, aplica, actualizado_en, actualizado_por)
+         VALUES ($1::int, $2::int, $3::int, $4::numeric, $5::boolean, NOW(), $6::int)
+         ON CONFLICT (plan_id, inspeccion_id, fase_id)
+         DO UPDATE SET porcentaje = EXCLUDED.porcentaje, aplica = EXCLUDED.aplica, actualizado_en = NOW(), actualizado_por = EXCLUDED.actualizado_por`,
+        [planId, inspeccionId, f.faseId, f.pct, f.aplica, req.usuario.id]
+      );
+    }
+    const { mapa } = await avanceDePlanteles([{ plan_id: planId, inspeccion_id: inspeccionId, avance_historico: null }]);
+    const a = mapa && mapa.get(`${planId}:${inspeccionId}`);
+    res.json({ ok: true, avance: a ? a.avance : null, fases: a ? a.fases : [] });
+  } catch (err) {
+    if (err.code === SIN_TABLAS_FASES) return res.status(503).json({ error: "Falta ejecutar el script 25 en Supabase." });
+    falloInterno(res, err, "No se pudo guardar el avance.");
   }
 });
 
