@@ -257,6 +257,9 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   el año sale de la columna AÑO de la hoja o del nombre del plan; «2023 - 2024» cuenta en ambos años), **PLAN MAESTRO 2024** (= «PLAN MAESTRO 2024» de la hoja y el plan «BRICOMILES 2024»),
   **Escuelas vandalizadas**, **BRICOMILES 2025**, **PRE 2026-2027** y cualquier otro plan por su nombre. Las fuentes se unen por nombre (`programaDe` en `inspecciones.js`).
 - Línea de cuadre: suma de las barras − planteles repetidos entre programas = atendidos únicos.
+- **El sistema manda:** si un plan existe en el sistema, el dashboard ignora su columna «PLAN …» de la hoja (puede traer marcas viejas de planteles que ya salieron del plan).
+  Además, **Registrar plan en GESCOLAR** ahora vacía en esa columna las marcas de planteles que ya no están en el plan (la vista previa las lista antes de confirmar),
+  así la hoja queda igual que el plan. Solo se toca la columna de ese plan.
 
 ## 7. Módulos de consulta de planteles
 

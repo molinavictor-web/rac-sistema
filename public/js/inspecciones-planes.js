@@ -256,7 +256,9 @@ async function abrirRegistroGescolar(plan) {
     mostrarToast(err.message, true);
     return;
   }
+  const sobran = vista.sobran || [];
   const hayCambios = vista.planteles.filter((p) => p.cambia);
+  const totalCambios = hayCambios.length + sobran.length;
   const conHistorial = vista.planteles.filter((p) => p.tipo_atencion);
   const filas = vista.planteles.map((p) => `<tr>
       <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
@@ -273,6 +275,10 @@ async function abrirRegistroGescolar(plan) {
       <div style="margin-bottom:10px; padding:8px 10px; border-radius:8px; background:#eef6ff; border:1px solid #b6d4f5; font-size:.8rem;">
         La columna <strong>TIPO ATENCION</strong> no se modifica: conserva la atención anterior de cada plantel como dato histórico${conHistorial.length ? ` (${conHistorial.length} de estos planteles ya tienen un valor)` : ""}. Cada plan tiene su propia columna, así que los otros planes tampoco se tocan, y los planteles que ya tienen valor en esta columna se respetan.
       </div>
+      ${sobran.length ? `<div style="margin-bottom:10px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #f3c28a; font-size:.8rem;">
+        <strong>Se vaciará la marca de ${sobran.length} plantel${sobran.length === 1 ? "" : "es"}</strong> que la hoja tiene en esta columna y que ya no están en el plan:
+        ${sobran.map((x) => `<span class="cod">${escapar(x.codigo_dea)}</span> ${escapar(x.nombre_plantel)}`).join(" · ")}.
+      </div>` : ""}
       <div class="tabla-responsive" style="max-height:340px; overflow:auto;">
         <table>
           <thead><tr><th>Código</th><th>Plantel</th><th>TIPO ATENCION (se conserva)</th><th>${escapar(vista.columna)}</th></tr></thead>
@@ -281,7 +287,7 @@ async function abrirRegistroGescolar(plan) {
       </div>
       <div class="error-msg" id="errorRegistro"></div>
       <div style="display:flex; gap:10px; margin-top:14px; align-items:center;">
-        <button type="button" class="btn btn-primario" id="btnConfirmarRegistro" ${hayCambios.length ? "" : "disabled"}>${hayCambios.length ? `Escribir en GESCOLAR (${hayCambios.length})` : "Todo está al día"}</button>
+        <button type="button" class="btn btn-primario" id="btnConfirmarRegistro" ${totalCambios ? "" : "disabled"}>${totalCambios ? `Escribir en GESCOLAR (${totalCambios})` : "Todo está al día"}</button>
         <button type="button" class="btn btn-fantasma" id="btnCancelarRegistro">Cancelar</button>
       </div>
     </div>`;
@@ -295,14 +301,14 @@ async function abrirRegistroGescolar(plan) {
     boton.textContent = "Escribiendo…";
     try {
       const r = await RAC.post(`/api/inspecciones/planes/${plan.id}/registro-gescolar`, { confirmar: true });
-      mostrarToast(`GESCOLAR actualizado: «${r.valor}» en ${r.con_cambio} plantel${r.con_cambio === 1 ? "" : "es"}${r.columna_creada ? " (columna creada)" : ""}.`);
+      mostrarToast(`GESCOLAR actualizado: «${r.valor}» en ${r.con_cambio} plantel${r.con_cambio === 1 ? "" : "es"}${r.quitados ? ` y ${r.quitados} marca${r.quitados === 1 ? "" : "s"} vaciada${r.quitados === 1 ? "" : "s"}` : ""}${r.columna_creada ? " (columna creada)" : ""}.`);
       cerrar();
     } catch (err) {
       const e = fondo.querySelector("#errorRegistro");
       e.textContent = err.message;
       e.classList.add("visible");
       boton.disabled = false;
-      boton.textContent = `Escribir en GESCOLAR (${hayCambios.length})`;
+      boton.textContent = `Escribir en GESCOLAR (${totalCambios})`;
     }
   });
 }

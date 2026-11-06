@@ -1574,7 +1574,14 @@ router.get("/planes/:id/registro-gescolar", requireAuth, requireRol("admin"), as
         cambia: Boolean(fila) && !gescolar.tieneMarcaPlan(actual),                       // si ya tiene valor, no se toca
       };
     });
-    res.json({ valor, columna: encabezadoReal || columna, columna_existe: Boolean(encabezadoReal), planteles });
+    // Marcas que la hoja tiene en la columna de este plan para planteles que YA NO están en el plan (desenlazados o quitados).
+    const delPlan = new Set(info.planteles.map((r) => String(r.codigo_dea || "").trim().toLowerCase()));
+    const sobran = encabezadoReal
+      ? datos
+          .filter((p) => gescolar.tieneMarcaPlan(p[encabezadoReal]) && !delPlan.has(limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase()))
+          .map((p) => ({ codigo_dea: limpiarTexto(p[gescolar.CAMPO_CODIGO]), nombre_plantel: limpiarTexto(p[gescolar.CAMPO_NOMBRE]), actual: limpiarTexto(p[encabezadoReal]) }))
+      : [];
+    res.json({ valor, columna: encabezadoReal || columna, columna_existe: Boolean(encabezadoReal), planteles, sobran });
   } catch (err) {
     falloInterno(res, err, "No se pudo preparar la vista previa de GESCOLAR.");
   }
@@ -1602,9 +1609,17 @@ router.post("/planes/:id/registro-gescolar", requireAuth, requireRol("admin"), a
         if (!fila) return true; // no está en GESCOLAR: sale como «no encontrado»
         return !(encabezadoReal && gescolar.tieneMarcaPlan(fila[encabezadoReal]));
       });
-      resultado = pendientes.length
-        ? await gescolar.escribirCampoLote(columna, pendientes.map((r) => ({ codigo: r.codigo_dea, valor })))
+      // Además se vacían las marcas de planteles que ya no están en el plan (así la hoja queda igual que el plan).
+      const delPlan = new Set(info.planteles.map((r) => String(r.codigo_dea || "").trim().toLowerCase()));
+      const sobran = encabezadoReal
+        ? datos.filter((p) => gescolar.tieneMarcaPlan(p[encabezadoReal]) && !delPlan.has(limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase()))
+            .map((p) => limpiarTexto(p[gescolar.CAMPO_CODIGO]))
+        : [];
+      const cambios = pendientes.map((r) => ({ codigo: r.codigo_dea, valor })).concat(sobran.map((c) => ({ codigo: c, valor: "" })));
+      resultado = cambios.length
+        ? await gescolar.escribirCampoLote(columna, cambios)
         : { escritos: [], no_encontrados: [], columna_creada: false };
+      resultado.quitados = sobran.length;
     } catch (err) {
       console.error("Error escribiendo la columna del plan en GESCOLAR:", err);
       return res.status(502).json({ error: "No se pudo escribir en GESCOLAR. Verifica que la hoja esté compartida como Editor con la cuenta de servicio." });
@@ -1618,7 +1633,8 @@ router.post("/planes/:id/registro-gescolar", requireAuth, requireRol("admin"), a
       columna,
       columna_creada: resultado.columna_creada,
       escritos: resultado.escritos.length,
-      con_cambio: resultado.escritos.filter((e) => e.anterior !== e.valor).length,
+      con_cambio: resultado.escritos.filter((e) => e.valor !== "" && e.anterior !== e.valor).length,
+      quitados: resultado.quitados || 0,
       no_encontrados: resultado.no_encontrados,
     });
   } catch (err) {
@@ -2402,6 +2418,14 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
     } catch (err) {
       console.error("Dashboard: no se pudieron leer los planes del sistema:", err.message);
     }
+    // Si el plan existe en el sistema, el sistema manda: se ignora su columna «PLAN …» de la hoja (puede traer marcas viejas
+    // de planteles que ya salieron del plan).
+    const nombresPlanSistema = new Set();
+    try {
+      (await pool.query("SELECT nombre FROM planes_atencion")).rows.forEach((x) => nombresPlanSistema.add(gescolar.normalizar(x.nombre)));
+    } catch (err) {
+      console.error("Dashboard: no se pudieron leer los nombres de los planes:", err.message);
+    }
     const claveAnio = datos.length ? Object.keys(datos[0]).find((h) => gescolar.normalizar(h) === "ANO") : null;
     const programas = new Map(); // clave → { nombre, nota, planteles:Set, anios: Map(anio → Set) }
     const sumaBarras = { n: 0 };
@@ -2412,7 +2436,12 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       const codigoMin = limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase();
       const fuentes = []; // { nombre, tipo } de todo lo que tiene este plantel
       if (tipo) fuentes.push({ nombre: tipo, tipo: null, esTipoAtencion: true });
-      planes.forEach((pl) => { if (gescolar.tieneMarcaPlan(p[pl.columna])) { pl.cantidad++; enAlgunPlan = true; fuentes.push({ nombre: pl.nombre, tipo: null }); } });
+      planes.forEach((pl) => {
+        if (!gescolar.tieneMarcaPlan(p[pl.columna])) return;
+        pl.cantidad++;
+        if (nombresPlanSistema.has(gescolar.normalizar(pl.nombre))) return; // este plan lo gobierna el sistema
+        enAlgunPlan = true; fuentes.push({ nombre: pl.nombre, tipo: null });
+      });
       (planesDeCodigo.get(codigoMin) || []).forEach((x) => { enAlgunPlan = true; fuentes.push({ nombre: x.nombre, tipo: x.tipo }); });
       const propios = new Map(); // programas de ESTE plantel (una vez cada uno) → años
       for (const f of fuentes) {
