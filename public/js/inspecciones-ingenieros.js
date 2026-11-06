@@ -1,6 +1,8 @@
 // inspecciones-ingenieros.js — Ingenieros e inspecciones.
-// Para cada ingeniero de la lista oficial: planteles A CARGO (columna RESPONSABLE de GESCOLAR), planteles donde
-// participó EN EL EQUIPO y su participación total, con insignia para los 3 con más planteles a cargo.
+// Dos grupos (lista oficial): INGENIEROS, que pueden estar a cargo de un plantel (columna RESPONSABLE de GESCOLAR),
+// y personal de APOYO (en formación, administrativo, sistemas), que solo participa en equipos. Cada grupo se
+// compara contra su propio promedio y lleva sus 3 insignias: los ingenieros por planteles a cargo, el apoyo por
+// planteles en equipo.
 // Un plantel tiene un solo ingeniero a cargo. Lo ven todos los perfiles del módulo; administrador y coordinador
 // además asignan responsable y equipo a CUALQUIER plantel (con o sin plan), y el administrador mantiene la lista
 // oficial y unifica escrituras distintas de un mismo nombre en GESCOLAR.
@@ -56,103 +58,126 @@ function coincide(p, q) {
   return `${p.nombre_plantel} ${p.codigo_dea} ${p.municipio || ""} ${p.parroquia || ""}`.toLowerCase().includes(q);
 }
 
-// Ingenieros que cuentan para el promedio y la lista de elección: los de la lista oficial (o todos si aún no hay lista).
+// Ingenieros (pueden ir a cargo) de la lista oficial, o todos los que aparezcan si aún no hay lista.
 function baseIngenieros() {
-  return RESUMEN.lista_oficial ? RESUMEN.ingenieros.filter((g) => g.en_lista) : RESUMEN.ingenieros;
+  return RESUMEN.ingenieros.filter((g) => g.tipo !== "APOYO" && (!RESUMEN.lista_oficial || g.en_lista));
+}
+function baseApoyo() {
+  return RESUMEN.ingenieros.filter((g) => g.tipo === "APOYO");
+}
+// Todos los nombres de la lista (para marcar el equipo).
+function baseTodos() {
+  return RESUMEN.ingenieros.filter((g) => !RESUMEN.lista_oficial || g.en_lista);
 }
 
-// Posición (1, 2, 3) por valores distintos de «a cargo»: los empatados comparten insignia. Solo con total > 0.
-function posiciones() {
-  const distintos = [...new Set(baseIngenieros().map((g) => g.total).filter((t) => t > 0))].sort((a, b) => b - a).slice(0, 3);
+// Posición (1, 2, 3) por valores distintos de la medida del grupo: los empatados comparten insignia. Solo con valor > 0.
+function posiciones(grupo, medida) {
+  const distintos = [...new Set(grupo.map(medida).filter((t) => t > 0))].sort((a, b) => b - a).slice(0, 3);
   return new Map(distintos.map((t, i) => [t, i + 1]));
 }
 
 const COLOR_PUESTO = { 1: "#d69e2e", 2: "#718096", 3: "#b7791f" };
 
+const fmt = (n) => n.toLocaleString("es-VE", { maximumFractionDigits: 1 });
+
+// Una fila (ingeniero o personal de apoyo). ctx: { apoyo, promedio, maximo, puestos, q }.
+// Ingenieros: medida = planteles a cargo. Apoyo: medida = planteles en equipo.
+function bloqueDe(g, ctx) {
+  const { apoyo, promedio, maximo, puestos, q } = ctx;
+  const medida = apoyo ? g.en_equipo : g.total;
+  const todos = (apoyo ? [] : g.planteles).concat(g.planteles_equipo || []);
+  const porNombre = q && g.nombre.toLowerCase().includes(q);
+  const filtrados = q && !porNombre ? todos.filter((p) => coincide(p, q)) : todos;
+  if (q && !porNombre && !filtrados.length) return "";
+  const forzado = Boolean(q) && !porNombre;
+  const abierto = ABIERTOS.has(g.nombre) || forzado;
+  const accion = forzado
+    ? `<span style="color:var(--muted); font-size:.8rem;">${filtrados.length} coincidencia${filtrados.length === 1 ? "" : "s"}</span>`
+    : `<button type="button" class="btn ${abierto ? "btn-fantasma" : "btn-primario"} btn-sm" data-ver="${escapar(g.nombre)}">${abierto ? "Ocultar planteles" : "Ver planteles"}</button>`;
+  let detalle = "";
+  if (abierto) {
+    const aCargoVis = apoyo ? [] : (q && !porNombre ? g.planteles.filter((p) => coincide(p, q)) : g.planteles);
+    const equipoVis = q && !porNombre ? (g.planteles_equipo || []).filter((p) => coincide(p, q)) : (g.planteles_equipo || []);
+    const filas = aCargoVis.map((p) => `<tr>
+      <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
+      <td>${escapar(p.nombre_plantel)}</td>
+      <td>${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</td>
+      <td>${p.tarea ? escapar(p.tarea) : ""}</td>
+      <td style="white-space:nowrap;"><a class="btn btn-fantasma btn-sm" href="/inspecciones/plantel.html?cod=${encodeURIComponent(p.codigo_dea)}">Ver ficha</a>${PUEDE_GESTIONAR ? ` <button type="button" class="btn btn-fantasma btn-sm" data-editar="${escapar(p.codigo_dea)}" data-nombre="${escapar(p.nombre_plantel)}" data-resp="${escapar(g.nombre)}">Editar</button> <button type="button" class="btn btn-fantasma btn-sm" data-quitar="${escapar(p.codigo_dea)}" data-nombre="${escapar(p.nombre_plantel)}" data-resp="${escapar(g.nombre)}">Quitar</button>` : ""}</td>
+    </tr>`).join("");
+    const filasEq = equipoVis.map((p) => `<tr>
+      <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
+      <td>${escapar(p.nombre_plantel)}</td>
+      <td>${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</td>
+      <td style="white-space:nowrap;"><a class="btn btn-fantasma btn-sm" href="/inspecciones/plantel.html?cod=${encodeURIComponent(p.codigo_dea)}">Ver ficha</a>${PUEDE_GESTIONAR ? ` <button type="button" class="btn btn-fantasma btn-sm" data-editar="${escapar(p.codigo_dea)}" data-nombre="${escapar(p.nombre_plantel)}" data-resp="">Equipo</button>` : ""}</td>
+    </tr>`).join("");
+    detalle = `<div style="background:var(--surface-2, #f5f8fc); padding:4px 12px 14px;">
+      ${aCargoVis.length ? `<div style="font-weight:600; font-size:.8rem; margin:8px 0 2px;">A su cargo (${aCargoVis.length})</div>
+      <div class="tabla-responsive"><table>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Municipio · Parroquia</th><th>Tarea</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>` : ""}
+      ${equipoVis.length ? `<div style="font-weight:600; font-size:.8rem; margin:10px 0 2px;">Participó en el equipo (${equipoVis.length})</div>
+      <div class="tabla-responsive"><table>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Municipio · Parroquia</th><th></th></tr></thead>
+        <tbody>${filasEq}</tbody>
+      </table></div>` : ""}
+      ${!aCargoVis.length && !equipoVis.length ? `<p style="color:var(--muted); font-size:.82rem; margin:10px 0 0;">Todavía no tiene planteles registrados.</p>` : ""}
+    </div>`;
+  }
+  const puesto = RESUMEN.lista_oficial && !g.en_lista ? 0 : puestos.get(medida) || 0;
+  const insignia = puesto ? `<span title="${puesto}.º ${apoyo ? "en planteles de equipo" : "en planteles a cargo"}" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:${COLOR_PUESTO[puesto]}; color:#fff; font-size:.72rem; font-weight:700; margin-right:8px;">${puesto}</span>` : "";
+  const fuera = RESUMEN.lista_oficial && !g.en_lista ? `<span style="background:#fff7ed; color:#9c4221; font-size:.68rem; font-weight:600; padding:2px 6px; border-radius:999px; margin-left:8px;">fuera de la lista oficial</span>` : "";
+  const dif = Math.round((medida - promedio) * 10) / 10;
+  const chip = dif === 0 ? "en el promedio" : `${dif > 0 ? "+" : "−"}${fmt(Math.abs(dif))} vs promedio`;
+  const colorChip = dif > 0.5 ? "background:#fff7ed; color:#9c4221;" : dif < -0.5 ? "background:#ebf4ff; color:#2c5282;" : "background:#e6f4ea; color:#276749;";
+  const ancho = maximo ? Math.round((medida / maximo) * 100) : 0;
+  const cifra = (n, rotulo) => `<span style="text-align:center; line-height:1.1; min-width:62px;"><span style="font-size:1.2rem; font-weight:700;">${n}</span><br><span style="font-size:.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;">${rotulo}</span></span>`;
+  const cifras = apoyo ? cifra(g.en_equipo, "en equipo") : `${cifra(g.total, "a cargo")}${cifra(g.en_equipo, "en equipo")}${cifra(g.participacion, "participación")}`;
+  return `<div style="border-top:1px solid var(--borde, #e3e9f1);">
+    <div style="display:flex; align-items:center; gap:12px; padding:12px 20px; flex-wrap:wrap;">
+      <div style="flex:1 1 200px; min-width:0;">
+        <div style="display:flex; align-items:center;">${insignia}<strong>${escapar(g.nombre)}</strong>${fuera}</div>
+        <div style="height:5px; background:#edf2f7; border-radius:3px; margin-top:6px; max-width:260px;"><div style="height:5px; width:${ancho}%; background:${apoyo ? "#38a169" : "#1a73e8"}; border-radius:3px;"></div></div>
+      </div>
+      <span style="${colorChip} font-size:.72rem; font-weight:600; padding:2px 8px; border-radius:999px; white-space:nowrap;">${chip}</span>
+      ${cifras}
+      ${accion}
+    </div>
+    ${detalle}
+  </div>`;
+}
+
 function pintar() {
   if (!RESUMEN) return;
   const q = document.getElementById("buscar").value.trim().toLowerCase();
-  const base = baseIngenieros();
-  const aCargo = base.reduce((a, g) => a + g.total, 0);
-  const promedio = base.length ? aCargo / base.length : 0;
-  const maximo = base.length ? Math.max(...base.map((g) => g.total)) : 0;
-  const puestos = posiciones();
+  const ingenieros = baseIngenieros();
+  const apoyo = baseApoyo();
+  const aCargo = ingenieros.reduce((a, g) => a + g.total, 0);
+  const promIng = ingenieros.length ? aCargo / ingenieros.length : 0;
+  const promApoyo = apoyo.length ? apoyo.reduce((a, g) => a + g.en_equipo, 0) / apoyo.length : 0;
   document.getElementById("resumen").textContent =
-    `${base.length} ingeniero${base.length === 1 ? "" : "s"} · ${RESUMEN.planteles_con_responsable} planteles inspeccionados de ${RESUMEN.total_planteles_gescolar}` +
-    (base.length ? ` · promedio ${promedio.toLocaleString("es-VE", { maximumFractionDigits: 1 })} a cargo por ingeniero` : "");
+    `${ingenieros.length} ingeniero${ingenieros.length === 1 ? "" : "s"}` + (apoyo.length ? ` · ${apoyo.length} de apoyo` : "") +
+    ` · ${RESUMEN.planteles_con_responsable} planteles inspeccionados de ${RESUMEN.total_planteles_gescolar}` +
+    (ingenieros.length ? ` · promedio ${fmt(promIng)} a cargo por ingeniero` : "");
   const cont = document.getElementById("tabla");
   if (!RESUMEN.ingenieros.length) {
     cont.innerHTML = `<div class="vacio"><strong>Todavía no hay ingenieros</strong>Cuando se llene la columna RESPONSABLE o la lista oficial aparecerán aquí.</div>`;
     return;
   }
-  const bloques = [];
-  RESUMEN.ingenieros.forEach((g) => {
-    const todos = g.planteles.concat(g.planteles_equipo || []);
-    const porNombre = q && g.nombre.toLowerCase().includes(q);
-    const filtrados = q && !porNombre ? todos.filter((p) => coincide(p, q)) : todos;
-    if (q && !porNombre && !filtrados.length) return;
-    const forzado = Boolean(q) && !porNombre;
-    const abierto = ABIERTOS.has(g.nombre) || forzado;
-    const accion = forzado
-      ? `<span style="color:var(--muted); font-size:.8rem;">${filtrados.length} coincidencia${filtrados.length === 1 ? "" : "s"}</span>`
-      : `<button type="button" class="btn ${abierto ? "btn-fantasma" : "btn-primario"} btn-sm" data-ver="${escapar(g.nombre)}">${abierto ? "Ocultar planteles" : "Ver planteles"}</button>`;
-    let detalle = "";
-    if (abierto) {
-      const aCargoVis = q && !porNombre ? g.planteles.filter((p) => coincide(p, q)) : g.planteles;
-      const equipoVis = q && !porNombre ? (g.planteles_equipo || []).filter((p) => coincide(p, q)) : (g.planteles_equipo || []);
-      const filas = aCargoVis.map((p) => `<tr>
-        <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
-        <td>${escapar(p.nombre_plantel)}</td>
-        <td>${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</td>
-        <td>${p.tarea ? escapar(p.tarea) : ""}</td>
-        <td style="white-space:nowrap;"><a class="btn btn-fantasma btn-sm" href="/inspecciones/plantel.html?cod=${encodeURIComponent(p.codigo_dea)}">Ver ficha</a>${PUEDE_GESTIONAR ? ` <button type="button" class="btn btn-fantasma btn-sm" data-editar="${escapar(p.codigo_dea)}" data-nombre="${escapar(p.nombre_plantel)}" data-resp="${escapar(g.nombre)}">Editar</button> <button type="button" class="btn btn-fantasma btn-sm" data-quitar="${escapar(p.codigo_dea)}" data-nombre="${escapar(p.nombre_plantel)}" data-resp="${escapar(g.nombre)}">Quitar</button>` : ""}</td>
-      </tr>`).join("");
-      const filasEq = equipoVis.map((p) => `<tr>
-        <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
-        <td>${escapar(p.nombre_plantel)}</td>
-        <td>${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</td>
-        <td style="white-space:nowrap;"><a class="btn btn-fantasma btn-sm" href="/inspecciones/plantel.html?cod=${encodeURIComponent(p.codigo_dea)}">Ver ficha</a>${PUEDE_GESTIONAR ? ` <button type="button" class="btn btn-fantasma btn-sm" data-editar="${escapar(p.codigo_dea)}" data-nombre="${escapar(p.nombre_plantel)}" data-resp="">Equipo</button>` : ""}</td>
-      </tr>`).join("");
-      detalle = `<div style="background:var(--surface-2, #f5f8fc); padding:4px 12px 14px;">
-        ${aCargoVis.length ? `<div style="font-weight:600; font-size:.8rem; margin:8px 0 2px;">A su cargo (${aCargoVis.length})</div>
-        <div class="tabla-responsive"><table>
-          <thead><tr><th>Código</th><th>Plantel</th><th>Municipio · Parroquia</th><th>Tarea</th><th></th></tr></thead>
-          <tbody>${filas}</tbody>
-        </table></div>` : ""}
-        ${equipoVis.length ? `<div style="font-weight:600; font-size:.8rem; margin:10px 0 2px;">Participó en el equipo (${equipoVis.length})</div>
-        <div class="tabla-responsive"><table>
-          <thead><tr><th>Código</th><th>Plantel</th><th>Municipio · Parroquia</th><th></th></tr></thead>
-          <tbody>${filasEq}</tbody>
-        </table></div>` : ""}
-        ${!aCargoVis.length && !equipoVis.length ? `<p style="color:var(--muted); font-size:.82rem; margin:10px 0 0;">Todavía no tiene planteles a su cargo ni participación en equipos.</p>` : ""}
-      </div>`;
-    }
-    const puesto = RESUMEN.lista_oficial && !g.en_lista ? 0 : puestos.get(g.total) || 0;
-    const insignia = puesto ? `<span title="${puesto}.º en planteles a cargo" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:${COLOR_PUESTO[puesto]}; color:#fff; font-size:.72rem; font-weight:700; margin-right:8px;">${puesto}</span>` : "";
-    const fuera = RESUMEN.lista_oficial && !g.en_lista ? `<span style="background:#fff7ed; color:#9c4221; font-size:.68rem; font-weight:600; padding:2px 6px; border-radius:999px; margin-left:8px;">fuera de la lista oficial</span>` : "";
-    const dif = Math.round((g.total - promedio) * 10) / 10;
-    const chip = dif === 0 ? "en el promedio" : `${dif > 0 ? "+" : "−"}${Math.abs(dif).toLocaleString("es-VE", { maximumFractionDigits: 1 })} vs promedio`;
-    const colorChip = dif > 0.5 ? "background:#fff7ed; color:#9c4221;" : dif < -0.5 ? "background:#ebf4ff; color:#2c5282;" : "background:#e6f4ea; color:#276749;";
-    const ancho = maximo ? Math.round((g.total / maximo) * 100) : 0;
-    const cifra = (n, rotulo) => `<span style="text-align:center; line-height:1.1; min-width:62px;"><span style="font-size:1.2rem; font-weight:700;">${n}</span><br><span style="font-size:.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;">${rotulo}</span></span>`;
-    bloques.push(`<div style="border-top:1px solid var(--borde, #e3e9f1);">
-      <div style="display:flex; align-items:center; gap:12px; padding:12px 20px; flex-wrap:wrap;">
-        <div style="flex:1 1 200px; min-width:0;">
-          <div style="display:flex; align-items:center;">${insignia}<strong>${escapar(g.nombre)}</strong>${fuera}</div>
-          <div style="height:5px; background:#edf2f7; border-radius:3px; margin-top:6px; max-width:260px;"><div style="height:5px; width:${ancho}%; background:#1a73e8; border-radius:3px;"></div></div>
-        </div>
-        <span style="${colorChip} font-size:.72rem; font-weight:600; padding:2px 8px; border-radius:999px; white-space:nowrap;">${chip}</span>
-        ${cifra(g.total, "a cargo")}${cifra(g.en_equipo, "en equipo")}${cifra(g.participacion, "participación")}
-        ${accion}
-      </div>
-      ${detalle}
-    </div>`);
-  });
-  if (!bloques.length) {
+  const ctxIng = { apoyo: false, promedio: promIng, maximo: ingenieros.length ? Math.max(...ingenieros.map((g) => g.total)) : 0, puestos: posiciones(ingenieros, (g) => g.total), q };
+  const ctxApoyo = { apoyo: true, promedio: promApoyo, maximo: apoyo.length ? Math.max(...apoyo.map((g) => g.en_equipo)) : 0, puestos: posiciones(apoyo, (g) => g.en_equipo), q };
+  // Los nombres fuera de la lista oficial (que no son de apoyo) se muestran con los ingenieros, marcados.
+  const filasIng = RESUMEN.ingenieros.filter((g) => g.tipo !== "APOYO").map((g) => bloqueDe(g, ctxIng)).filter(Boolean);
+  const filasApoyo = apoyo.slice().sort((a, b) => b.en_equipo - a.en_equipo || a.nombre.localeCompare(b.nombre, "es")).map((g) => bloqueDe(g, ctxApoyo)).filter(Boolean);
+  if (!filasIng.length && !filasApoyo.length) {
     cont.innerHTML = `<div class="vacio"><strong>Sin resultados</strong>Prueba con otro texto.</div>`;
     return;
   }
-  cont.innerHTML = bloques.join("");
+  const titulo = (t, sub) => `<div style="padding:14px 20px 6px; border-top:1px solid var(--borde, #e3e9f1);"><strong style="font-size:.9rem;">${t}</strong> <span style="color:var(--muted); font-size:.78rem;">${sub}</span></div>`;
+  cont.innerHTML =
+    (filasIng.length ? (apoyo.length ? titulo("Ingenieros", "a cargo de planteles · se comparan entre ellos") : "") + filasIng.join("") : "") +
+    (filasApoyo.length ? titulo("Personal de apoyo", "participan en equipos · se comparan entre ellos") + filasApoyo.join("") : "");
   cont.querySelectorAll("[data-ver]").forEach((b) => {
     b.addEventListener("click", () => {
       const n = b.dataset.ver;
@@ -189,7 +214,8 @@ async function quitar(codigo, nombre, resp) {
 function abrirAsignar(previo) {
   let plantel = previo ? { cod_plantel: previo.cod_plantel, nombre_plantel: previo.nombre_plantel, responsable: previo.responsable || "" } : null;
   let equipoInicial = [];
-  const nombres = baseIngenieros().map((g) => g.nombre).sort((a, b) => a.localeCompare(b, "es"));
+  const nombres = baseIngenieros().map((g) => g.nombre).sort((a, b) => a.localeCompare(b, "es")); // pueden ir a cargo
+  const nombresEquipo = baseTodos().map((g) => g.nombre).sort((a, b) => a.localeCompare(b, "es")); // pueden ir en el equipo
   const libre = !RESUMEN.lista_oficial; // sin lista oficial se permite escribir un nombre nuevo
   const fondo = document.createElement("div");
   fondo.className = "modal-fondo visible";
@@ -247,7 +273,7 @@ function abrirAsignar(previo) {
 
   function pintarEquipo() {
     const actualResp = elegido().toLowerCase();
-    listaEq.innerHTML = nombres.map((n) => `<label style="display:flex; gap:6px; align-items:center; padding:3px 0; font-size:.84rem; cursor:pointer;">
+    listaEq.innerHTML = nombresEquipo.map((n) => `<label style="display:flex; gap:6px; align-items:center; padding:3px 0; font-size:.84rem; cursor:pointer;">
         <input type="checkbox" value="${escapar(n)}" ${equipoInicial.some((e) => e.toLowerCase() === n.toLowerCase()) ? "checked" : ""} ${n.toLowerCase() === actualResp ? "disabled" : ""}> ${escapar(n)}</label>`).join("");
     listaEq.querySelectorAll("input").forEach((c) => c.addEventListener("change", refrescar));
   }
@@ -263,7 +289,7 @@ function abrirAsignar(previo) {
     equipoInicial = [];
     try {
       const e = await RAC.get(`/api/inspecciones/ingenieros/equipo/${encodeURIComponent(plantel.cod_plantel)}`);
-      equipoInicial = [...new Set((e.propios || []).concat(e.planilla || []).map((x) => nombres.find((n) => n.toLowerCase() === String(x).toLowerCase())).filter(Boolean))];
+      equipoInicial = [...new Set((e.propios || []).concat(e.planilla || []).map((x) => nombresEquipo.find((n) => n.toLowerCase() === String(x).toLowerCase())).filter(Boolean))];
     } catch (_) { /* si falla se muestra vacío */ }
     pintarEquipo();
     refrescar();
@@ -362,9 +388,10 @@ async function verLista() {
   fondo.className = "modal-fondo visible";
   fondo.innerHTML = `<div class="modal" style="max-width:520px;">
     <h2 style="margin-bottom:4px;">Lista de ingenieros y equipos</h2>
-    <p style="margin:0 0 10px; color:var(--muted); font-size:.82rem;">Solo estos nombres se pueden elegir como responsable o equipo. Editar un nombre lo corrige en todos los sitios; retirar conserva su historial; eliminar solo se permite si no tiene nada registrado.</p>
+    <p style="margin:0 0 10px; color:var(--muted); font-size:.82rem;">Solo estos nombres se pueden elegir. Los <strong>ingenieros</strong> pueden quedar a cargo de un plantel; el personal de <strong>apoyo</strong> solo participa en equipos. Editar un nombre lo corrige en todos los sitios; retirar conserva su historial; eliminar solo se permite si no tiene nada registrado.</p>
     <div style="display:flex; gap:8px; margin-bottom:10px;">
       <input type="text" id="inpAgregar" maxlength="80" placeholder="Nombre y apellido (MAYÚSCULAS)" style="flex:1; padding:8px 12px; border:1px solid var(--borde); border-radius:8px;">
+      <select id="selTipoNuevo"><option value="INGENIERO">Ingeniero</option><option value="APOYO">Apoyo</option></select>
       <button type="button" class="btn btn-primario btn-sm" id="btnAgregar">Agregar</button>
     </div>
     <div class="error-msg" id="errorLista"></div>
@@ -382,8 +409,9 @@ async function verLista() {
     try {
       const r = await RAC.get("/api/inspecciones/ingenieros/catalogo");
       cuerpo.innerHTML = r.ingenieros.length
-        ? `<table><tbody>` + r.ingenieros.map((c) => `<tr><td style="${c.activo ? "" : "color:var(--muted); text-decoration:line-through;"}">${escapar(c.nombre)}</td>
+        ? `<table><tbody>` + r.ingenieros.map((c) => `<tr><td style="${c.activo ? "" : "color:var(--muted); text-decoration:line-through;"}">${escapar(c.nombre)} <span style="font-size:.68rem; font-weight:600; padding:2px 6px; border-radius:999px; ${c.tipo === "APOYO" ? "background:#e6f4ea; color:#276749;" : "background:#ebf4ff; color:#2c5282;"}">${c.tipo === "APOYO" ? "apoyo" : "ingeniero"}</span></td>
             <td style="text-align:right; white-space:nowrap;"><button type="button" class="btn btn-fantasma btn-sm" data-editar-nombre="${Number(c.id)}" data-nombre="${escapar(c.nombre)}">Editar</button>
+              <button type="button" class="btn btn-fantasma btn-sm" data-tipo="${Number(c.id)}" data-nuevo-tipo="${c.tipo === "APOYO" ? "INGENIERO" : "APOYO"}">${c.tipo === "APOYO" ? "Pasar a ingeniero" : "Pasar a apoyo"}</button>
               <button type="button" class="btn btn-fantasma btn-sm" data-id="${Number(c.id)}" data-activo="${c.activo ? "0" : "1"}">${c.activo ? "Retirar" : "Reactivar"}</button>
               <button type="button" class="btn btn-fantasma btn-sm" data-eliminar="${Number(c.id)}" data-nombre="${escapar(c.nombre)}">Eliminar</button></td></tr>`).join("") + `</tbody></table>`
         : `<div class="vacio"><strong>La lista está vacía</strong>Agrega a los ingenieros arriba.</div>`;
@@ -406,6 +434,14 @@ async function verLista() {
           await pintarLista();
         } catch (err) { errorEl.textContent = err.message; errorEl.classList.add("visible"); }
       }));
+      cuerpo.querySelectorAll("[data-tipo]").forEach((b) => b.addEventListener("click", async () => {
+        errorEl.classList.remove("visible");
+        try {
+          await RAC.patch(`/api/inspecciones/ingenieros/catalogo/${b.dataset.tipo}`, { tipo: b.dataset.nuevoTipo });
+          cambio = true;
+          await pintarLista();
+        } catch (err) { errorEl.textContent = err.message; errorEl.classList.add("visible"); }
+      }));
       cuerpo.querySelectorAll("[data-eliminar]").forEach((b) => b.addEventListener("click", async () => {
         errorEl.classList.remove("visible");
         if (!window.confirm(`¿Eliminar a ${b.dataset.nombre} de la lista?\n\nSolo se puede si no tiene nada registrado.`)) return;
@@ -424,7 +460,7 @@ async function verLista() {
     errorEl.classList.remove("visible");
     const inp = fondo.querySelector("#inpAgregar");
     try {
-      await RAC.post("/api/inspecciones/ingenieros/catalogo", { nombre: inp.value });
+      await RAC.post("/api/inspecciones/ingenieros/catalogo", { nombre: inp.value, tipo: fondo.querySelector("#selTipoNuevo").value });
       inp.value = "";
       cambio = true;
       await pintarLista();

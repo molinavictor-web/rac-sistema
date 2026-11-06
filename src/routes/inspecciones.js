@@ -1454,8 +1454,9 @@ router.post("/planes/:id/registro-gescolar", requireAuth, requireRol("admin"), a
 router.get("/responsables", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
   try {
     const { grupos } = agruparResponsables(await gescolar.cargarGescolar());
-    const activos = (await cargarCatalogo()).filter((c) => c.activo);
-    if (activos.length) {
+    const todosActivos = (await cargarCatalogo()).filter((c) => c.activo);
+    const activos = todosActivos.filter((c) => c.tipo !== "APOYO");
+    if (todosActivos.length) {
       const total = new Map(grupos.map((g) => [claveNombre(g.nombre), g.planteles.length]));
       return res.json({ catalogo: true, responsables: activos.map((c) => ({ nombre: c.nombre, total: total.get(claveNombre(c.nombre)) || 0 })) });
     }
@@ -1474,19 +1475,25 @@ const NOMBRE_RESPONSABLE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][A-Za-zÁÉ�
 // Si la tabla no existe o está vacía, se comporta como antes (nombres libres).
 async function cargarCatalogo() {
   try {
-    const { rows } = await pool.query("SELECT id, nombre, activo FROM ingenieros_catalogo ORDER BY nombre");
+    const { rows } = await pool.query("SELECT id, nombre, activo, tipo FROM ingenieros_catalogo ORDER BY nombre");
     return rows;
   } catch (err) {
     if (err.code === "42P01") return [];
+    if (err.code === "42703") { // todavía no se ejecutó el script 18: todos cuentan como INGENIERO
+      const { rows } = await pool.query("SELECT id, nombre, activo FROM ingenieros_catalogo ORDER BY nombre");
+      return rows.map((r) => ({ ...r, tipo: "INGENIERO" }));
+    }
     throw err;
   }
 }
 // Devuelve { nombre } (escritura oficial) o { error }.
-function resolverEnCatalogo(nombre, catalogo) {
+// paraResponsable: el personal de APOYO no puede quedar a cargo de un plantel (solo en equipos).
+function resolverEnCatalogo(nombre, catalogo, paraResponsable = false) {
   const activos = catalogo.filter((c) => c.activo);
   if (!activos.length) return { nombre };
   const hallado = activos.find((c) => claveNombre(c.nombre) === claveNombre(nombre));
   if (!hallado) return { error: "Elige un ingeniero de la lista oficial. Si falta alguien, el administrador lo agrega en Ingenieros → Lista de ingenieros." };
+  if (paraResponsable && hallado.tipo === "APOYO") return { error: `${hallado.nombre} es personal de apoyo: puede ir en el equipo, pero no a cargo de un plantel.` };
   return { nombre: hallado.nombre };
 }
 function distancia(a, b) {
@@ -1546,7 +1553,7 @@ router.put("/inspeccion/:id/asignaciones", requireAuth, requireRol(...ROLES_GEST
       if (nombreResp) {
         const catalogo = await cargarCatalogo();
         if (catalogo.some((c) => c.activo)) {
-          const r = resolverEnCatalogo(nombreResp, catalogo);
+          const r = resolverEnCatalogo(nombreResp, catalogo, true);
           if (r.error) return res.status(400).json({ error: r.error });
           nombreResp = r.nombre;
         } else {
@@ -1639,7 +1646,7 @@ router.post("/ingenieros/asignar-plantel", requireAuth, requireRol(...ROLES_GEST
     if (nombre) {
       const catalogo = await cargarCatalogo();
       if (catalogo.some((c) => c.activo)) {
-        const r = resolverEnCatalogo(nombre, catalogo);
+        const r = resolverEnCatalogo(nombre, catalogo, true);
         if (r.error) return res.status(400).json({ error: r.error });
         nombre = r.nombre;
       } else {
@@ -1710,7 +1717,14 @@ router.post("/ingenieros/catalogo", requireAuth, requireRol("admin"), async (req
     if (catalogo.some((c) => claveNombre(c.nombre) === claveNombre(nombre))) {
       return res.status(409).json({ error: "Ese ingeniero ya está en la lista." });
     }
-    const { rows } = await pool.query("INSERT INTO ingenieros_catalogo (nombre) VALUES ($1) RETURNING id, nombre, activo", [nombre]);
+    const tipo = (req.body || {}).tipo === "APOYO" ? "APOYO" : "INGENIERO";
+    let rows;
+    try {
+      ({ rows } = await pool.query("INSERT INTO ingenieros_catalogo (nombre, tipo) VALUES ($1, $2) RETURNING id, nombre, activo, tipo", [nombre, tipo]));
+    } catch (err) {
+      if (err.code !== "42703") throw err;
+      ({ rows } = await pool.query("INSERT INTO ingenieros_catalogo (nombre) VALUES ($1) RETURNING id, nombre, activo", [nombre]));
+    }
     res.status(201).json(rows[0]);
   } catch (err) {
     falloInterno(res, err, "No se pudo agregar el ingeniero a la lista.");
@@ -1726,7 +1740,9 @@ router.patch("/ingenieros/catalogo/:id", requireAuth, requireRol("admin"), async
   const cuerpo = req.body || {};
   const traeActivo = typeof cuerpo.activo === "boolean";
   const traeNombre = cuerpo.nombre !== undefined;
-  if (!id || (!traeActivo && !traeNombre)) return res.status(400).json({ error: "Datos inválidos." });
+  const traeTipo = cuerpo.tipo !== undefined;
+  if (traeTipo && !["INGENIERO", "APOYO"].includes(cuerpo.tipo)) return res.status(400).json({ error: "Tipo inválido." });
+  if (!id || (!traeActivo && !traeNombre && !traeTipo)) return res.status(400).json({ error: "Datos inválidos." });
   let nuevoNombre = null;
   if (traeNombre) {
     nuevoNombre = limpiarTexto(cuerpo.nombre).toUpperCase();
@@ -1785,9 +1801,18 @@ router.patch("/ingenieros/catalogo/:id", requireAuth, requireRol("admin"), async
       }
       await cliente.query("COMMIT");
     }
+    if (traeTipo && cuerpo.tipo !== actual.tipo) {
+      if (cuerpo.tipo === "APOYO") {
+        const clave = claveNombre(traeNombre && nuevoNombre ? nuevoNombre : actual.nombre);
+        const aCargo = (await gescolar.cargarGescolar()).filter((p) => { const v = limpiarTexto(p.RESPONSABLE); return v && claveNombre(v) === clave; }).length;
+        if (aCargo) {
+          return res.status(409).json({ error: `${actual.nombre} tiene ${aCargo} plantel${aCargo === 1 ? "" : "es"} a cargo. Primero reasígnalos a otro ingeniero y luego pásalo a personal de apoyo.` });
+        }
+      }
+      await pool.query("UPDATE ingenieros_catalogo SET tipo = $2 WHERE id = $1", [id, cuerpo.tipo]);
+    }
     if (traeActivo) await pool.query("UPDATE ingenieros_catalogo SET activo = $2 WHERE id = $1", [id, cuerpo.activo]);
-    const { rows } = await pool.query("SELECT id, nombre, activo FROM ingenieros_catalogo WHERE id = $1", [id]);
-    res.json(rows[0]);
+    res.json((await cargarCatalogo()).find((c) => c.id === id));
   } catch (err) {
     if (cliente) await cliente.query("ROLLBACK").catch(() => {});
     falloInterno(res, err, "No se pudo actualizar al ingeniero.");
@@ -1890,7 +1915,7 @@ router.put("/ingenieros/equipo/:codigo", requireAuth, requireRol(...ROLES_GESTIO
 // el nombre oficial (misma escritura sin acentos/mayúsculas, o muy parecida). Nada se escribe hasta aplicar.
 router.get("/ingenieros/corregir-nombres/vista-previa", requireAuth, requireRol("admin"), async (req, res) => {
   try {
-    const activos = (await cargarCatalogo()).filter((c) => c.activo);
+    const activos = (await cargarCatalogo()).filter((c) => c.activo && c.tipo !== "APOYO");
     if (!activos.length) return res.json({ lista_vacia: true, valores: [] });
     const datos = await gescolar.cargarGescolar(true);
     const por = new Map();
@@ -1925,7 +1950,7 @@ router.post("/ingenieros/corregir-nombres/aplicar", requireAuth, requireRol("adm
     return res.status(400).json({ error: "Confirma las correcciones que quieres aplicar." });
   }
   try {
-    const activos = (await cargarCatalogo()).filter((c) => c.activo);
+    const activos = (await cargarCatalogo()).filter((c) => c.activo && c.tipo !== "APOYO");
     const mapa = new Map();
     for (const c of cuerpo.correcciones) {
       const actual = String((c && c.actual) || "").replace(/\s+/g, " ").trim();
@@ -2030,7 +2055,7 @@ router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), as
       const k = claveNombre(nombre);
       if (!personas.has(k)) {
         const oficial = activos.find((c) => claveNombre(c.nombre) === k);
-        personas.set(k, { nombre: oficial ? oficial.nombre : nombre, en_lista: !!oficial, planteles: [], equipo: new Map() });
+        personas.set(k, { nombre: oficial ? oficial.nombre : nombre, en_lista: !!oficial, tipo: oficial ? oficial.tipo : "INGENIERO", planteles: [], equipo: new Map() });
       }
       return personas.get(k);
     };
@@ -2063,6 +2088,7 @@ router.get("/resumen-ingenieros", requireAuth, requireRol(...ROLES_PLANILLA), as
     const ingenieros = [...personas.values()].map((pe) => ({
       nombre: pe.nombre,
       en_lista: pe.en_lista,
+      tipo: pe.tipo,
       total: pe.planteles.length,
       planteles: pe.planteles,
       en_equipo: pe.equipo.size,
