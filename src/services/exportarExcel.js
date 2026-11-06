@@ -410,5 +410,92 @@ async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, ge
   return libro.xlsx.writeBuffer();
 }
 
-module.exports = { consolidadoOficial, consolidadoAdicionales, planilla, reportePlan };
+// Avance de la rehabilitación de un plan: una fila por plantel con el % de cada fase y el avance general.
+// fases: [{id, nombre, peso}], filas: [{estado, municipio, parroquia, codigo_dea, nombre_plantel,
+//   fases: {fase_id: {porcentaje, aplica}} | null, avance, fuente}], avancePlan: promedio del plan.
+async function avancePlan({ plan, fases, filas, avancePlan: promedioPlan, generado_en }) {
+  const ExcelJS = cargarExcelJS();
+  const libro = new ExcelJS.Workbook();
+  libro.creator = "SID — Zona Educativa Monagas";
+  const hoja = libro.addWorksheet(nombreHoja("Avance", "Avance"));
+  hoja.properties.tabColor = { argb: "FF2F855A" };
+
+  const fijas = [
+    { etiqueta: "N°", ancho: 5 }, { etiqueta: "Estado", ancho: 11 }, { etiqueta: "Municipio", ancho: 16 },
+    { etiqueta: "Parroquia", ancho: 18 }, { etiqueta: "Código DEA", ancho: 14 }, { etiqueta: "Nombre del plantel", ancho: 46 },
+  ];
+  const columnas = [
+    ...fijas,
+    ...fases.map((f) => ({ etiqueta: `${f.nombre}\n(${String(f.peso).replace(".", ",")}%)`, ancho: 16 })),
+    { etiqueta: "AVANCE GENERAL", ancho: 15 },
+  ];
+  const n = columnas.length;
+  columnas.forEach((c, i) => { hoja.getColumn(i + 1).width = c.ancho; });
+
+  hoja.getRow(1).height = 19.5;
+  for (let r = 2; r <= 7; r++) hoja.getRow(r).height = 12.75;
+  logo(libro, hoja, "logo-educacion-grande.png", "png", 0.25, 0.1, 364, 95);
+  let acumulado = 0; let col2 = -1;
+  columnas.forEach((c, i) => { if (col2 < 0 && acumulado >= 400) col2 = i; acumulado += Math.round(c.ancho * 7 + 5); });
+  if (col2 >= 0 && acumulado - 400 >= 363) logo(libro, hoja, "logo-fede-grande.jpg", "jpeg", col2, 0.1, 363, 103);
+
+  const fin = Math.min(n, 8);
+  hoja.mergeCells(8, 1, 8, fin);
+  celda(hoja.getCell(8, 1), `AVANCE DE LA REHABILITACIÓN — ${String(plan.nombre).toUpperCase()}`, { tam: 16, negrita: true, borde: false, h: "left" });
+  hoja.getRow(8).height = 22;
+  const fecha = new Date(generado_en).toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  hoja.mergeCells(9, 1, 9, fin);
+  celda(hoja.getCell(9, 1), `Generado el ${fecha}   |   Planteles activos: ${filas.length}   |   Avance general del plan: ${String(promedioPlan === null || promedioPlan === undefined ? 0 : promedioPlan).replace(".", ",")}%`, { tam: 10, borde: false, h: "left" });
+  hoja.getRow(9).height = 18;
+
+  const filaEnc = 11;
+  hoja.getRow(filaEnc).height = 45;
+  columnas.forEach((c, i) => celda(hoja.getCell(filaEnc, i + 1), c.etiqueta, { tam: 10, negrita: true, color: "FFFFFFFF", relleno: AZUL }));
+
+  const pct = (v) => Math.round(Number(v) * 100) / 10000; // 45,5 → 0,455 (formato porcentaje)
+  const FMT = "0.0%";
+  const sumas = fases.map(() => ({ s: 0, c: 0 }));
+  filas.forEach((f, k) => {
+    const r = filaEnc + 1 + k;
+    const relleno = k % 2 ? "FFF5F8FC" : undefined;
+    [k + 1, f.estado, f.municipio, f.parroquia, f.codigo_dea, f.nombre_plantel].forEach((v, i) =>
+      celda(hoja.getCell(r, i + 1), v, { h: i === 0 ? "center" : "left", relleno, ajustar: i >= 2 }));
+    fases.forEach((fa, j) => {
+      const c = hoja.getCell(r, fijas.length + j + 1);
+      if (f.fuente === "historico") return celda(c, "—", { relleno, h: "center" });
+      const v = f.fases && f.fases[fa.id];
+      if (v && v.aplica === false) return celda(c, "N/A", { relleno, h: "center" });
+      const valor = v ? Number(v.porcentaje) : 0;
+      sumas[j].s += valor; sumas[j].c += 1;
+      celda(c, pct(valor), { relleno, h: "right", formato: FMT });
+    });
+    celda(hoja.getCell(r, n), pct(f.avance === null || f.avance === undefined ? 0 : f.avance), { negrita: true, relleno: relleno || "FFEAF4EA", h: "right", formato: FMT });
+  });
+
+  const rt = filaEnc + 1 + filas.length;
+  hoja.mergeCells(rt, 1, rt, fijas.length);
+  celda(hoja.getCell(rt, 1), "AVANCE GENERAL DEL PLAN (promedio de los planteles)", { negrita: true, relleno: GRIS_CLARO, h: "right" });
+  for (let i = 2; i <= fijas.length; i++) hoja.getCell(rt, i).border = BORDE;
+  fases.forEach((fa, j) => celda(hoja.getCell(rt, fijas.length + j + 1), sumas[j].c ? pct(sumas[j].s / sumas[j].c) : 0, { negrita: true, relleno: GRIS_CLARO, h: "right", formato: FMT }));
+  celda(hoja.getCell(rt, n), pct(promedioPlan === null || promedioPlan === undefined ? 0 : promedioPlan), { negrita: true, relleno: "FFC6E0B4", h: "right", formato: FMT });
+  hoja.getRow(rt).height = 22;
+
+  const notas = [
+    "N/A: la fase no aplica en ese plantel (su peso se reparte entre las demás). «—»: plantel de un plan histórico, solo tiene el avance general registrado al cerrar.",
+    "Avance del plantel = suma de (% de cada fase × su peso) ÷ suma del peso de las fases que aplican. Una fase sin iniciar cuenta 0 %.",
+  ];
+  notas.forEach((t, i) => {
+    hoja.mergeCells(rt + 2 + i, 1, rt + 2 + i, fin);
+    celda(hoja.getCell(rt + 2 + i, 1), t, { tam: 9, borde: false, h: "left" });
+    hoja.getRow(rt + 2 + i).height = 24;
+  });
+
+  hoja.views = [{ state: "frozen", ySplit: filaEnc, xSplit: 6, zoomScale: 90 }];
+  hoja.autoFilter = { from: { row: filaEnc, column: 1 }, to: { row: filaEnc, column: n } };
+  hoja.pageSetup = { orientation: "landscape", paperSize: 1, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.39, right: 0.39, top: 0.39, bottom: 0.39, header: 0, footer: 0 } };
+  hoja.pageSetup.printTitlesRow = `${filaEnc}:${filaEnc}`;
+  return libro.xlsx.writeBuffer();
+}
+
+module.exports = { consolidadoOficial, consolidadoAdicionales, planilla, reportePlan, avancePlan };
 

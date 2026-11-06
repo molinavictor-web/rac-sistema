@@ -154,6 +154,7 @@ function dibujarPlan() {
         <button type="button" class="btn btn-fantasma btn-sm" id="btnEstadoPlan">${abierto ? "Cerrar plan" : "Reabrir plan"}</button>` : ""}
         ${PUEDE_GESTIONAR && PLAN_ABIERTO.fases ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnFasesPesos" title="Fases de la rehabilitación y cuánto pesa cada una en el avance">Fases y pesos</button>` : ""}
         ${usuario && usuario.rol === "admin" ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnRegistrarGescolar" title="Escribe el nombre del plan en la columna propia del plan en GESCOLAR («PLAN <nombre>»)">Registrar plan en GESCOLAR</button>` : ""}
+        ${PLAN_ABIERTO.fases && PLAN_ABIERTO.fases.length ? `<button type="button" class="btn btn-primario btn-sm" id="btnExcelAvance">Exportar avance (Excel)</button>` : ""}
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
       </div>
@@ -180,6 +181,8 @@ function dibujarPlan() {
   document.getElementById("btnVolver").addEventListener("click", volverALista);
   const btnReg = document.getElementById("btnRegistrarGescolar");
   if (btnReg) btnReg.addEventListener("click", () => abrirRegistroGescolar(plan));
+  const btnAvance = document.getElementById("btnExcelAvance");
+  if (btnAvance) btnAvance.addEventListener("click", (e) => descargarExcelAvance(plan, e.currentTarget));
   const btnFases = document.getElementById("btnFasesPesos");
   if (btnFases) btnFases.addEventListener("click", () => AvanceFases.abrirPesos({ fases: PLAN_ABIERTO.fases, onGuardado: recargarPlan }));
   if (PUEDE_GESTIONAR) {
@@ -341,6 +344,35 @@ function rehabilitacionHtml(p, planAbierto) {
   const puede = planAbierto && PUEDE_GESTIONAR && p.ejecucion !== "CERRADO";
   const boton = puede ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-rehab="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}" data-actual="${escapar(p.ingeniero_rehab || "")}">${p.ingeniero_rehab ? "Cambiar" : "Asignar"}</button></div>` : "";
   return nombre + boton;
+}
+
+async function descargarExcelAvance(plan, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true;
+  boton.textContent = "Generando Excel…";
+  try {
+    const resp = await fetch(`/api/inspecciones/planes/${Number(plan.id)}/avance.xlsx`, { headers: { Authorization: "Bearer " + RAC.getToken() } });
+    if (resp.status === 401) { RAC.cerrarSesion(); return; }
+    if (!resp.ok) {
+      let mensaje = `Error ${resp.status}`;
+      try { mensaje = (await resp.json()).error || mensaje; } catch (_) { /* sin cuerpo */ }
+      throw new Error(mensaje);
+    }
+    const blob = await resp.blob();
+    const m = /filename="([^"]+)"/.exec(resp.headers.get("Content-Disposition") || "");
+    const enlace = document.createElement("a");
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = m ? m[1] : "AVANCE.xlsx";
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 4000);
+  } catch (err) {
+    mostrarToast(err.message, true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+  }
 }
 
 function avanceHtml(p, planAbierto) {
