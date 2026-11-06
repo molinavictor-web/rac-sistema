@@ -98,6 +98,14 @@ async function accesoInspeccion(req, res, next) {
   }
 }
 
+// Tipos de plan de atención (cada uno se cuenta por separado en las estadísticas).
+const TIPOS_PLAN = {
+  BRICOMILES: "Bricomiles",
+  GOTAS_DE_AMOR: "Gotas de Amor",
+  ESCUELAS_VANDALIZADAS: "Escuelas vandalizadas",
+  ATENCION_ESPECIAL: "Atención especial",
+};
+
 // Devuelve { existe, cerrado } para el plan.
 async function estadoDelPlan(planId) {
   const { rows } = await pool.query("SELECT estado FROM planes_atencion WHERE id = $1", [planId]);
@@ -112,15 +120,15 @@ async function estadoDelPlan(planId) {
 router.get("/planes", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT p.id, p.nombre, p.descripcion, p.version_catalogo, p.estado, p.creado_en,
+      SELECT p.id, p.nombre, p.descripcion, p.version_catalogo, p.estado, p.tipo, p.creado_en,
              COALESCE(SUM(CASE WHEN pi.inspeccion_id IS NOT NULL AND pi.desenlazado_en IS NULL THEN 1 ELSE 0 END), 0)::int AS planteles_activos,
              COALESCE(SUM(CASE WHEN pi.desenlazado_en IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS planteles_desenlazados
       FROM planes_atencion p
       LEFT JOIN plan_inspecciones pi ON pi.plan_id = p.id
-      GROUP BY p.id, p.nombre, p.descripcion, p.version_catalogo, p.estado, p.creado_en
+      GROUP BY p.id, p.nombre, p.descripcion, p.version_catalogo, p.estado, p.tipo, p.creado_en
       ORDER BY p.creado_en DESC, p.id DESC
     `);
-    res.json({ planes: rows });
+    res.json({ planes: rows, tipos: TIPOS_PLAN });
   } catch (err) {
     falloInterno(res, err, "No se pudieron cargar los planes.");
   }
@@ -131,6 +139,8 @@ router.post("/planes", requireAuth, requireRol(...ROLES_GESTION), async (req, re
   const nombre = texto(cuerpo.nombre);
   const descripcion = texto(cuerpo.descripcion) || null;
   const version = texto(cuerpo.version_catalogo) || "LISTA2";
+  const tipo = texto(cuerpo.tipo) || "BRICOMILES";
+  if (!TIPOS_PLAN[tipo]) return res.status(400).json({ error: "Tipo de plan inválido." });
 
   if (nombre.length < 3 || nombre.length > 120) {
     return res.status(400).json({ error: "El nombre del plan debe tener entre 3 y 120 caracteres." });
@@ -145,10 +155,10 @@ router.post("/planes", requireAuth, requireRol(...ROLES_GESTION), async (req, re
       return res.status(400).json({ error: `La lista de materiales "${version}" no existe en el catálogo.` });
     }
     const { rows } = await pool.query(
-      `INSERT INTO planes_atencion (nombre, descripcion, version_catalogo, creado_por)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, nombre, descripcion, version_catalogo, estado, creado_en`,
-      [nombre, descripcion, version, req.usuario.id]
+      `INSERT INTO planes_atencion (nombre, descripcion, version_catalogo, tipo, creado_por)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, nombre, descripcion, version_catalogo, estado, tipo, creado_en`,
+      [nombre, descripcion, version, tipo, req.usuario.id]
     );
     res.status(201).json({ plan: rows[0] });
   } catch (err) {
@@ -183,6 +193,12 @@ router.patch("/planes/:id", requireAuth, requireRol(...ROLES_GESTION), async (re
     valores.push(descripcion);
     cambios.push(`descripcion = $${valores.length}`);
   }
+  if (cuerpo.tipo !== undefined) {
+    const tipo = texto(cuerpo.tipo);
+    if (!TIPOS_PLAN[tipo]) return res.status(400).json({ error: "Tipo de plan inválido." });
+    valores.push(tipo);
+    cambios.push(`tipo = $${valores.length}`);
+  }
   if (cuerpo.estado !== undefined) {
     if (!["ACTIVO", "CERRADO"].includes(cuerpo.estado)) {
       return res.status(400).json({ error: "Estado inválido (use ACTIVO o CERRADO)." });
@@ -196,7 +212,7 @@ router.patch("/planes/:id", requireAuth, requireRol(...ROLES_GESTION), async (re
   try {
     const { rows } = await pool.query(
       `UPDATE planes_atencion SET ${cambios.join(", ")} WHERE id = $${valores.length}
-       RETURNING id, nombre, descripcion, version_catalogo, estado, creado_en`,
+       RETURNING id, nombre, descripcion, version_catalogo, estado, tipo, creado_en`,
       valores
     );
     if (!rows.length) return res.status(404).json({ error: "Plan no encontrado." });
@@ -215,14 +231,14 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req,
 
   try {
     const plan = await pool.query(
-      "SELECT id, nombre, descripcion, version_catalogo, estado, creado_en FROM planes_atencion WHERE id = $1",
+      "SELECT id, nombre, descripcion, version_catalogo, estado, tipo, creado_en FROM planes_atencion WHERE id = $1",
       [planId]
     );
     if (!plan.rows.length) return res.status(404).json({ error: "Plan no encontrado." });
 
     const { rows } = await pool.query(
       `SELECT pi.inspeccion_id, pi.codigo_dea, pi.enlazado_en, pi.desenlazado_en,
-              pi.ejecucion, pi.cerrado_en, pi.ingeniero_rehab, uc.nombre AS cerrado_por_nombre,
+              pi.ejecucion, pi.cerrado_en, pi.ingeniero_rehab, pi.avance_historico, uc.nombre AS cerrado_por_nombre,
               i.fecha_inspeccion::text AS fecha_inspeccion, i.estado, i.origen, i.membrete
        FROM plan_inspecciones pi
        JOIN inspecciones i ON i.id = pi.inspeccion_id
@@ -274,11 +290,12 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req,
           cerrado_en: r.cerrado_en,
           cerrado_por: r.cerrado_por_nombre || null,
           ingeniero_rehab: r.ingeniero_rehab || null,
+          avance_historico: r.avance_historico === null || r.avance_historico === undefined ? null : Number(r.avance_historico),
         };
       })
       .sort((a, b) => Number(b.activo) - Number(a.activo) || a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
 
-    res.json({ plan: plan.rows[0], planteles });
+    res.json({ plan: { ...plan.rows[0], tipo_nombre: TIPOS_PLAN[plan.rows[0].tipo] || plan.rows[0].tipo }, planteles, tipos: TIPOS_PLAN });
   } catch (err) {
     falloInterno(res, err, "No se pudo cargar el plan.");
   }
