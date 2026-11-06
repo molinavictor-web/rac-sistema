@@ -52,7 +52,7 @@ function pintar(d) {
   const filasTipo = programas.length
     ? programas.map((t) => `
         <div class="dash-fila-barra">
-          <div class="nombre">${escapar(t.nombre)}${t.nota ? `<span class="dash-etiqueta">${escapar(t.nota)}</span>` : ""}<div class="dash-cant"><strong>${n(t.cantidad)}</strong> plantel${t.cantidad === 1 ? "" : "es"} · ${pct(t.porcentaje)}</div>${t.anios && t.anios.length ? `<div class="dash-cant" style="font-size:.74rem;">${t.anios.map((a) => `${escapar(a.anio)}: <strong>${n(a.cantidad)}</strong>`).join(" · ")}</div>` : ""}</div>
+          <div class="nombre">${escapar(t.nombre)}${t.nota ? `<span class="dash-etiqueta">${escapar(t.nota)}</span>` : ""}<div class="dash-cant"><strong>${n(t.cantidad)}</strong> plantel${t.cantidad === 1 ? "" : "es"} · ${pct(t.porcentaje)}</div>${t.anios && t.anios.length ? `<div class="dash-cant" style="font-size:.74rem;">${t.anios.map((a) => `${escapar(a.anio)}: <strong>${n(a.cantidad)}</strong>`).join(" · ")}${t.repetidos_anios > 0 ? ` = ${n(t.anios.reduce((x, a) => x + a.cantidad, 0))} − <strong>${n(t.repetidos_anios)}</strong> atendido${t.repetidos_anios === 1 ? "" : "s"} en dos años = <strong>${n(t.cantidad)}</strong>` : ""}</div>` : ""}</div>
           <div class="dash-barra"><span class="${t.clave === "GOTA" ? "ok" : "azul"}" style="width:${Math.min(100, t.porcentaje)}%"></span></div>
         </div>`).join("") + (d.cuadre ? `
         <p class="dash-nota" style="margin-top:14px;">Suma de las barras <strong>${n(d.cuadre.suma_barras)}</strong>${d.cuadre.repetidos > 0 ? ` − <strong>${n(d.cuadre.repetidos)}</strong> planteles repetidos entre programas` : ""} = <strong>${n(d.cuadre.atendidos)}</strong> planteles atendidos (cada plantel se cuenta una sola vez).</p>` : "")
