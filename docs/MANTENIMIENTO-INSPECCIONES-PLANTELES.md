@@ -214,11 +214,16 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   responsable y el equipo solo se eligen de ella (también en Planes de atención). Si la lista queda vacía, vuelve a aceptar nombres libres.
   Solo `admin`: **Agregar**, **Editar** (cambia el nombre en la lista, en la columna RESPONSABLE de GESCOLAR, en equipos y en planillas;
   si GESCOLAR falla no se cambia nada), **Retirar/Reactivar** (conserva historial) y **Eliminar** (solo si no tiene nada registrado).
+- **Dos grupos** (`ingenieros_catalogo.tipo`, `scripts/sql/18_ingenieros_tipo.sql`): **INGENIERO** (puede quedar a cargo de un plantel) y
+  **APOYO** (personal en formación, administrativo o de sistemas: solo participa en equipos; el servidor no deja asignarlo como responsable).
+  La pantalla muestra cada grupo por separado y lo compara contra su propio promedio: los ingenieros por planteles a cargo, el apoyo por
+  planteles en equipo; cada grupo lleva sus insignias 1.º/2.º/3.º. El admin cambia el tipo en «Lista de ingenieros»
+  (a APOYO solo si no tiene planteles a cargo). Sin el script 18 todos cuentan como INGENIERO.
 - `admin` e `insp_coordinador`: «Asignar plantel» (con o sin plan), «Editar» y «Quitar» por plantel, «Historial de asignaciones»
   (`responsable_cambios`, `scripts/sql/16_responsable_cambios.sql`). Solo `admin`: «Corregir nombres» (valores de RESPONSABLE
   escritos distinto a la lista oficial, con sugerencia y sin escribir hasta aplicar).
 - Backend en `src/routes/inspecciones.js` bajo `/ingenieros/...` (buscar-plantel, asignar-plantel, historial, catalogo, equipo,
-  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16 y luego 17.
+  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16, 17 y 18.
 
 ## 7. Módulos de consulta de planteles
 
