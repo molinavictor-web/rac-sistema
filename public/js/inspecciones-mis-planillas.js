@@ -22,14 +22,47 @@ async function cargar() {
         <span id="resumen" style="color:var(--muted); font-size:.8rem;"></span>
       </div>
       <div id="tabla" style="margin-top:12px;"><div class="cargando">Cargando…</div></div>
+    </div>
+    <div class="panel" id="panelRehab" style="margin-top:16px; display:none;">
+      <div style="padding:16px 20px 0;"><h3 style="margin:0;">Mis rehabilitaciones</h3>
+        <p style="margin:4px 0 0; color:var(--muted); font-size:.82rem;">Planteles donde llevas la rehabilitación. Cuando el trabajo esté listo, cierra la ejecución para liberar el plantel.</p></div>
+      <div id="tablaRehab" style="margin-top:12px;"></div>
     </div>`;
   document.getElementById("buscar").addEventListener("input", pintar);
+  cargarRehabilitaciones();
   try {
     PLANILLAS = (await RAC.get("/api/inspecciones/mis-planillas")).planillas;
     pintar();
   } catch (err) {
     document.getElementById("tabla").innerHTML = `<div class="vacio"><strong>No se pudieron cargar tus planillas</strong>${escapar(err.message)}</div>`;
   }
+}
+
+async function cargarRehabilitaciones() {
+  try {
+    const { rehabilitaciones } = await RAC.get("/api/inspecciones/mis-rehabilitaciones");
+    if (!rehabilitaciones.length) return;
+    document.getElementById("panelRehab").style.display = "block";
+    const filas = rehabilitaciones.map((r) => `<tr>
+      <td><span class="cod">${escapar(r.codigo_dea)}</span></td>
+      <td>${escapar(r.nombre_plantel)}<br><span style="color:var(--muted); font-size:.78rem;">${[escapar(r.municipio), escapar(r.parroquia)].filter(Boolean).join(" · ")}</span></td>
+      <td>${escapar(r.plan_nombre)}</td>
+      <td>${r.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
+      <td>${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" ? "" : `<button type="button" class="btn btn-primario btn-sm" data-cerrar-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}" data-nombre="${escapar(r.nombre_plantel)}">Cerrar ejecución</button>`}</td>
+    </tr>`).join("");
+    document.getElementById("tablaRehab").innerHTML = `<div class="tabla-responsive"><table>
+      <thead><tr><th>Código</th><th>Plantel</th><th>Plan</th><th>Estado</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`;
+    document.querySelectorAll("[data-cerrar-rehab]").forEach((b) => b.addEventListener("click", async () => {
+      if (!window.confirm(`¿Cerrar la ejecución de «${b.dataset.nombre}»?\n\nQuedará libre para entrar a otro plan.`)) return;
+      try {
+        await RAC.post(`/api/inspecciones/planes/${b.dataset.plan}/planteles/${b.dataset.cerrarRehab}/cerrar-ejecucion`, {});
+        mostrarToast("Ejecución cerrada.");
+        cargarRehabilitaciones();
+      } catch (err) {
+        mostrarToast(err.message, true);
+      }
+    }));
+  } catch (_) { /* si falla no estorba a las planillas */ }
 }
 
 function pintar() {

@@ -24,6 +24,9 @@
 //   GET   /planteles/buscar?q=&plan_id=             buscar plantel en GESCOLAR
 //   POST  /planes/:id/planteles                     agregar plantel al plan
 //   POST  /planes/:id/planteles/:inspeccionId/desenlazar
+//   PUT   /planes/:id/planteles/:inspeccionId/rehabilitacion   ingeniero de rehabilitación del plantel en el plan (gestión)
+//   POST  /planes/:id/planteles/:inspeccionId/cerrar-ejecucion y /reabrir-ejecucion   cierra/reabre la ejecución del plantel
+//   GET   /mis-rehabilitaciones                     planteles donde el ingeniero en sesión lleva la rehabilitación
 //   POST  /planes/:id/planteles/:inspeccionId/reenlazar
 //   GET   /inspeccion/:id                           planilla: membrete, ingenieros y los 163 rubros con sus cantidades
 //   PATCH /inspeccion/:id                           fecha, observaciones, estado, ingenieros y datos del plantel (membrete)
@@ -219,9 +222,11 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req,
 
     const { rows } = await pool.query(
       `SELECT pi.inspeccion_id, pi.codigo_dea, pi.enlazado_en, pi.desenlazado_en,
+              pi.ejecucion, pi.cerrado_en, pi.ingeniero_rehab, uc.nombre AS cerrado_por_nombre,
               i.fecha_inspeccion::text AS fecha_inspeccion, i.estado, i.origen, i.membrete
        FROM plan_inspecciones pi
        JOIN inspecciones i ON i.id = pi.inspeccion_id
+       LEFT JOIN usuarios uc ON uc.id = pi.cerrado_por
        WHERE pi.plan_id = $1`,
       [planId]
     );
@@ -265,6 +270,10 @@ router.get("/planes/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req,
           enlazado_en: r.enlazado_en,
           desenlazado_en: r.desenlazado_en,
           activo: !r.desenlazado_en,
+          ejecucion: r.ejecucion,
+          cerrado_en: r.cerrado_en,
+          cerrado_por: r.cerrado_por_nombre || null,
+          ingeniero_rehab: r.ingeniero_rehab || null,
         };
       })
       .sort((a, b) => Number(b.activo) - Number(a.activo) || a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
@@ -386,6 +395,17 @@ router.post("/planes/:id/planteles", requireAuth, requireRol(...ROLES_GESTION), 
     if (yaActivo.rows.length) {
       await cliente.query("ROLLBACK");
       return res.status(409).json({ error: "Ese plantel ya está en este plan." });
+    }
+
+    // Un plantel que sigue EN EJECUCIÓN en otro plan no puede entrar a este: primero se cierra allá.
+    const abiertoEnOtro = await cliente.query(
+      `SELECT p.nombre FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id
+       WHERE pi.codigo_dea = $1 AND pi.desenlazado_en IS NULL AND pi.ejecucion = 'EN_EJECUCION' AND pi.plan_id <> $2`,
+      [codigo, planId]
+    );
+    if (abiertoEnOtro.rows.length) {
+      await cliente.query("ROLLBACK");
+      return res.status(409).json({ error: `Ese plantel sigue en ejecución en el plan "${abiertoEnOtro.rows[0].nombre}". Ciérralo allá (o desenlázalo) antes de agregarlo a otro plan.` });
     }
 
     let inspeccionId = null;
@@ -527,6 +547,16 @@ router.post("/planes/:id/planteles/:inspeccionId/reenlazar", requireAuth, requir
       return res.status(409).json({ error: `Esa inspección está activa en el plan "${enOtroPlan.rows[0].nombre}": desenlázala de allí primero.` });
     }
 
+    const abiertoEnOtro = await pool.query(
+      `SELECT p.nombre FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id
+       WHERE pi.codigo_dea = (SELECT codigo_dea FROM plan_inspecciones WHERE plan_id = $1 AND inspeccion_id = $2)
+         AND pi.desenlazado_en IS NULL AND pi.ejecucion = 'EN_EJECUCION' AND pi.plan_id <> $1`,
+      [planId, inspeccionId]
+    );
+    if (abiertoEnOtro.rows.length) {
+      return res.status(409).json({ error: `Ese plantel sigue en ejecución en el plan "${abiertoEnOtro.rows[0].nombre}". Ciérralo allá (o desenlázalo) antes.` });
+    }
+
     const { rows } = await pool.query(
       `UPDATE plan_inspecciones
        SET desenlazado_en = NULL, desenlazado_por = NULL, enlazado_en = NOW(), enlazado_por = $3
@@ -541,6 +571,135 @@ router.post("/planes/:id/planteles/:inspeccionId/reenlazar", requireAuth, requir
       return res.status(409).json({ error: "Ese plantel ya está en este plan con otra inspección." });
     }
     falloInterno(res, err, "No se pudo volver a enlazar el plantel.");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ejecución (rehabilitación) de cada plantel dentro del plan
+// ---------------------------------------------------------------------------
+// - ingeniero_rehab: quien lleva la rehabilitación en ese plan (puede ser distinto del responsable de la inspección,
+//   que es el RESPONSABLE de GESCOLAR y no cambia). Se elige de la lista oficial de ingenieros.
+// - ejecucion: EN_EJECUCION o CERRADO. Cierran: admin, coordinador y el ingeniero de rehabilitación asignado.
+//   Reabren: admin y coordinador. Un plantel CERRADO sigue sumando en el consolidado de su plan.
+
+async function filaDeEjecucion(planId, inspeccionId) {
+  const { rows } = await pool.query(
+    `SELECT pi.codigo_dea, pi.ejecucion, pi.ingeniero_rehab, p.nombre AS plan_nombre, p.estado AS plan_estado
+     FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id
+     WHERE pi.plan_id = $1 AND pi.inspeccion_id = $2 AND pi.desenlazado_en IS NULL`,
+    [planId, inspeccionId]
+  );
+  return rows[0] || null;
+}
+
+router.put("/planes/:id/planteles/:inspeccionId/rehabilitacion", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const planId = entero(req.params.id);
+  const inspeccionId = entero(req.params.inspeccionId);
+  if (!planId || !inspeccionId) return res.status(400).json({ error: "Datos inválidos." });
+  const crudo = (req.body || {}).ingeniero;
+  try {
+    const fila = await filaDeEjecucion(planId, inspeccionId);
+    if (!fila) return res.status(404).json({ error: "Ese plantel no está enlazado a este plan." });
+    if (fila.plan_estado === "CERRADO") return res.status(409).json({ error: "El plan está cerrado: reábrelo para cambiar sus planteles." });
+    if (fila.ejecucion === "CERRADO") return res.status(409).json({ error: "La ejecución de este plantel ya está cerrada. Reábrela para cambiar el ingeniero." });
+    let nombre = null;
+    if (crudo !== null && crudo !== undefined && String(crudo).trim() !== "") {
+      nombre = limpiarTexto(crudo);
+      if (!NOMBRE_RESPONSABLE.test(nombre)) return res.status(400).json({ error: "Nombre de ingeniero inválido." });
+      const r = resolverEnCatalogo(nombre, await cargarCatalogo(), true);
+      if (r.error) return res.status(400).json({ error: r.error });
+      nombre = r.nombre;
+    }
+    await pool.query("UPDATE plan_inspecciones SET ingeniero_rehab = $3 WHERE plan_id = $1 AND inspeccion_id = $2 AND desenlazado_en IS NULL", [planId, inspeccionId, nombre]);
+    res.json({ ok: true, ingeniero_rehab: nombre });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo asignar el ingeniero de rehabilitación.");
+  }
+});
+
+// ¿Este usuario es el ingeniero de rehabilitación asignado? (por coincidencia de su nombre de cuenta con el de la lista)
+async function esIngenieroDeRehabilitacion(usuarioId, ingenieroRehab) {
+  if (!ingenieroRehab) return false;
+  const { rows } = await pool.query("SELECT nombre FROM usuarios WHERE id = $1", [usuarioId]);
+  return rows.length > 0 && claveNombre(limpiarTexto(rows[0].nombre)) === claveNombre(ingenieroRehab);
+}
+
+router.post("/planes/:id/planteles/:inspeccionId/cerrar-ejecucion", requireAuth, requireRol(...ROLES_GESTION, "insp_ingeniero"), async (req, res) => {
+  const planId = entero(req.params.id);
+  const inspeccionId = entero(req.params.inspeccionId);
+  if (!planId || !inspeccionId) return res.status(400).json({ error: "Datos inválidos." });
+  try {
+    const fila = await filaDeEjecucion(planId, inspeccionId);
+    if (!fila) return res.status(404).json({ error: "Ese plantel no está enlazado a este plan." });
+    if (req.usuario.rol === "insp_ingeniero" && !(await esIngenieroDeRehabilitacion(req.usuario.id, fila.ingeniero_rehab))) {
+      return res.status(403).json({ error: "Solo el ingeniero de rehabilitación asignado, el coordinador o el administrador pueden cerrar la ejecución." });
+    }
+    if (fila.plan_estado === "CERRADO") return res.status(409).json({ error: "El plan está cerrado: reábrelo para cambiar sus planteles." });
+    if (fila.ejecucion === "CERRADO") return res.status(409).json({ error: "La ejecución de este plantel ya estaba cerrada." });
+    await pool.query(
+      "UPDATE plan_inspecciones SET ejecucion = 'CERRADO', cerrado_en = NOW(), cerrado_por = $3 WHERE plan_id = $1 AND inspeccion_id = $2 AND desenlazado_en IS NULL",
+      [planId, inspeccionId, req.usuario.id]
+    );
+    res.json({ ok: true, codigo_dea: fila.codigo_dea });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo cerrar la ejecución del plantel.");
+  }
+});
+
+router.post("/planes/:id/planteles/:inspeccionId/reabrir-ejecucion", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const planId = entero(req.params.id);
+  const inspeccionId = entero(req.params.inspeccionId);
+  if (!planId || !inspeccionId) return res.status(400).json({ error: "Datos inválidos." });
+  try {
+    const fila = await filaDeEjecucion(planId, inspeccionId);
+    if (!fila) return res.status(404).json({ error: "Ese plantel no está enlazado a este plan." });
+    if (fila.plan_estado === "CERRADO") return res.status(409).json({ error: "El plan está cerrado: reábrelo para cambiar sus planteles." });
+    if (fila.ejecucion !== "CERRADO") return res.status(409).json({ error: "La ejecución de este plantel no está cerrada." });
+    // Reabrir no puede dejar al plantel EN EJECUCIÓN en dos planes a la vez.
+    const otro = await pool.query(
+      `SELECT p.nombre FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id
+       WHERE pi.codigo_dea = $1 AND pi.desenlazado_en IS NULL AND pi.ejecucion = 'EN_EJECUCION' AND pi.plan_id <> $2`,
+      [fila.codigo_dea, planId]
+    );
+    if (otro.rows.length) return res.status(409).json({ error: `Ese plantel está en ejecución en el plan "${otro.rows[0].nombre}": no se puede reabrir aquí a la vez.` });
+    await pool.query(
+      "UPDATE plan_inspecciones SET ejecucion = 'EN_EJECUCION', reabierto_en = NOW(), reabierto_por = $3 WHERE plan_id = $1 AND inspeccion_id = $2 AND desenlazado_en IS NULL",
+      [planId, inspeccionId, req.usuario.id]
+    );
+    res.json({ ok: true, codigo_dea: fila.codigo_dea });
+  } catch (err) {
+    falloInterno(res, err, "No se pudo reabrir la ejecución del plantel.");
+  }
+});
+
+// Para el ingeniero: los planteles donde él es el ingeniero de rehabilitación (por el nombre de su cuenta).
+router.get("/mis-rehabilitaciones", requireAuth, requireRol("insp_ingeniero"), async (req, res) => {
+  try {
+    const u = await pool.query("SELECT nombre FROM usuarios WHERE id = $1", [req.usuario.id]);
+    const clave = u.rows.length ? claveNombre(limpiarTexto(u.rows[0].nombre)) : "";
+    const { rows } = await pool.query(
+      `SELECT pi.plan_id, pi.inspeccion_id, pi.codigo_dea, pi.ejecucion, pi.cerrado_en, pi.ingeniero_rehab,
+              p.nombre AS plan_nombre, p.estado AS plan_estado, i.membrete
+       FROM plan_inspecciones pi
+       JOIN planes_atencion p ON p.id = pi.plan_id
+       JOIN inspecciones i ON i.id = pi.inspeccion_id
+       WHERE pi.desenlazado_en IS NULL AND pi.ingeniero_rehab IS NOT NULL`
+    );
+    const rehabilitaciones = rows
+      .filter((r) => claveNombre(r.ingeniero_rehab) === clave)
+      .map((r) => {
+        const d = datosEfectivos(r.membrete);
+        return {
+          plan_id: r.plan_id, plan_nombre: r.plan_nombre, plan_estado: r.plan_estado,
+          inspeccion_id: r.inspeccion_id, codigo_dea: r.codigo_dea,
+          nombre_plantel: d.institucion || r.codigo_dea, municipio: d.municipio, parroquia: d.parroquia,
+          ejecucion: r.ejecucion, cerrado_en: r.cerrado_en,
+        };
+      })
+      .sort((a, b) => (a.ejecucion === b.ejecucion ? 0 : a.ejecucion === "EN_EJECUCION" ? -1 : 1) || a.nombre_plantel.localeCompare(b.nombre_plantel, "es"));
+    res.json({ rehabilitaciones });
+  } catch (err) {
+    falloInterno(res, err, "No se pudieron cargar tus rehabilitaciones.");
   }
 });
 

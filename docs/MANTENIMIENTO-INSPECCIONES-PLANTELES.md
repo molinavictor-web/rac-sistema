@@ -223,7 +223,20 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   (`responsable_cambios`, `scripts/sql/16_responsable_cambios.sql`). Solo `admin`: «Corregir nombres» (valores de RESPONSABLE
   escritos distinto a la lista oficial, con sugerencia y sin escribir hasta aplicar).
 - Backend en `src/routes/inspecciones.js` bajo `/ingenieros/...` (buscar-plantel, asignar-plantel, historial, catalogo, equipo,
-  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16, 17 y 18.
+  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16, 17, 18 y 19.
+
+## 6e. Ejecución (rehabilitación) por plantel dentro del plan
+- Dos responsables distintos sobre un mismo plantel: el **responsable de la inspección** (RESPONSABLE de GESCOLAR; informe, materiales,
+  archivos; no cambia) y el **ingeniero de rehabilitación** (por plantel y por plan, `plan_inspecciones.ingeniero_rehab`; se elige de la lista
+  oficial y el personal de APOYO no puede serlo). Se asigna en **Planes de atención** (columna «Rehabilitación»).
+- Cada plantel de un plan está **EN_EJECUCION** o **CERRADO** (`plan_inspecciones.ejecucion`, con `cerrado_en/cerrado_por`; reabrir deja
+  `reabierto_en/reabierto_por`). Cierran: `admin`, `insp_coordinador` y el ingeniero de rehabilitación asignado (se reconoce porque el
+  nombre de su cuenta coincide con el de la lista; lo hace desde **Mis planillas → Mis rehabilitaciones**). Reabren: `admin` e `insp_coordinador`.
+- **Regla:** un plantel EN_EJECUCION en un plan no se puede agregar (ni volver a enlazar) a otro plan. Al cerrarlo queda libre; al agregarlo
+  al plan nuevo se crea una planilla nueva y la anterior queda archivada. **Cerrado sigue sumando** en el consolidado de su plan
+  (los consolidados solo excluyen los desenlazados). Con la ejecución cerrada no se cambia el ingeniero de rehabilitación.
+- Script: `scripts/sql/19_ejecucion_plantel.sql` (ejecutar ANTES de publicar). Pendiente: avance en % por fase de rehabilitación y las
+  estadísticas por ingeniero de rehabilitaciones en ejecución y cerradas.
 
 ## 7. Módulos de consulta de planteles
 
