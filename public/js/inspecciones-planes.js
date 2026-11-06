@@ -202,11 +202,17 @@ function pintarPlanteles() {
     <tr${p.activo ? "" : ' style="opacity:.6;"'}>
       <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
       <td>${escapar(p.nombre_plantel) || "—"}<br><span style="color:var(--muted); font-size:.78rem;">${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</span></td>
-      <td>${p.activo ? etiqueta("En el plan", "#2f855a", "#e6f4ea") : etiqueta("Desenlazado · en espera", "#718096", "#edf2f7")}</td>
+      <td>${!p.activo ? etiqueta("Desenlazado · en espera", "#718096", "#edf2f7")
+        : p.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") + `<div style="color:var(--muted); font-size:.72rem; margin-top:2px;">${p.cerrado_en ? escapar(new Date(p.cerrado_en).toLocaleDateString("es-VE")) : ""}${p.cerrado_por ? " · " + escapar(p.cerrado_por) : ""}</div>`
+        : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
       <td style="font-size:.82rem;">${ingenierosHtml(p)}</td>
+      <td style="font-size:.82rem;">${rehabilitacionHtml(p, abierto)}</td>
       <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}&plan=${Number(plan.id)}">${p.activo && PUEDE_GESTIONAR ? "Planilla" : "Ver planilla"}</a></td>
-      <td>${abierto && PUEDE_GESTIONAR ? (p.activo
-        ? `<button type="button" class="btn btn-fantasma btn-sm" data-desenlazar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Desenlazar</button>`
+      <td style="white-space:nowrap;">${abierto && PUEDE_GESTIONAR ? (p.activo
+        ? (p.ejecucion === "CERRADO"
+            ? `<button type="button" class="btn btn-fantasma btn-sm" data-reabrir="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Reabrir</button>`
+            : `<button type="button" class="btn btn-primario btn-sm" data-cerrar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Cerrar ejecución</button> `)
+          + (p.ejecucion === "CERRADO" ? "" : `<button type="button" class="btn btn-fantasma btn-sm" data-desenlazar="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Desenlazar</button>`)
         : `<button type="button" class="btn btn-fantasma btn-sm" data-reenlazar="${Number(p.inspeccion_id)}">Volver a enlazar</button>`) : ""}</td>
     </tr>
   `).join("");
@@ -214,13 +220,22 @@ function pintarPlanteles() {
   cont.innerHTML = `
     <div class="tabla-responsive">
       <table>
-        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Ingenieros</th><th>Materiales</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Inspección (responsable)</th><th>Rehabilitación</th><th>Materiales</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
     </div>
   `;
   cont.querySelectorAll("[data-asignar]").forEach((b) => {
     b.addEventListener("click", () => abrirAsignacion(Number(b.dataset.asignar), b.dataset.nombre));
+  });
+  cont.querySelectorAll("[data-rehab]").forEach((b) => {
+    b.addEventListener("click", () => abrirRehabilitacion(Number(b.dataset.rehab), b.dataset.nombre, b.dataset.actual));
+  });
+  cont.querySelectorAll("[data-cerrar]").forEach((b) => {
+    b.addEventListener("click", () => cambiarEjecucion(Number(b.dataset.cerrar), b.dataset.nombre, "cerrar"));
+  });
+  cont.querySelectorAll("[data-reabrir]").forEach((b) => {
+    b.addEventListener("click", () => cambiarEjecucion(Number(b.dataset.reabrir), b.dataset.nombre, "reabrir"));
   });
   cont.querySelectorAll("[data-desenlazar]").forEach((b) => {
     b.addEventListener("click", () => desenlazar(Number(b.dataset.desenlazar), b.dataset.nombre));
@@ -290,6 +305,80 @@ async function abrirRegistroGescolar(plan) {
       boton.textContent = `Escribir en GESCOLAR (${hayCambios.length})`;
     }
   });
+}
+
+// ---- Rehabilitación: ingeniero y cierre de la ejecución de cada plantel ----
+
+function rehabilitacionHtml(p, planAbierto) {
+  if (!p.activo) return `<span style="color:var(--muted);">—</span>`;
+  const nombre = p.ingeniero_rehab ? `<strong>${escapar(p.ingeniero_rehab)}</strong>` : `<span style="color:var(--muted);">Sin asignar</span>`;
+  const puede = planAbierto && PUEDE_GESTIONAR && p.ejecucion !== "CERRADO";
+  const boton = puede ? `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-rehab="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}" data-actual="${escapar(p.ingeniero_rehab || "")}">${p.ingeniero_rehab ? "Cambiar" : "Asignar"}</button></div>` : "";
+  return nombre + boton;
+}
+
+async function abrirRehabilitacion(inspeccionId, nombrePlantel, actual) {
+  let r;
+  try {
+    r = await RAC.get("/api/inspecciones/responsables");
+  } catch (err) {
+    mostrarToast(err.message, true);
+    return;
+  }
+  const lista = (r.responsables || []).map((x) => x.nombre).sort((a, b) => a.localeCompare(b, "es"));
+  if (actual && !lista.some((n) => n.toLowerCase() === actual.toLowerCase())) lista.push(actual);
+  const fondo = document.createElement("div");
+  fondo.className = "modal-fondo visible";
+  fondo.innerHTML = `
+    <div class="modal" style="max-width:460px;">
+      <h2 style="margin-bottom:4px;">Ingeniero de rehabilitación</h2>
+      <p style="margin:0 0 12px; color:var(--muted); font-size:.85rem;">${escapar(nombrePlantel)}</p>
+      <label for="selRehab" style="font-weight:600; font-size:.85rem;">Ingeniero que lleva la rehabilitación en este plan</label>
+      <select id="selRehab" style="width:100%; margin-top:4px;">
+        <option value="">— Sin asignar —</option>
+        ${lista.map((n) => `<option value="${escapar(n)}" ${n.toLowerCase() === (actual || "").toLowerCase() ? "selected" : ""}>${escapar(n)}</option>`).join("")}
+      </select>
+      <p style="margin:6px 0 0; color:var(--muted); font-size:.76rem;">Puede ser distinto del responsable de la inspección, que no cambia. Solo aparecen ingenieros de la lista oficial.</p>
+      <div class="error-msg" id="errorRehab"></div>
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button type="button" class="btn btn-primario" id="btnGuardarRehab">Guardar</button>
+        <button type="button" class="btn btn-fantasma" id="btnCancelarRehab">Cancelar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(fondo);
+  const cerrar = () => fondo.remove();
+  fondo.querySelector("#btnCancelarRehab").addEventListener("click", cerrar);
+  fondo.addEventListener("click", (e) => { if (e.target === fondo) cerrar(); });
+  fondo.querySelector("#btnGuardarRehab").addEventListener("click", async () => {
+    const boton = fondo.querySelector("#btnGuardarRehab");
+    const errorEl = fondo.querySelector("#errorRehab");
+    errorEl.classList.remove("visible");
+    boton.disabled = true;
+    try {
+      await RAC.put(`/api/inspecciones/planes/${PLAN_ABIERTO.plan.id}/planteles/${inspeccionId}/rehabilitacion`, { ingeniero: fondo.querySelector("#selRehab").value || null });
+      mostrarToast("Ingeniero de rehabilitación guardado.");
+      cerrar();
+      await recargarPlan();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.classList.add("visible");
+      boton.disabled = false;
+    }
+  });
+}
+
+async function cambiarEjecucion(inspeccionId, nombre, accion) {
+  const texto = accion === "cerrar"
+    ? `¿Cerrar la ejecución de «${nombre}»?\n\nQuedará libre para entrar a otro plan. Sigue contando en el consolidado de este plan.`
+    : `¿Reabrir la ejecución de «${nombre}»?`;
+  if (!window.confirm(texto)) return;
+  try {
+    await RAC.post(`/api/inspecciones/planes/${PLAN_ABIERTO.plan.id}/planteles/${inspeccionId}/${accion === "cerrar" ? "cerrar-ejecucion" : "reabrir-ejecucion"}`, {});
+    mostrarToast(accion === "cerrar" ? "Ejecución cerrada." : "Ejecución reabierta.");
+    await recargarPlan();
+  } catch (err) {
+    mostrarToast(err.message, true);
+  }
 }
 
 // ---- Ingenieros asignados a cada planilla ----
