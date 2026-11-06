@@ -48,13 +48,15 @@ function bloqueAvance(titulo, nota, b, total, clase) {
 }
 
 function pintar(d) {
-  const filasTipo = d.por_tipo.length
-    ? d.por_tipo.map((t) => `
+  const programas = d.por_programa || [];
+  const filasTipo = programas.length
+    ? programas.map((t) => `
         <div class="dash-fila-barra">
-          <div class="nombre">${escapar(t.nombre)}<span class="dash-etiqueta ${t.origen === "plan" ? "plan" : ""}">${t.origen === "plan" ? "plan actual" : "tipo de atención"}</span><div class="dash-cant"><strong>${n(t.cantidad)}</strong> plantel${t.cantidad === 1 ? "" : "es"} · ${pct(t.porcentaje)}</div></div>
-          <div class="dash-barra"><span class="${t.origen === "plan" ? "azul" : "ok"}" style="width:${Math.min(100, t.porcentaje)}%"></span></div>
-        </div>`).join("")
-    : `<div class="vacio"><strong>Sin datos de atención</strong>Aún no hay planteles con tipo de atención o plan en GESCOLAR.</div>`;
+          <div class="nombre">${escapar(t.nombre)}${t.nota ? `<span class="dash-etiqueta">${escapar(t.nota)}</span>` : ""}<div class="dash-cant"><strong>${n(t.cantidad)}</strong> plantel${t.cantidad === 1 ? "" : "es"} · ${pct(t.porcentaje)}</div>${t.anios && t.anios.length ? `<div class="dash-cant" style="font-size:.74rem;">${t.anios.map((a) => `${escapar(a.anio)}: <strong>${n(a.cantidad)}</strong>`).join(" · ")}</div>` : ""}</div>
+          <div class="dash-barra"><span class="${t.clave === "GOTA" ? "ok" : "azul"}" style="width:${Math.min(100, t.porcentaje)}%"></span></div>
+        </div>`).join("") + (d.cuadre ? `
+        <p class="dash-nota" style="margin-top:14px;">Suma de las barras <strong>${n(d.cuadre.suma_barras)}</strong>${d.cuadre.repetidos > 0 ? ` − <strong>${n(d.cuadre.repetidos)}</strong> planteles repetidos entre programas` : ""} = <strong>${n(d.cuadre.atendidos)}</strong> planteles atendidos (cada plantel se cuenta una sola vez).</p>` : "")
+    : `<div class="vacio"><strong>Sin datos de atención</strong>Aún no hay planteles con tipo de atención o plan.</div>`;
 
   const filasMun = d.por_municipio.map((m) => `
       <tr>
@@ -92,13 +94,13 @@ function pintar(d) {
     </div>
 
     <div class="dash-dos" style="margin-top:16px;">
-      ${bloqueAvance("Planteles atendidos", "Tienen tipo de atención (p. ej. GOTA DE AMOR) o plan de rehabilitación.", d.atendidos, d.total, "ok")}
+      ${bloqueAvance("Planteles atendidos", "Tienen un tipo de atención (p. ej. GOTA DE AMOR), están en un plan de la hoja o en un plan del sistema.", d.atendidos, d.total, "ok")}
       ${bloqueAvance("Planteles con inspección", "Tienen un ingeniero RESPONSABLE en GESCOLAR.", d.con_inspeccion, d.total, "azul")}
     </div>
 
     <div class="panel" style="margin-top:16px;"><div class="dash-bloque">
-      <h3>Planteles atendidos por tipo de atención</h3>
-      <p class="dash-nota">Un plantel puede aparecer en más de uno (por ejemplo, atendido antes con GOTA DE AMOR y ahora en el plan). El porcentaje es sobre ${n(d.total)} planteles.</p>
+      <h3>Planteles atendidos por programa</h3>
+      <p class="dash-nota">Un plantel puede aparecer en más de un programa (por ejemplo, Gota de Amor y luego un plan de Bricomiles), pero en el total cuenta una sola vez. El porcentaje es sobre ${n(d.total)} planteles.</p>
       ${filasTipo}
       <div class="dash-pie"><span>Atendidos con inspección: <strong>${n(d.atendidos_con_inspeccion)}</strong></span><span>Atendidos sin inspección: <strong>${n(d.atendidos_sin_inspeccion)}</strong></span></div>
     </div></div>

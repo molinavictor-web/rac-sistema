@@ -2326,6 +2326,32 @@ function porcentaje(parte, total) {
   return total ? Math.round((parte / total) * 1000) / 10 : 0;
 }
 
+// ---- Programas de atención del dashboard ----
+// Cada plantel atendido cuenta UNA sola vez en el total, y puede aparecer en más de una barra (programa).
+// Las barras salen de DOS fuentes que se unen por nombre: la hoja (TIPO ATENCION y las columnas «PLAN <nombre>»)
+// y los planes del sistema (plan_inspecciones). «GOTA DE AMOR» y «GOTAS DE AMOR 2024» son el mismo programa
+// (con el año dentro); «PLAN MAESTRO 2024» y «BRICOMILES 2024» son la misma atención.
+const ORDEN_PROGRAMAS = ["GOTA", "PM2024", "VAND", "BRICOMILES 2025", "PRE 2026-2027"];
+function aniosDe(...textos) {
+  const v = new Set();
+  for (const t of textos) for (const m of String(t == null ? "" : t).matchAll(/\b(20\d\d)\b/g)) v.add(m[1]);
+  return v.size ? [...v] : ["Sin año"];
+}
+function programaDe(nombre, tipoPlan, anioHoja) {
+  const original = String(nombre || "").replace(/\s+/g, " ").trim();
+  const n = gescolar.normalizar(original);
+  if (tipoPlan === "GOTAS_DE_AMOR" || /^GOTAS? DE AMOR\b/.test(n)) {
+    return { clave: "GOTA", nombre: "Gota de Amor", anios: aniosDe(anioHoja, original) };
+  }
+  if (n === "PLAN MAESTRO 2024" || n === "BRICOMILES 2024") {
+    return { clave: "PM2024", nombre: "PLAN MAESTRO 2024", nota: "Bricomiles 2024" };
+  }
+  if (tipoPlan === "ESCUELAS_VANDALIZADAS" || /VANDALIZAD/.test(n)) {
+    return { clave: "VAND", nombre: original || "ESCUELAS VANDALIZADAS" };
+  }
+  return { clave: n, nombre: original };
+}
+
 router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req, res) => {
   try {
     let datos;
@@ -2355,10 +2381,52 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
     const columnasPlan = datos.length ? Object.keys(datos[0]).filter((h) => gescolar.esColumnaPlan(h)) : [];
     const planes = columnasPlan.map((h) => ({ columna: h, nombre: gescolar.planDeColumna(h), cantidad: 0 }));
 
+    // Planes del sistema (los desenlazados no cuentan): todo plantel en un plan cuenta como atendido aunque
+    // todavía no se haya registrado en GESCOLAR.
+    const planesDeCodigo = new Map(); // código en minúsculas → [{ nombre, tipo }]
+    try {
+      let rp;
+      try {
+        rp = await pool.query(
+          `SELECT pi.codigo_dea, p.nombre, p.tipo FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id WHERE pi.desenlazado_en IS NULL`);
+      } catch (err) {
+        if (err.code !== "42703") throw err; // sin la columna «tipo» (script 20 sin ejecutar)
+        rp = await pool.query(
+          `SELECT pi.codigo_dea, p.nombre, NULL::text AS tipo FROM plan_inspecciones pi JOIN planes_atencion p ON p.id = pi.plan_id WHERE pi.desenlazado_en IS NULL`);
+      }
+      for (const f of rp.rows) {
+        const k = String(f.codigo_dea || "").trim().toLowerCase();
+        if (!planesDeCodigo.has(k)) planesDeCodigo.set(k, []);
+        planesDeCodigo.get(k).push({ nombre: f.nombre, tipo: f.tipo });
+      }
+    } catch (err) {
+      console.error("Dashboard: no se pudieron leer los planes del sistema:", err.message);
+    }
+    const claveAnio = datos.length ? Object.keys(datos[0]).find((h) => gescolar.normalizar(h) === "ANO") : null;
+    const programas = new Map(); // clave → { nombre, nota, planteles:Set, anios: Map(anio → Set) }
+    const sumaBarras = { n: 0 };
+
     for (const p of datos) {
       const tipo = valorUtil(p[gescolar.CAMPO_TIPO_ATENCION]);
       let enAlgunPlan = false;
-      planes.forEach((pl) => { if (gescolar.tieneMarcaPlan(p[pl.columna])) { pl.cantidad++; enAlgunPlan = true; } });
+      const codigoMin = limpiarTexto(p[gescolar.CAMPO_CODIGO]).toLowerCase();
+      const fuentes = []; // { nombre, tipo } de todo lo que tiene este plantel
+      if (tipo) fuentes.push({ nombre: tipo, tipo: null, esTipoAtencion: true });
+      planes.forEach((pl) => { if (gescolar.tieneMarcaPlan(p[pl.columna])) { pl.cantidad++; enAlgunPlan = true; fuentes.push({ nombre: pl.nombre, tipo: null }); } });
+      (planesDeCodigo.get(codigoMin) || []).forEach((x) => { enAlgunPlan = true; fuentes.push({ nombre: x.nombre, tipo: x.tipo }); });
+      const propios = new Map(); // programas de ESTE plantel (una vez cada uno) → años
+      for (const f of fuentes) {
+        const pr = programaDe(f.nombre, f.tipo, f.esTipoAtencion && claveAnio ? p[claveAnio] : "");
+        if (!propios.has(pr.clave)) propios.set(pr.clave, { pr, anios: new Set() });
+        (pr.anios || []).forEach((a) => propios.get(pr.clave).anios.add(a));
+      }
+      for (const [clave, { pr, anios }] of propios) {
+        if (!programas.has(clave)) programas.set(clave, { clave, nombre: pr.nombre, nota: pr.nota || null, planteles: new Set(), anios: new Map(), conAnios: !!pr.anios });
+        const g = programas.get(clave);
+        g.planteles.add(codigoMin);
+        anios.forEach((a) => { if (!g.anios.has(a)) g.anios.set(a, new Set()); g.anios.get(a).add(codigoMin); });
+        sumaBarras.n++;
+      }
       const insp = !!valorUtil(p[gescolar.CAMPO_RESPONSABLE]);
       const atendido = !!(tipo || enAlgunPlan);
       if (atendido) atendidos++;
@@ -2396,8 +2464,25 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
          (SELECT COUNT(*) FROM plan_inspecciones WHERE desenlazado_en IS NULL)::int AS en_planes`
     )).rows[0];
 
+    const posicion = (k) => { const i = ORDEN_PROGRAMAS.findIndex((x) => gescolar.normalizar(x) === gescolar.normalizar(k)); return i === -1 ? 99 : i; };
+    const porPrograma = [...programas.values()]
+      .map((g) => ({
+        clave: g.clave,
+        nombre: g.nombre,
+        nota: g.nota,
+        cantidad: g.planteles.size,
+        porcentaje: porcentaje(g.planteles.size, total),
+        anios: g.conAnios
+          ? [...g.anios.entries()].map(([anio, set]) => ({ anio, cantidad: set.size })).sort((a, b) => String(a.anio).localeCompare(String(b.anio)))
+          : null,
+      }))
+      .sort((a, b) => posicion(a.clave) - posicion(b.clave) || b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"));
+    const cuadre = { suma_barras: sumaBarras.n, repetidos: sumaBarras.n - atendidos, atendidos };
+
     res.json({
       total,
+      por_programa: porPrograma,
+      cuadre,
       atendidos: { cantidad: atendidos, faltan: total - atendidos, porcentaje: porcentaje(atendidos, total) },
       con_inspeccion: { cantidad: conInspeccion, faltan: total - conInspeccion, porcentaje: porcentaje(conInspeccion, total) },
       atendidos_con_inspeccion: atendidosConInspeccion,
