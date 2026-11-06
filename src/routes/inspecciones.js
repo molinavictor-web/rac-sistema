@@ -37,6 +37,7 @@
 //   PATCH /adicionales/:id   y  POST .../unificar   (admin) aprobar, retirar, renombrar, unificar
 //   PUT   /inspeccion/:id/adicionales               cantidades de adicionales de un plantel
 //   GET   /planes/:id/consolidado-adicionales       consolidado de adicionales del plan
+//   GET   /planes/:id/avance.xlsx                   descarga Excel del avance de la rehabilitación (fases y general)
 //   GET   /planes/:id/consolidado.xlsx              descarga Excel del consolidado oficial
 //   GET   /planes/:id/consolidado-adicionales.xlsx  descarga Excel del consolidado de adicionales
 //   GET   /inspeccion/:id/planilla.xlsx             descarga Excel de la planilla individual
@@ -2612,6 +2613,45 @@ function enviarExcel(res, buffer, nombre) {
   res.setHeader("Cache-Control", "no-store");
   res.send(Buffer.from(buffer));
 }
+
+// Excel con el avance de la rehabilitación de los planteles activos del plan (fases + avance general).
+router.get("/planes/:id/avance.xlsx", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  const planId = entero(req.params.id);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  try {
+    const plan = await pool.query("SELECT id, nombre FROM planes_atencion WHERE id = $1", [planId]);
+    if (!plan.rows.length) return res.status(404).json({ error: "Plan no encontrado." });
+    const { rows } = await pool.query(
+      `SELECT pi.inspeccion_id, pi.codigo_dea, pi.ejecucion, pi.avance_historico, i.membrete
+       FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
+       WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL`,
+      [planId]
+    );
+    const av = await avanceDePlanteles(rows.map((r) => ({
+      plan_id: planId, inspeccion_id: r.inspeccion_id,
+      avance_historico: r.avance_historico === null || r.avance_historico === undefined ? null : Number(r.avance_historico),
+    })));
+    if (!av.mapa) return res.status(503).json({ error: "Falta ejecutar el script 25 en Supabase." });
+    const filas = rows.map((r) => {
+      const d = datosEfectivos(r.membrete);
+      const a = av.mapa.get(`${planId}:${r.inspeccion_id}`);
+      const porFase = {};
+      (a.fases || []).forEach((f) => { porFase[f.fase_id] = { porcentaje: f.porcentaje, aplica: f.aplica }; });
+      return {
+        estado: valorGescolar(r.membrete, { candidatos: ["estado", "entidad_federal"] }) || "Monagas",
+        municipio: d.municipio, parroquia: d.parroquia, codigo_dea: r.codigo_dea,
+        nombre_plantel: d.institucion || r.codigo_dea,
+        situacion: r.ejecucion === "CERRADO" ? "Ejecución cerrada" : "En ejecución",
+        fases: porFase, avance: a.avance, fuente: a.fuente,
+      };
+    }).sort((x, y) => x.municipio.localeCompare(y.municipio, "es") || x.parroquia.localeCompare(y.parroquia, "es") || x.nombre_plantel.localeCompare(y.nombre_plantel, "es"));
+    const promedio = filas.length ? redondear2(filas.reduce((acc, f) => acc + (f.avance === null || f.avance === undefined ? 0 : f.avance), 0) / filas.length) : 0;
+    const buffer = await require("../services/exportarExcel").avancePlan({ plan: plan.rows[0], fases: av.fases, filas, avancePlan: promedio, generado_en: new Date() });
+    enviarExcel(res, buffer, nombreArchivo("AVANCE", plan.rows[0].nombre));
+  } catch (err) {
+    falloInterno(res, err, "No se pudo generar el Excel del avance.");
+  }
+});
 
 router.get("/planes/:id/consolidado.xlsx", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);

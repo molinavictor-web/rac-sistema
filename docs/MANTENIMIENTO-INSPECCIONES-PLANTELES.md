@@ -274,6 +274,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - API: `GET/PUT /api/inspecciones/fases-rehabilitacion`, `PUT /api/inspecciones/planes/:id/planteles/:inspeccionId/avance`; `GET /planes/:id` y `GET /mis-rehabilitaciones` devuelven `avance`, `fases` y (planes) `plan.avance`.
 - Archivos: `src/routes/inspecciones.js`, `public/js/inspecciones-avance.js` (ventanas compartidas), `inspecciones-planes.js`, `inspecciones-mis-planillas.js`.
 - Pruebas: `test33` (58 comprobaciones con PostgreSQL real y pantallas simuladas).
+- **Exportar avance (Excel):** botón en la pantalla del plan (`GET /planes/:id/avance.xlsx`; lo descargan admin, coordinador, consulta y operador de plantel). Una fila por plantel activo (estado, municipio, parroquia, código DEA, nombre, situación), el % de cada fase y el avance general, con los logos oficiales; sin iniciar = 0 %, «N/A» si la fase no aplica, «—» en planes históricos (solo tienen el avance al cerrar). Última fila: avance del plan. Servicio `avancePlan` en `src/services/exportarExcel.js`; prueba `test34` (16 comprobaciones).
 
 ## 7. Módulos de consulta de planteles
 
