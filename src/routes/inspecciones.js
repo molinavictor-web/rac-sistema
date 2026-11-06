@@ -2504,6 +2504,8 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
         anios: g.conAnios
           ? [...g.anios.entries()].map(([anio, set]) => ({ anio, cantidad: set.size })).sort((a, b) => String(a.anio).localeCompare(String(b.anio)))
           : null,
+        // planteles con atención en dos años distintos: se cuentan en cada año pero una sola vez en la barra
+        repetidos_anios: g.conAnios ? [...g.anios.values()].reduce((x, set) => x + set.size, 0) - g.planteles.size : 0,
       }))
       .sort((a, b) => posicion(a.clave) - posicion(b.clave) || b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"));
     const cuadre = { suma_barras: sumaBarras.n, repetidos: sumaBarras.n - atendidos, atendidos };
