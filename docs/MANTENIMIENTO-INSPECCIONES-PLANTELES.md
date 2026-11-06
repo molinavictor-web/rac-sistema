@@ -247,7 +247,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   «Avance al cerrar»). Es solo informativo.
 - `scripts/sql/20_tipo_plan_y_avance_historico.sql` (columnas) y `21_carga_planes_2024.sql` (carga de BRICOMILES 2024, ESCUELAS VANDALIZADAS 2024 y
   GOTAS DE AMOR 2024: planteles con ejecución CERRADA, planilla vacía `origen = 'HISTORICA'` e ingeniero de rehabilitación del Plan Maestro).
-  El script 21 se puede repetir sin duplicar. `22_gotas_2024_siete_planteles.sql` agrega al plan GOTAS DE AMOR 2024 otros 7 planteles que GESCOLAR marca como Gota de Amor 2024 (plan con 20; cerrados, sin ingeniero ni porcentaje). Un plantel cerrado en un plan histórico puede entrar a un plan nuevo (se crea planilla nueva).
+  El script 21 se puede repetir sin duplicar. `23_bricomiles_2025_lista_oficial.sql` deja BRICOMILES 2025 con los 25 planteles de la lista oficial (agrega 14 y desenlaza 6; sin borrar nada). `22_gotas_2024_siete_planteles.sql` agrega al plan GOTAS DE AMOR 2024 otros 7 planteles que GESCOLAR marca como Gota de Amor 2024 (plan con 20; cerrados, sin ingeniero ni porcentaje). Un plantel cerrado en un plan histórico puede entrar a un plan nuevo (se crea planilla nueva).
 - Para que cuenten como atendidos con su año en el dashboard, el admin usa **Registrar plan en GESCOLAR** en cada plan.
 
 ## 6g. Dashboard: atendidos por programa
