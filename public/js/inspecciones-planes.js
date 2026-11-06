@@ -77,7 +77,7 @@ function pintarPlanes() {
 
   const filas = PLANES.map((p) => `
     <tr>
-      <td><strong>${escapar(p.nombre)}</strong>${p.descripcion ? `<br><span style="color:var(--muted); font-size:.78rem;">${escapar(p.descripcion)}</span>` : ""}</td>
+      <td><strong>${escapar(p.nombre)}</strong> ${etiqueta(nombreTipo(p.tipo), "#6b46c1", "#f3ebff")}${p.descripcion ? `<br><span style="color:var(--muted); font-size:.78rem;">${escapar(p.descripcion)}</span>` : ""}</td>
       <td>${escapar(p.version_catalogo)}</td>
       <td>${etiquetaEstado(p.estado)}</td>
       <td style="text-align:center;">${Number(p.planteles_activos) || 0}</td>
@@ -132,7 +132,7 @@ function dibujarPlan() {
   contenido.innerHTML = `
     <section class="planteles-hero">
       <div class="planteles-hero-copy">
-        <span class="planteles-eyebrow">PLAN DE ATENCIÓN · ${escapar(plan.version_catalogo)}</span>
+        <span class="planteles-eyebrow">PLAN DE ATENCIÓN · ${escapar(plan.tipo_nombre || nombreTipo(plan.tipo))} · ${escapar(plan.version_catalogo)}</span>
         <h1>${escapar(plan.nombre)}</h1>
         <p>${plan.descripcion ? escapar(plan.descripcion) : "Sin descripción."} ${etiquetaEstado(plan.estado)}</p>
       </div>
@@ -203,7 +203,7 @@ function pintarPlanteles() {
       <td><span class="cod">${escapar(p.codigo_dea)}</span></td>
       <td>${escapar(p.nombre_plantel) || "—"}<br><span style="color:var(--muted); font-size:.78rem;">${[escapar(p.municipio), escapar(p.parroquia)].filter(Boolean).join(" · ")}</span></td>
       <td>${!p.activo ? etiqueta("Desenlazado · en espera", "#718096", "#edf2f7")
-        : p.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") + `<div style="color:var(--muted); font-size:.72rem; margin-top:2px;">${p.cerrado_en ? escapar(new Date(p.cerrado_en).toLocaleDateString("es-VE")) : ""}${p.cerrado_por ? " · " + escapar(p.cerrado_por) : ""}</div>`
+        : p.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") + `<div style="color:var(--muted); font-size:.72rem; margin-top:2px;">${p.cerrado_en ? escapar(new Date(p.cerrado_en).toLocaleDateString("es-VE")) : ""}${p.cerrado_por ? " · " + escapar(p.cerrado_por) : ""}</div>${p.avance_historico !== null && p.avance_historico !== undefined ? `<div style="color:var(--muted); font-size:.72rem; margin-top:2px;">Avance al cerrar: ${Math.round(Number(p.avance_historico) * 100) / 100}%</div>` : ""}`
         : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
       <td style="font-size:.82rem;">${ingenierosHtml(p)}</td>
       <td style="font-size:.82rem;">${rehabilitacionHtml(p, abierto)}</td>
@@ -613,6 +613,13 @@ const modalPlanFondo = document.getElementById("modalPlanFondo");
 const formPlan = document.getElementById("formPlan");
 const errorModalPlan = document.getElementById("errorModalPlan");
 
+let TIPOS_PLAN = { BRICOMILES: "Bricomiles", GOTAS_DE_AMOR: "Gotas de Amor", ESCUELAS_VANDALIZADAS: "Escuelas vandalizadas", ATENCION_ESPECIAL: "Atención especial" };
+function nombreTipo(t) { return TIPOS_PLAN[t] || t || ""; }
+function llenarTipos(actual) {
+  document.getElementById("planTipo").innerHTML = Object.keys(TIPOS_PLAN)
+    .map((k) => `<option value="${escapar(k)}"${k === actual ? " selected" : ""}>${escapar(TIPOS_PLAN[k])}</option>`).join("");
+}
+
 function abrirModalPlan(modo) {
   MODO_MODAL = modo;
   errorModalPlan.classList.remove("visible");
@@ -624,6 +631,7 @@ function abrirModalPlan(modo) {
     document.getElementById("planNombre").value = PLAN_ABIERTO.plan.nombre || "";
     document.getElementById("planDescripcion").value = PLAN_ABIERTO.plan.descripcion || "";
   }
+  llenarTipos(modo === "editar" && PLAN_ABIERTO ? PLAN_ABIERTO.plan.tipo : "BRICOMILES");
   modalPlanFondo.classList.add("visible");
   document.getElementById("planNombre").focus();
 }
@@ -648,6 +656,7 @@ formPlan.addEventListener("submit", async (e) => {
   const datos = {
     nombre: document.getElementById("planNombre").value.trim(),
     descripcion: document.getElementById("planDescripcion").value.trim(),
+    tipo: document.getElementById("planTipo").value,
   };
   try {
     if (MODO_MODAL === "crear") {

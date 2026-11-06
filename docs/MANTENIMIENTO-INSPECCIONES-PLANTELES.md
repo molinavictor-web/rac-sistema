@@ -223,7 +223,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   (`responsable_cambios`, `scripts/sql/16_responsable_cambios.sql`). Solo `admin`: «Corregir nombres» (valores de RESPONSABLE
   escritos distinto a la lista oficial, con sugerencia y sin escribir hasta aplicar).
 - Backend en `src/routes/inspecciones.js` bajo `/ingenieros/...` (buscar-plantel, asignar-plantel, historial, catalogo, equipo,
-  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16, 17, 18 y 19.
+  corregir-nombres) y `GET /resumen-ingenieros`. Orden de scripts SQL: 16, 17, 18, 19, 20 y 21.
 
 ## 6e. Ejecución (rehabilitación) por plantel dentro del plan
 - Dos responsables distintos sobre un mismo plantel: el **responsable de la inspección** (RESPONSABLE de GESCOLAR; informe, materiales,
@@ -237,6 +237,16 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
   (los consolidados solo excluyen los desenlazados). Con la ejecución cerrada no se cambia el ingeniero de rehabilitación.
 - Script: `scripts/sql/19_ejecucion_plantel.sql` (ejecutar ANTES de publicar). Pendiente: avance en % por fase de rehabilitación y las
   estadísticas por ingeniero de rehabilitaciones en ejecución y cerradas.
+
+## 6f. Tipo de plan y planes históricos
+- Cada plan tiene un **tipo** (`planes_atencion.tipo`): `BRICOMILES`, `GOTAS_DE_AMOR`, `ESCUELAS_VANDALIZADAS` o `ATENCION_ESPECIAL`
+  (se elige al crear el plan y se cambia con «Editar nombre»). Los planes anteriores quedan como BRICOMILES.
+- `plan_inspecciones.avance_historico` guarda el % de avance que tenía un plantel al cerrarse en un plan histórico (se muestra como
+  «Avance al cerrar»). Es solo informativo.
+- `scripts/sql/20_tipo_plan_y_avance_historico.sql` (columnas) y `21_carga_planes_2024.sql` (carga de BRICOMILES 2024, ESCUELAS VANDALIZADAS 2024 y
+  GOTAS DE AMOR 2024: planteles con ejecución CERRADA, planilla vacía `origen = 'HISTORICA'` e ingeniero de rehabilitación del Plan Maestro).
+  El script 21 se puede repetir sin duplicar. Un plantel cerrado en un plan histórico puede entrar a un plan nuevo (se crea planilla nueva).
+- Para que cuenten como atendidos con su año en el dashboard, el admin usa **Registrar plan en GESCOLAR** en cada plan.
 
 ## 7. Módulos de consulta de planteles
 
