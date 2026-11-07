@@ -73,6 +73,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     ]},
     { id: "administracion", titulo: "Administración", enlaces: [
       { id: "usuarios", href: "/usuarios.html", label: "Usuarios", roles: ["admin"] },
+      { id: "respaldo", href: "/respaldo.html", label: "Respaldo de datos", roles: ["admin"] },
     ]},
   ];
 
@@ -100,6 +101,7 @@ function renderShell(paginaActiva, tituloTopbar) {
   const iconos = {
     dashboard: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h7V3H3v10Zm11 8h7V3h-7v18ZM3 21h7v-4H3v4Zm11 0h7v-4h-7v4Z"/></svg>`,
     rac: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>`,
+    "respaldo": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>`,
     "exportar-rac": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>`,
     alertas: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>`,
     "codigos-sin-catalogar": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>`,
