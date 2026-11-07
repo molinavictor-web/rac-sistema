@@ -22,7 +22,8 @@
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.3",
     "googleapis": "^140.0.1",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "archiver": "^5.3.2"
   },
   "engines": {
     "node": ">=18"

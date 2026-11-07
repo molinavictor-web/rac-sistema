@@ -276,6 +276,15 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - Pruebas: `test33` (58 comprobaciones con PostgreSQL real y pantallas simuladas).
 - **Exportar avance (Excel):** botón en la pantalla del plan (`GET /planes/:id/avance.xlsx`; lo descargan admin, coordinador, consulta y operador de plantel). Una fila por plantel activo (estado, municipio, parroquia, código DEA, nombre), el % de cada fase y el avance general, con los logos oficiales; sin iniciar = 0 %, «N/A» si la fase no aplica, «—» en planes históricos (solo tienen el avance al cerrar). Última fila: avance del plan. Servicio `avancePlan` en `src/services/exportarExcel.js`; prueba `test34` (16 comprobaciones).
 
+## 6i. Respaldo de los datos de Supabase
+- Menú **Administración → Respaldo de datos** (solo admin; `public/respaldo.html`, `src/routes/respaldo.js`, `GET /api/respaldo/resumen` y `/descargar`). Un clic descarga `RESPALDO_SID_<fecha>.zip` con **todas las tablas** del esquema `public` salvo `personal_ministerio` (nómina, 137 MB; decisión del usuario).
+- Contenido del ZIP: `LEEME.txt`, `manifiesto.csv` (filas por tabla, para comprobar), `restaurar.psql` y `tablas/<tabla>.csv` (UTF-8, coma, encabezado; NULL = vacío, texto vacío = `""`). Incluye `usuarios` (contraseñas cifradas) y `rac`. Las columnas generadas (p. ej. `infraestructuras.codigo`) no se exportan: Postgres las recalcula.
+- Se lee todo en una sola transacción de solo lectura (foto consistente) y se comprime al vuelo (poca memoria en Render).
+- **Restaurar:** (1) crear las tablas vacías con `schema.sql` y los scripts de `scripts/sql/` (en orden); (2) en la carpeta del ZIP descomprimido: `psql "<conexión de Supabase>" -f restaurar.psql` (carga en el orden de las claves foráneas, dentro de una transacción, y ajusta los contadores de ids); (3) comparar con `manifiesto.csv`. Sin psql: Table Editor de Supabase → Import data from CSV, en el orden de `restaurar.psql`.
+- **Qué NO cubre:** nada de Google Drive/Sheets (GESCOLAR, Coordenadas Planteles, archivos de planteles) — eso se respalda desde Drive; ni `personal_ministerio`.
+- **Cuidado:** el ZIP trae contraseñas cifradas, cédulas y teléfonos: guardarlo en un lugar privado. Recomendación: uno al mes, conservar los últimos tres.
+- Dependencia nueva declarada: `archiver`. Prueba `test35` (26 comprobaciones; incluye restaurar en una base vacía y comprobar que todas las tablas quedan idénticas).
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada
