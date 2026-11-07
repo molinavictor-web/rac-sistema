@@ -52,6 +52,7 @@ const directorioDirectoresRoutes = require('./routes/directorioDirectores');
 const supervisionRoutes = require('./routes/supervision');
 const inspeccionesRoutes = require('./routes/inspecciones');
 const instrumentoUnoRoutes = require('./routes/instrumentoUno');
+const dotacionesRoutes = require('./routes/dotaciones');
 const infraestructurasRoutes = require('./routes/infraestructuras');
 const reportesInspeccionesRoutes = require('./routes/reportesInspecciones');
 const consultasExpresRoutes = require('./routes/consultasExpres');
@@ -109,6 +110,7 @@ app.use('/api/inspecciones/instrumento-uno', instrumentoUnoRoutes);
 app.use('/api/inspecciones/infraestructuras', infraestructurasRoutes);
 app.use('/api/inspecciones/reportes', reportesInspeccionesRoutes);
 app.use('/api/inspecciones/consultas', consultasExpresRoutes);
+app.use('/api/inspecciones/dotacion', dotacionesRoutes);
 app.use('/api/inspecciones', inspeccionesRoutes);
 // Manejador de errores genérico -- evita que un error suelto tumbe el proceso
 app.use((err, req, res, next) => {

@@ -53,7 +53,7 @@ async function cargarRehabilitaciones() {
       <td>${escapar(r.plan_nombre)}</td>
       <td>${r.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
       <td>${r.avance === undefined ? "—" : AvanceFases.barra(r.avance)}${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" || !FASES.length ? "" : `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-avance-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}">Registrar avance</button></div>`}</td>
-      <td>${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" ? "" : `<button type="button" class="btn btn-primario btn-sm" data-cerrar-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}" data-nombre="${escapar(r.nombre_plantel)}">Cerrar ejecución</button>`}</td>
+      <td><a class="btn btn-fantasma btn-sm" href="/inspecciones/dotaciones.html?plan=${Number(r.plan_id)}">Dotación</a> ${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" ? "" : `<button type="button" class="btn btn-primario btn-sm" data-cerrar-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}" data-nombre="${escapar(r.nombre_plantel)}">Cerrar ejecución</button>`}</td>
     </tr>`).join("");
     document.getElementById("tablaRehab").innerHTML = `<div class="tabla-responsive"><table>
       <thead><tr><th>Código</th><th>Plantel</th><th>Plan</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`;

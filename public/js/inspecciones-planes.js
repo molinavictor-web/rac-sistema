@@ -157,6 +157,7 @@ function dibujarPlan() {
         ${PLAN_ABIERTO.fases && PLAN_ABIERTO.fases.length ? `<button type="button" class="btn btn-primario btn-sm" id="btnExcelAvance">Exportar avance (Excel)</button>` : ""}
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
+        <a class="btn btn-primario btn-sm" href="/inspecciones/dotaciones.html?plan=${Number(plan.id)}">Dotación</a>
       </div>
     </div>
 
