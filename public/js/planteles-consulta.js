@@ -253,7 +253,7 @@ function abrirEdicionDatos(plantel) {
   const campos = camposEditablesDe(plantel);
   const fondo = document.createElement("div");
   fondo.className = "modal-fondo visible";
-  fondo.style.zIndex = "300";
+  fondo.style.zIndex = "3000"; // por encima de la ficha a pantalla completa (z-index 999)
   fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Editar datos del plantel" style="max-width:720px; width:100%;">
     <h2 style="margin:0 0 4px;">Editar datos del plantel</h2>
     <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · ${escapar(plantel[CAMPO_CODIGO] || "")}. El código y el nombre no se editan: los manda GESCOLAR. Los cambios se escriben en la hoja de GESCOLAR y quedan en el historial.</p>
@@ -296,7 +296,7 @@ async function abrirHistorialDatos(plantel) {
   catch (err) { mostrarToast(err.message, true); return; }
   const fondo = document.createElement("div");
   fondo.className = "modal-fondo visible";
-  fondo.style.zIndex = "300";
+  fondo.style.zIndex = "3000"; // por encima de la ficha a pantalla completa (z-index 999)
   fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Historial de cambios" style="max-width:760px; width:100%;">
     <h2 style="margin:0 0 4px;">Historial de cambios</h2>
     <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · últimos cambios hechos desde la ficha. «Restaurar» devuelve cada dato a su valor anterior, salvo los que alguien haya cambiado después.</p>
