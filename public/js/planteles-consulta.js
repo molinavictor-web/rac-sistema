@@ -213,6 +213,7 @@ function abrirFicha(plantel) {
 
   const btnEditar = document.getElementById("btnEditarDatos");
   if (btnEditar) btnEditar.addEventListener("click", () => abrirEdicionDatos(plantel));
+  document.querySelectorAll("[data-editar-campo]").forEach((b) => b.addEventListener("click", () => abrirEdicionDatos(plantel, b.dataset.editarCampo)));
   const btnHistorial = document.getElementById("btnHistorialDatos");
   if (btnHistorial) btnHistorial.addEventListener("click", () => abrirHistorialDatos(plantel));
 
@@ -238,6 +239,9 @@ function normalizarClave(h) {
   return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
+const CLAVES_EDITABLES = new Set([...CAMPOS_EDITABLES.map((c) => c[0]), "direccion_plantel", "direccion_del_plantel"]);
+function esCampoEditable(columna) { return CLAVES_EDITABLES.has(normalizarClave(columna)); }
+
 // Busca en el plantel la columna real (con su nombre exacto en la hoja) de cada campo editable.
 function camposEditablesDe(plantel) {
   const out = [];
@@ -249,11 +253,11 @@ function camposEditablesDe(plantel) {
   return out;
 }
 
-function abrirEdicionDatos(plantel) {
+function abrirEdicionDatos(plantel, campoEnfocado) {
   const campos = camposEditablesDe(plantel);
   const fondo = document.createElement("div");
   fondo.className = "modal-fondo visible";
-  fondo.style.zIndex = "300";
+  fondo.style.zIndex = "3000"; // por encima de la ficha a pantalla completa (z-index 999)
   fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Editar datos del plantel" style="max-width:720px; width:100%;">
     <h2 style="margin:0 0 4px;">Editar datos del plantel</h2>
     <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · ${escapar(plantel[CAMPO_CODIGO] || "")}. El código y el nombre no se editan: los manda GESCOLAR. Los cambios se escriben en la hoja de GESCOLAR y quedan en el historial.</p>
@@ -267,6 +271,11 @@ function abrirEdicionDatos(plantel) {
       <button type="button" class="btn btn-primario" id="btnGuardarEdicion">Guardar cambios</button>
     </div></div>`;
   document.body.appendChild(fondo);
+  const enfocado = campoEnfocado ? campos.findIndex((c) => c.real === campoEnfocado) : -1;
+  if (enfocado >= 0) {
+    const el = fondo.querySelector(`input[data-i="${enfocado}"]`);
+    if (el) { el.focus(); el.select(); }
+  }
   document.getElementById("btnCancelarEdicion").addEventListener("click", () => fondo.remove());
   document.getElementById("btnGuardarEdicion").addEventListener("click", async (e) => {
     const cambios = {};
@@ -296,7 +305,7 @@ async function abrirHistorialDatos(plantel) {
   catch (err) { mostrarToast(err.message, true); return; }
   const fondo = document.createElement("div");
   fondo.className = "modal-fondo visible";
-  fondo.style.zIndex = "300";
+  fondo.style.zIndex = "3000"; // por encima de la ficha a pantalla completa (z-index 999)
   fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Historial de cambios" style="max-width:760px; width:100%;">
     <h2 style="margin:0 0 4px;">Historial de cambios</h2>
     <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · últimos cambios hechos desde la ficha. «Restaurar» devuelve cada dato a su valor anterior, salvo los que alguien haya cambiado después.</p>
@@ -349,12 +358,14 @@ modalFichaFondo.addEventListener("click", (e) => {
 // archivos de Drive arranca vacía (con "Buscando…") y se llena aparte, en
 // cargarArchivosFicha, para no bloquear la apertura de la ficha.
 function renderizarFicha(plantel) {
-  const destacados = CAMPOS_DESTACADOS_FICHA.filter((c) => plantel[c]);
-  const resto = Object.keys(plantel).filter((c) => !CAMPOS_DESTACADOS_FICHA.includes(c) && plantel[c] !== "");
+  const editable = (c) => puedeRefrescar && esCampoEditable(c);
+  const destacados = CAMPOS_DESTACADOS_FICHA.filter((c) => plantel[c] || editable(c));
+  const resto = Object.keys(plantel).filter((c) => !CAMPOS_DESTACADOS_FICHA.includes(c) && (plantel[c] !== "" || editable(c)));
+  const lapiz = (c) => editable(c) ? ` <button type="button" class="btn-lapiz" data-editar-campo="${escapar(c)}" title="Editar este dato" aria-label="Editar ${escapar(etiquetar(c))}" style="border:0; background:none; cursor:pointer; color:#2b6cb0; font-size:.95rem; padding:0 2px;">✎</button>` : "";
 
   const tarjetasHtml = destacados.map((c) => `
     <div class="stat-card" style="min-height:auto; padding:13px 15px;">
-      <h3 style="margin-bottom:6px;">${etiquetar(c)}</h3>
+      <h3 style="margin-bottom:6px;">${etiquetar(c)}${lapiz(c)}</h3>
       <div style="font-size:.95rem; font-weight:600; color:var(--navy-900);">${valorFormateado(plantel[c])}</div>
     </div>
   `).join("");
@@ -363,7 +374,7 @@ function renderizarFicha(plantel) {
   // aprovechaba el ancho de la pantalla y obligaba a bajar demasiado).
   const filasHtml = resto.map((c) => `
     <div>
-      <div style="font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:#718096; margin-bottom:3px;">${etiquetar(c)}</div>
+      <div style="font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:#718096; margin-bottom:3px;">${etiquetar(c)}${lapiz(c)}</div>
       <div style="font-size:.85rem; color:var(--text);">${valorFormateado(plantel[c])}</div>
     </div>
   `).join("");
