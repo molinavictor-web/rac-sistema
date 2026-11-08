@@ -2514,6 +2514,18 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
          (SELECT COUNT(*) FROM plan_inspecciones WHERE desenlazado_en IS NULL)::int AS en_planes`
     )).rows[0];
 
+    // Proyectos comunales (script 29): NO suman en «atendidos»; solo se informa cuántos planteles tienen uno.
+    let comunal = null;
+    try {
+      const c = (await pool.query(
+        `SELECT (SELECT COUNT(*) FROM comunal_proyectos)::int AS proyectos,
+                (SELECT COUNT(DISTINCT codigo_dea) FROM comunal_proyecto_planteles)::int AS planteles,
+                (SELECT COUNT(DISTINCT codigo_dea) FROM comunal_proyecto_planteles WHERE estado = 'ATENDIDO')::int AS atendidos,
+                (SELECT COUNT(*) FROM comunal_proyectos p WHERE NOT EXISTS (SELECT 1 FROM comunal_proyecto_planteles x WHERE x.proyecto_id = p.id))::int AS sin_planteles`
+      )).rows[0];
+      comunal = { ...c, porcentaje: porcentaje(c.planteles, total) };
+    } catch (_) { comunal = null; }
+
     const posicion = (k) => { const i = ORDEN_PROGRAMAS.findIndex((x) => gescolar.normalizar(x) === gescolar.normalizar(k)); return i === -1 ? 99 : i; };
     const porPrograma = [...programas.values()]
       .map((g) => ({
@@ -2547,6 +2559,7 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
         .sort((a, b) => a.parroquia.localeCompare(b.parroquia, "es")),
       columnas_plan: columnasPlan.length,
       modulo,
+      comunal,
     });
   } catch (err) {
     falloInterno(res, err, "No se pudo armar el dashboard.");

@@ -126,6 +126,17 @@ function pintar(d) {
       </table></div>
     </div></div>
 
+    ${d.comunal ? `<div class="panel" style="margin-top:16px;"><div class="dash-bloque">
+      <h3>Proyectos comunales</h3>
+      <p class="dash-nota">Atenciones menores que ejecutan los circuitos comunales con el proyecto que eligen en su consulta. <strong>No suman</strong> en «Planteles atendidos»; aquí solo se cuenta cuántos planteles tienen proyecto comunal.</p>
+      <div class="stats-grid">
+        ${tarjeta("stat-purple", n(d.comunal.planteles), "Planteles con proyecto comunal", pct(d.comunal.porcentaje) + " del total")}
+        ${tarjeta("", n(d.comunal.proyectos), "Proyectos comunales", d.comunal.sin_planteles ? n(d.comunal.sin_planteles) + " sin planteles definidos" : "")}
+        ${tarjeta("stat-success acento-sello", n(d.comunal.atendidos), "Planteles ya atendidos por proyecto comunal", "")}
+      </div>
+      <p style="margin:10px 0 0;"><a href="/inspecciones/proyectos-comunales.html">Ver proyectos comunales →</a></p>
+    </div></div>` : ""}
+
     <div class="panel" style="margin-top:16px;"><div class="dash-bloque">
       <h3>Dentro del módulo de Inspecciones</h3>
       <p class="dash-nota">${d.columnas_plan ? "" : "Todavía no hay columnas de plan en GESCOLAR («PLAN <nombre>»): se crean al registrar un plan. "}Planes y planillas de materiales cargadas en el sistema.</p>
