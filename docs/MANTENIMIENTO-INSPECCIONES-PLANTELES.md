@@ -308,6 +308,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Permisos:** escriben admin, insp_coordinador y operador_plantel; leen además insp_consulta e insp_ingeniero.
 - **Pantalla:** `public/inspecciones/proyectos-comunales.html` + `public/js/inspecciones-proyectos-comunales.js`. Plantel y comuna se buscan escribiendo (código o nombre). Botón «Agregar los planteles de esta comuna». `?plantel=CODIGO` abre el formulario con la comuna del plantel.
 - **Ficha del plantel:** tarjeta «Proyecto comunal» (`planteles-consulta.js`): circuito/consejo, SÍ/NO, aprobaciones con N.º de consulta de la comuna, año, estado, y aviso si su comuna tiene proyectos sin planteles definidos.
+- **Resumen:** bloque «Proyectos comunales» en `dashboard` (campo `comunal`): planteles distintos con proyecto, proyectos, planteles ya atendidos y proyectos sin planteles. **No suman** en «Planteles atendidos» (decisión del usuario: son atenciones menores).
 - **Pendiente:** catálogo para agregar comunas/consejos nuevos y vincular planteles sin vínculo; decidir si cuentan en el Resumen.
 
 ## 7. Módulos de consulta de planteles
