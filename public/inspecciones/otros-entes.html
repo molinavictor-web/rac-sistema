@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Atenciones de otros entes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .oe-filtros { display: flex; gap: 10px; flex-wrap: wrap; padding: 14px 20px; align-items: end; }
+  .oe-filtros label { display: grid; gap: 3px; font-size: .76rem; color: var(--muted); }
+  .oe-filtros input, .oe-filtros select { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .9rem; font-family: inherit; }
+  .oe-tabla { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  .oe-tabla th, .oe-tabla td { padding: 8px 10px; border-bottom: 1px solid var(--borde); vertical-align: top; text-align: left; }
+  .oe-tabla th { background: #f4f7fb; font-size: .72rem; text-transform: uppercase; }
+  .oe-sub { color: var(--muted); font-size: .76rem; }
+  .oe-resumen { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 20px 12px; }
+  .oe-chip { background: #eef4fb; border-radius: 12px; padding: 3px 10px; font-size: .78rem; }
+  .oe-modal, .oe-modal * { box-sizing: border-box; }
+  .oe-modal { background: #fff; border-radius: 12px; padding: 20px; width: min(560px, 100%); max-height: 90vh; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .oe-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .oe-form label { display: grid; gap: 3px; min-width: 0; font-size: .78rem; color: var(--muted); }
+  .oe-form input, .oe-form select, .oe-form textarea { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .92rem; font-family: inherit; }
+  .oe-fila { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .oe-lista { display: grid; border: 1px solid var(--borde); border-radius: 8px; max-height: 190px; overflow-y: auto; }
+  .oe-lista:empty { display: none; }
+  .oe-opcion { text-align: left; background: #fff; border: 0; border-bottom: 1px solid var(--borde); padding: 8px 10px; cursor: pointer; font: inherit; font-size: .86rem; }
+  .oe-opcion:hover { background: #eef4fb; }
+  .oe-fondo { position: fixed; inset: 0; background: rgba(13,43,82,.45); z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .oe-inactivo { color: #a0aec0; }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-otros-entes.js"></script>
+</body>
+</html>

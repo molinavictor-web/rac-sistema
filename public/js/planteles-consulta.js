@@ -221,7 +221,29 @@ function abrirFicha(plantel) {
   if (codigoDea) {
     cargarArchivosFicha(codigoDea); // esta también busca la foto de fachada, ver dibujarArchivosFicha
     cargarUbicacionFicha(codigoDea);
+    cargarHistorialAtencionesFicha(codigoDea);
     cargarProyectosComunalesFicha(codigoDea);
+  }
+}
+
+// ---- Historial de atenciones (FEDE + otros entes + proyecto comunal), el más reciente primero ----
+async function cargarHistorialAtencionesFicha(codigoDea) {
+  const caja = document.getElementById("fichaHistorialBox");
+  if (!caja) return;
+  const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+  try {
+    const r = await RAC.get(`/api/inspecciones/otros-entes/historial/${encodeURIComponent(codigoDea)}`);
+    const cuando = (x) => (x.anio ? (x.mes ? `${MESES[x.mes - 1]} ${x.anio}` : String(x.anio)) : "Sin año");
+    const reg = r.puede_editar ? `<a class="btn btn-fantasma btn-sm" href="/inspecciones/otros-entes.html?plantel=${encodeURIComponent(codigoDea)}">Registrar atención de otro ente</a>` : "";
+    caja.innerHTML = `<h3 style="margin-bottom:8px;">Historial de atenciones</h3>
+      <div class="panel" style="box-shadow:none; padding:14px 18px;">
+        ${r.historial.length ? r.historial.map((x) => `<div style="display:flex; gap:12px; padding:5px 0; border-bottom:1px solid var(--borde); font-size:.85rem;">
+          <div style="min-width:110px; color:var(--muted);">${escapar(cuando(x))}</div>
+          <div><strong>${escapar(x.ente)}</strong>${x.titulo ? ` — ${escapar(x.titulo)}` : ""}${x.tipo === "COMUNAL" ? ` <span style="color:var(--muted);">(${x.estado === "ATENDIDO" ? "atendido" : "por atender"})</span>` : ""}</div></div>`).join("") : `<div style="font-size:.85rem; color:var(--muted);">Sin atenciones registradas.</div>`}
+        ${reg ? `<div style="margin-top:8px;">${reg}</div>` : ""}
+      </div>`;
+  } catch (err) {
+    caja.innerHTML = "";
   }
 }
 
@@ -493,6 +515,7 @@ function renderizarFicha(plantel) {
       <button type="button" class="btn btn-primario btn-sm" id="btnEditarDatos">Editar datos del plantel</button>
       <button type="button" class="btn btn-fantasma btn-sm" id="btnHistorialDatos">Historial de cambios</button>
     </div>` : ""}
+    <div id="fichaHistorialBox" style="margin-bottom:22px;"></div>
     <div id="fichaComunalBox" style="margin-bottom:22px;"></div>
     <div id="fichaArchivosBox" style="margin-bottom:22px;">
       <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>

@@ -8,6 +8,7 @@ function escapar(valor) {
   return String(valor == null ? "" : valor).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 const n = (v) => Number(v || 0).toLocaleString("es-VE");
+const CATEGORIAS_ENTE = { GOBERNACION: "Gobernación", ALCALDIA: "Alcaldía", MINISTERIO: "Ministerio", INSTITUTO: "Instituto / otro organismo", FANB: "FANB", OTRO: "Otro" };
 const pct = (v) => Number(v || 0).toLocaleString("es-VE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " %";
 
 if (usuario) cargar();
@@ -94,7 +95,7 @@ function pintar(d) {
     </div>
 
     <div class="dash-dos" style="margin-top:16px;">
-      ${bloqueAvance("Planteles atendidos", "Tienen un tipo de atención (p. ej. GOTA DE AMOR), están en un plan de la hoja o en un plan del sistema.", d.atendidos, d.total, "ok")}
+      ${bloqueAvance("Planteles atendidos", "Tienen un tipo de atención (p. ej. GOTA DE AMOR), están en un plan de la hoja o del sistema, o los atendió otro ente (Gobernación, alcaldía, ministerio…).", d.atendidos, d.total, "ok")}
       ${bloqueAvance("Planteles con inspección", "Tienen un ingeniero RESPONSABLE en GESCOLAR.", d.con_inspeccion, d.total, "azul")}
     </div>
 
@@ -125,6 +126,23 @@ function pintar(d) {
         <tbody>${filasMun}</tbody>
       </table></div>
     </div></div>
+
+    ${d.entes ? `<div class="panel" style="margin-top:16px;"><div class="dash-bloque">
+      <h3>Atenciones por ente</h3>
+      <p class="dash-nota">Cada plantel cuenta <strong>una sola vez</strong> en «Planteles atendidos», aunque lo hayan atendido FEDE y otros entes; sus atenciones quedan todas en el historial del plantel.</p>
+      <div class="stats-grid">
+        ${tarjeta("stat-success acento-sello", n(d.atendidos.cantidad), "Planteles atendidos (total general)", "FEDE + otros entes, sin repetir")}
+        ${tarjeta("", n(d.entes.solo_otros), "Atendidos solo por otros entes", "")}
+        ${tarjeta("stat-purple", n(d.entes.ambos), "Atendidos por FEDE y por otro ente", "")}
+      </div>
+      <div class="tabla-responsive" style="margin-top:12px;"><table class="dash-tabla"><thead><tr><th>Ente</th><th>Categoría</th><th class="num">Planteles</th><th class="num">Atenciones</th></tr></thead><tbody>
+        <tr><td><strong>FEDE</strong></td><td>FEDE (Bricomiles y programas)</td><td class="num">${n(d.entes.fede.planteles)}</td><td class="num">${n(d.entes.fede.atenciones)}</td></tr>
+        ${d.entes.otros.map((o) => `<tr><td>${escapar(o.ente)}</td><td>${escapar(CATEGORIAS_ENTE[o.categoria] || o.categoria)}</td><td class="num">${n(o.planteles)}</td><td class="num">${n(o.atenciones)}</td></tr>`).join("")}
+        ${d.entes.categorias.length ? `<tr><td colspan="4" style="background:#f4f7fb; font-size:.72rem; text-transform:uppercase;">Por categoría de ente</td></tr>
+        ${d.entes.categorias.map((o) => `<tr><td colspan="2">${escapar(CATEGORIAS_ENTE[o.categoria] || o.categoria)}</td><td class="num">${n(o.planteles)}</td><td class="num">${n(o.atenciones)}</td></tr>`).join("")}` : ""}
+      </tbody></table></div>
+      <p style="margin:10px 0 0;"><a href="/inspecciones/otros-entes.html">Ver atenciones de otros entes →</a></p>
+    </div></div>` : ""}
 
     ${d.comunal ? `<div class="panel" style="margin-top:16px;"><div class="dash-bloque">
       <h3>Proyectos comunales</h3>
