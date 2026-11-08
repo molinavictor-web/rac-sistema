@@ -297,6 +297,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Script `27_plantel_cambios.sql`** (ejecutar una vez en Supabase; debe responder «Success. No rows returned»): crea `plantel_cambios` (historial: quién, cuándo, valor anterior y nuevo).
 - En la ficha, botones «Editar datos del plantel» e «Historial de cambios» (solo `admin` y `operador_plantel`). Se editan director (nombre y teléfonos), municipio, parroquia, dirección, zona, N° de aulas, matrícula total, circuito y consejo comunal. **El código y el nombre nunca se editan** (GESCOLAR manda); tampoco las columnas de seguimiento.
 - Los cambios se escriben en la hoja GESCOLAR (Google Sheets). «Restaurar» devuelve cada dato a su valor anterior, salvo los que alguien haya cambiado después. Código: `src/routes/plantelesConsulta.js` (`PUT /:codigoDea/datos`, `GET /:codigoDea/historial`, `POST /cambios/:id/revertir`) y `public/js/planteles-consulta.js`.
+- **Validación:** municipio, parroquia, circuito comunal y consejo comunal se eligen de listas armadas con los valores que ya existen en GESCOLAR (MATURIN y MATURÍN cuentan como uno); la parroquia debe ser del municipio elegido y el código del circuito/consejo se llena solo con su nombre. Teléfonos: solo números (10 u 11 dígitos, se guardan sin guiones). Nombre del director: letras y en mayúsculas. El servidor revisa lo mismo (`GET /opciones-datos`, `validarPedido`).
 - Los datos de planillas y dotaciones ya creadas son copias del momento: no cambian solas.
 
 ## 7. Módulos de consulta de planteles
