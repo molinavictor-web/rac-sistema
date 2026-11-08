@@ -256,6 +256,15 @@ router.post("/plan/:planId", requireAuth, requireRol(...ROLES_GESTION, "insp_ing
     ).catch(() => ({ rows: [] }));
     if (!propio.rows.length) return res.status(403).json({ error: "Solo puedes crear la dotación de los planteles que tienes asignados en este plan." });
   }
+  if ((req.body || {}).abrir_si_existe === true) {
+    try {
+      const ya = await pool.query("SELECT id FROM dotaciones WHERE plan_id = $1 AND codigo_dea = $2", [planId, codigoPedido]);
+      if (ya.rows.length) return res.json({ ok: true, id: ya.rows[0].id, existente: true });
+    } catch (err) {
+      if (err.code === SIN_TABLAS) return falta(res);
+      return falloInterno(res, err, "No se pudo abrir la solicitud de dotación.");
+    }
+  }
   try {
     const estado = await estadoDelPlan(planId);
     if (!estado.existe) return res.status(404).json({ error: "Plan no encontrado." });

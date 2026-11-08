@@ -225,6 +225,7 @@ function pintarPlanteles() {
       <td style="font-size:.82rem;">${rehabilitacionHtml(p, abierto)}</td>
       <td style="font-size:.82rem;">${avanceHtml(p, abierto)}</td>
       <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}&plan=${Number(plan.id)}">${p.activo && PUEDE_GESTIONAR ? "Planilla" : "Ver planilla"}</a></td>
+      <td style="white-space:nowrap;">${p.activo && PUEDE_GESTIONAR ? `<button type="button" class="btn btn-primario btn-sm" data-dotacion="${escapar(p.codigo_dea)}" title="Abre la planilla de dotación de este plantel; si no existe, la crea">Dotación</button>` : ""}</td>
       <td style="white-space:nowrap;">${abierto && PUEDE_GESTIONAR ? (p.activo
         ? (p.ejecucion === "CERRADO"
             ? `<button type="button" class="btn btn-fantasma btn-sm" data-reabrir="${Number(p.inspeccion_id)}" data-nombre="${escapar(p.nombre_plantel || p.codigo_dea)}">Reabrir</button>`
@@ -237,11 +238,18 @@ function pintarPlanteles() {
   cont.innerHTML = `
     <div class="tabla-responsive">
       <table>
-        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Inspección (responsable)</th><th>Rehabilitación</th><th>Avance</th><th>Materiales</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Plantel</th><th>Estado</th><th>Inspección (responsable)</th><th>Rehabilitación</th><th>Avance</th><th>Materiales</th><th>Dotación</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
     </div>
   `;
+  cont.querySelectorAll("[data-dotacion]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      const r = await RAC.post(`/api/inspecciones/dotacion/plan/${Number(plan.id)}`, { codigo_dea: b.dataset.dotacion, abrir_si_existe: true });
+      window.location.href = `/inspecciones/dotacion.html?id=${Number(r.id)}`;
+    } catch (err) { mostrarToast(err.message, true); b.disabled = false; }
+  }));
   cont.querySelectorAll("[data-asignar]").forEach((b) => {
     b.addEventListener("click", () => abrirAsignacion(Number(b.dataset.asignar), b.dataset.nombre));
   });
