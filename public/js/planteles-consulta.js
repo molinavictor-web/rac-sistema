@@ -211,11 +211,117 @@ function abrirFicha(plantel) {
   modalFichaFondo.classList.add("visible");
   document.body.style.overflow = "hidden";
 
+  const btnEditar = document.getElementById("btnEditarDatos");
+  if (btnEditar) btnEditar.addEventListener("click", () => abrirEdicionDatos(plantel));
+  const btnHistorial = document.getElementById("btnHistorialDatos");
+  if (btnHistorial) btnHistorial.addEventListener("click", () => abrirHistorialDatos(plantel));
+
   const codigoDea = plantel[CAMPO_CODIGO];
   if (codigoDea) {
     cargarArchivosFicha(codigoDea); // esta también busca la foto de fachada, ver dibujarArchivosFicha
     cargarUbicacionFicha(codigoDea);
   }
+}
+
+// ---- Editar datos del plantel (admin y operador de plantel) ----
+// Solo se editan las columnas de esta lista (el código y el nombre nunca): GESCOLAR manda.
+const CAMPOS_EDITABLES = [
+  ["director_nombre", "Nombre del director"], ["telefono_director", "Teléfono del director"], ["telefono_movil_director", "Teléfono móvil del director"],
+  ["municipio", "Municipio"], ["parroquia", "Parroquia"], ["direccion", "Dirección", true],
+  ["zona_ubicacion", "Zona de ubicación"], ["cant_aulas", "N° de aulas", false, true], ["total_matricula_registrada", "Matrícula total registrada", false, true],
+  ["cod_circuito", "Código de circuito"], ["nomb_circuito", "Circuito comunal"], ["cod_consejo_com", "Código de consejo comunal"], ["nom_consejo_com", "Consejo comunal"],
+];
+
+function normalizarClave(h) {
+  let t = String(h || "");
+  if (/[ÃÂ]/.test(t)) { try { t = decodeURIComponent(escape(t)); } catch (_) { /* se deja igual */ } }
+  return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+// Busca en el plantel la columna real (con su nombre exacto en la hoja) de cada campo editable.
+function camposEditablesDe(plantel) {
+  const out = [];
+  CAMPOS_EDITABLES.forEach(([clave, etiqueta, ancho, numero]) => {
+    const real = Object.keys(plantel).find((k) => normalizarClave(k) === clave)
+      || (clave === "direccion" ? Object.keys(plantel).find((k) => ["direccion_plantel", "direccion_del_plantel"].includes(normalizarClave(k))) : undefined);
+    if (real) out.push({ real, etiqueta, ancho: Boolean(ancho), numero: Boolean(numero), valor: plantel[real] === undefined ? "" : String(plantel[real]) });
+  });
+  return out;
+}
+
+function abrirEdicionDatos(plantel) {
+  const campos = camposEditablesDe(plantel);
+  const fondo = document.createElement("div");
+  fondo.className = "modal-fondo visible";
+  fondo.style.zIndex = "300";
+  fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Editar datos del plantel" style="max-width:720px; width:100%;">
+    <h2 style="margin:0 0 4px;">Editar datos del plantel</h2>
+    <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · ${escapar(plantel[CAMPO_CODIGO] || "")}. El código y el nombre no se editan: los manda GESCOLAR. Los cambios se escriben en la hoja de GESCOLAR y quedan en el historial.</p>
+    <form id="formEditarDatos" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">
+      ${campos.map((c, i) => `<label style="display:grid; gap:3px; font-size:.76rem; color:var(--muted); ${c.ancho ? "grid-column:1/-1;" : ""}">${escapar(c.etiqueta)}
+        <input type="text" data-i="${i}" value="${escapar(c.valor).replace(/"/g, "&quot;")}" ${c.numero ? 'inputmode="numeric"' : ""} style="padding:8px 10px; border:1px solid var(--borde); border-radius:8px; font-size:.9rem;"></label>`).join("")}
+    </form>
+    <div id="errorEditarDatos" style="color:#c53030; font-size:.82rem; min-height:1.2em; margin-top:8px;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+      <button type="button" class="btn btn-fantasma" id="btnCancelarEdicion">Cancelar</button>
+      <button type="button" class="btn btn-primario" id="btnGuardarEdicion">Guardar cambios</button>
+    </div></div>`;
+  document.body.appendChild(fondo);
+  document.getElementById("btnCancelarEdicion").addEventListener("click", () => fondo.remove());
+  document.getElementById("btnGuardarEdicion").addEventListener("click", async (e) => {
+    const cambios = {};
+    fondo.querySelectorAll("input[data-i]").forEach((el) => {
+      const c = campos[Number(el.dataset.i)];
+      if (el.value.trim() !== c.valor.trim()) cambios[c.real] = el.value;
+    });
+    if (!Object.keys(cambios).length) { document.getElementById("errorEditarDatos").textContent = "No cambiaste nada."; return; }
+    e.currentTarget.disabled = true;
+    try {
+      const r = await RAC.put(`/api/planteles-consulta/${encodeURIComponent(plantel[CAMPO_CODIGO])}/datos`, { campos: cambios });
+      Object.keys(cambios).forEach((k) => { plantel[k] = String(cambios[k]).trim(); });
+      fondo.remove();
+      mostrarToast(`Se guardó ${r.cambiados} cambio${r.cambiados === 1 ? "" : "s"}.`);
+      abrirFicha(plantel);
+    } catch (err) {
+      document.getElementById("errorEditarDatos").textContent = err.message;
+      e.currentTarget.disabled = false;
+    }
+  });
+}
+
+async function abrirHistorialDatos(plantel) {
+  const codigo = plantel[CAMPO_CODIGO];
+  let historial;
+  try { historial = (await RAC.get(`/api/planteles-consulta/${encodeURIComponent(codigo)}/historial`)).historial; }
+  catch (err) { mostrarToast(err.message, true); return; }
+  const fondo = document.createElement("div");
+  fondo.className = "modal-fondo visible";
+  fondo.style.zIndex = "300";
+  fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Historial de cambios" style="max-width:760px; width:100%;">
+    <h2 style="margin:0 0 4px;">Historial de cambios</h2>
+    <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · últimos cambios hechos desde la ficha. «Restaurar» devuelve cada dato a su valor anterior, salvo los que alguien haya cambiado después.</p>
+    ${historial.length ? historial.map((h) => `<div style="border:1px solid var(--borde); border-radius:10px; padding:10px 12px; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:.8rem; color:var(--muted);">
+        <span>${escapar(new Date(h.creado_en).toLocaleString("es-VE"))} · ${escapar(h.usuario || "—")}</span>
+        ${h.revertido_en ? `<span>Restaurado</span>` : `<button type="button" class="btn btn-fantasma btn-sm" data-revertir="${Number(h.id)}">Restaurar</button>`}</div>
+      ${h.campos.map((x) => `<div style="font-size:.84rem; margin-top:4px;"><strong>${escapar(etiquetar(x.campo))}:</strong> <span style="color:#a0aec0; text-decoration:line-through;">${escapar(x.antes) || "(vacío)"}</span> → ${escapar(x.despues) || "(vacío)"}</div>`).join("")}
+    </div>`).join("") : `<div class="vacio"><strong>Sin cambios todavía</strong>Aquí aparecerán los cambios que se hagan desde la ficha.</div>`}
+    <div style="display:flex; justify-content:flex-end;"><button type="button" class="btn btn-fantasma" id="btnCerrarHistorial">Cerrar</button></div></div>`;
+  document.body.appendChild(fondo);
+  document.getElementById("btnCerrarHistorial").addEventListener("click", () => fondo.remove());
+  fondo.querySelectorAll("[data-revertir]").forEach((b) => b.addEventListener("click", async () => {
+    if (!window.confirm("¿Restaurar los valores anteriores de este cambio?")) return;
+    b.disabled = true;
+    try {
+      const r = await RAC.post(`/api/planteles-consulta/cambios/${Number(b.dataset.revertir)}/revertir`, {});
+      mostrarToast(`Se restauraron ${r.restauradas} dato${r.restauradas === 1 ? "" : "s"}${r.omitidas ? ` (${r.omitidas} no se tocaron porque cambiaron después)` : ""}.`);
+      fondo.remove();
+      const q = await RAC.get(`/api/planteles-consulta/buscar?q=${encodeURIComponent(codigo)}`);
+      const nuevo = (q.planteles || []).find((x) => x[CAMPO_CODIGO] === codigo);
+      if (nuevo) Object.assign(plantel, nuevo);
+      abrirFicha(plantel);
+    } catch (err) { mostrarToast(err.message, true); b.disabled = false; }
+  }));
 }
 
 function cerrarFicha() {
@@ -271,6 +377,10 @@ function renderizarFicha(plantel) {
         <div class="cargando">Buscando ubicación…</div>
       </div>
     </div>
+    ${puedeRefrescar ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+      <button type="button" class="btn btn-primario btn-sm" id="btnEditarDatos">Editar datos del plantel</button>
+      <button type="button" class="btn btn-fantasma btn-sm" id="btnHistorialDatos">Historial de cambios</button>
+    </div>` : ""}
     <div id="fichaArchivosBox" style="margin-bottom:22px;">
       <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
       <div class="cargando">Buscando archivos…</div>
