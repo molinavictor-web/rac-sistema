@@ -8,6 +8,7 @@
 //   GET  /buscar?q=&excluir=      buscar otra institución (con su edificio, si ya tiene)
 //   GET  /plantel/:codigo         un plantel con su edificio y compañeros
 //   POST /clasificar              { codigo_dea, comparte, otras:[{codigo_dea,nombre}], espacios?:[…] }  (espacios: lista completa de espacios separados; si no viene, no se tocan)
+//   GET  /sugerencias             posibles edificios compartidos por el código (D diurno + N nocturno, mismo número); POST /sugerencias/descartar y /restaurar
 //   POST /sincronizar             (admin/coordinador) vuelve a importar la hoja Coordenadas Planteles
 
 const express = require("express");
@@ -164,6 +165,45 @@ router.post("/clasificar", requireAuth, requireRol(...ROLES_ESCRIBE), async (req
     });
   } catch (err) {
     responderError(res, err, "No se pudo guardar la clasificación.");
+  }
+});
+
+// Posibles edificios compartidos por el patrón del código (D diurno + N nocturno con el mismo número).
+router.get("/sugerencias", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    await asegurarSync();
+    res.json({ ...(await infra.sugerenciasPorCodigo()), puede_escribir: ROLES_ESCRIBE.includes(req.usuario.rol) });
+  } catch (err) {
+    responderError(res, err, "No se pudieron calcular las sugerencias.");
+  }
+});
+
+const CLAVE_SUGERENCIA = /^S\d{4}-\d{4}$/;
+router.post("/sugerencias/descartar", requireAuth, requireRol(...ROLES_ESCRIBE), async (req, res) => {
+  const b = req.body || {};
+  const clave = limpiar(b.clave).toUpperCase();
+  const a = limpiar(b.codigo_a), c = limpiar(b.codigo_b);
+  if (!CLAVE_SUGERENCIA.test(clave) || !a || !c) return res.status(400).json({ error: "Pareja no válida." });
+  try {
+    await pool.query(
+      `INSERT INTO infra_sugerencias_descartadas (clave, codigo_a, codigo_b, descartado_por) VALUES ($1::text, $2::text, $3::text, $4::int)
+       ON CONFLICT (clave) DO UPDATE SET descartado_por = EXCLUDED.descartado_por, descartado_en = NOW()`, [clave, a, c, req.usuario.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "42P01") return res.status(503).json({ error: "Falta ejecutar el script 31 en Supabase." });
+    responderError(res, err, "No se pudo descartar la sugerencia.");
+  }
+});
+
+router.post("/sugerencias/restaurar", requireAuth, requireRol(...ROLES_ESCRIBE), async (req, res) => {
+  const clave = limpiar((req.body || {}).clave).toUpperCase();
+  if (!CLAVE_SUGERENCIA.test(clave)) return res.status(400).json({ error: "Pareja no válida." });
+  try {
+    await pool.query("DELETE FROM infra_sugerencias_descartadas WHERE clave = $1", [clave]);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "42P01") return res.status(503).json({ error: "Falta ejecutar el script 31 en Supabase." });
+    responderError(res, err, "No se pudo restaurar la sugerencia.");
   }
 });
 

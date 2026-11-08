@@ -414,6 +414,40 @@ async function listarPlanteles({ q = "", estado = "", municipio = "", parroquia 
   return { planteles: lista.slice(desde, desde + limite), total_filtrado: total, conteos, pagina: Math.max(1, pagina), limite };
 }
 
+// Posibles edificios compartidos según el CÓDIGO: dos planteles con el mismo número y la misma terminación
+// (S3806D1608 diurno + S3806N1608 nocturno). Es solo una pista: una persona confirma o descarta cada pareja.
+// Se omiten las parejas que ya están en el mismo edificio. Las descartadas se devuelven aparte.
+const PATRON_DN = /^S(\d{4})([DN])(\d{4})$/i;
+async function sugerenciasPorCodigo() {
+  const { planteles } = await listarPlanteles({ limite: 100000 });
+  const grupos = new Map();
+  planteles.forEach((p) => {
+    const m = PATRON_DN.exec(p.codigo_dea);
+    if (!m) return;
+    const clave = `S${m[1]}-${m[3]}`;
+    if (!grupos.has(clave)) grupos.set(clave, { D: [], N: [] });
+    grupos.get(clave)[m[2].toUpperCase()].push(p);
+  });
+  let descartadas = new Set();
+  try {
+    (await pool.query("SELECT clave FROM infra_sugerencias_descartadas")).rows.forEach((r) => descartadas.add(r.clave));
+  } catch (err) {
+    if (err.code !== "42P01") throw err; // sin el script 31 todo funciona, solo que no se puede descartar
+    descartadas = null;
+  }
+  const out = [], quitadas = [];
+  for (const [clave, g] of grupos) {
+    if (g.D.length !== 1 || g.N.length !== 1) continue; // solo parejas claras
+    const [a, b] = [g.D[0], g.N[0]];
+    if (a.codigo_infraestructura && a.codigo_infraestructura === b.codigo_infraestructura) continue; // ya comparten
+    const conflicto = Boolean(a.codigo_infraestructura && b.codigo_infraestructura && a.cantidad > 1 && b.cantidad > 1);
+    const item = { clave, a, b, conflicto };
+    if (descartadas && descartadas.has(clave)) quitadas.push(item); else out.push(item);
+  }
+  const orden = (x, y) => x.a.municipio.localeCompare(y.a.municipio, "es") || x.a.nombre_plantel.localeCompare(y.a.nombre_plantel, "es");
+  return { sugerencias: out.sort(orden), descartadas: quitadas.sort(orden), puede_descartar: descartadas !== null };
+}
+
 // Parroquias de un municipio (según GESCOLAR), sin repetir aunque varíen acentos o mayúsculas.
 async function parroquiasDe(municipio) {
   const nombres = await nombresGescolar();
@@ -501,4 +535,4 @@ async function resumen({ municipio = "", parroquia = "" } = {}) {
   };
 }
 
-module.exports = { ErrorInfra, sincronizar, clasificar, sincronizarHoja, obtenerEdificios, listarPlanteles, parroquiasDe, resumen, validarEspacios, guardarEspacios, espaciosDe };
+module.exports = { ErrorInfra, sincronizar, clasificar, sincronizarHoja, obtenerEdificios, listarPlanteles, sugerenciasPorCodigo, parroquiasDe, resumen, validarEspacios, guardarEspacios, espaciosDe };
