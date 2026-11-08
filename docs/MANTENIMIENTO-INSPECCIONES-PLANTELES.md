@@ -285,6 +285,14 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Cuidado:** el ZIP trae contraseñas cifradas, cédulas y teléfonos: guardarlo en un lugar privado. Recomendación: uno al mes, conservar los últimos tres.
 - Dependencia nueva declarada: `archiver`. Prueba `test35` (26 comprobaciones; incluye restaurar en una base vacía y comprobar que todas las tablas quedan idénticas).
 
+## 6j. Dotaciones (solicitud de dotación por plantel)
+- **Script `26_dotaciones.sql`** (ejecutar una vez en Supabase; debe responder «Success. No rows returned»): crea `dotacion_rubros` (catálogo editable, sembrado con 33 rubros de mobiliario/cocina, 9 de CBIT y 1 de mantenimiento), `dotaciones` (una por plantel y plan) y `dotacion_items` (cantidad o «NO»).
+- Sirve para planes de rehabilitación y para planes «solo dotación» (se usa el tipo ATENCION_ESPECIAL): un plantel puede pedir dotación sin haber sido rehabilitado.
+- Pantallas (`public/inspecciones/`): `dotaciones.html` (botón «Dotación» en el plan: lista de solicitudes, agregar plantel desde GESCOLAR, consolidado rubros × planteles, catálogo de rubros) y `dotacion.html` (la solicitud: cabecera editable, cantidades a mano o «NO», fecha, observaciones). Todas las cantidades son manuales.
+- Excel: individual en el formato «SOLICITUD DE DOTACIÓN» (con logos; solo imprime rubros con cantidad o «NO») y consolidado del plan. Código: `src/routes/dotaciones.js`, `src/services/exportarExcel.js` (`dotacionIndividual`, `dotacionConsolidado`).
+- Permisos: admin y coordinador gestionan (agregar/quitar planteles, catálogo); el ingeniero de inspección (el de la planilla asignada) crea y llena la dotación de una vez desde «Mis planillas», y el ingeniero de rehabilitación del plantel puede modificar cualquier rubro; consulta y operador de plantel solo ven. Con el plan cerrado nada se modifica.
+- Un rubro retirado del catálogo sigue apareciendo en las solicitudes y consolidados que ya lo usaban.
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada

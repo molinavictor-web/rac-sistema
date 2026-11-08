@@ -53,7 +53,7 @@ async function cargarRehabilitaciones() {
       <td>${escapar(r.plan_nombre)}</td>
       <td>${r.ejecucion === "CERRADO" ? etiqueta("Ejecución cerrada", "#2f855a", "#e6f4ea") : etiqueta("En ejecución", "#2b6cb0", "#ebf4ff")}</td>
       <td>${r.avance === undefined ? "—" : AvanceFases.barra(r.avance)}${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" || !FASES.length ? "" : `<div style="margin-top:4px;"><button type="button" class="btn btn-fantasma btn-sm" data-avance-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}">Registrar avance</button></div>`}</td>
-      <td>${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" ? "" : `<button type="button" class="btn btn-primario btn-sm" data-cerrar-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}" data-nombre="${escapar(r.nombre_plantel)}">Cerrar ejecución</button>`}</td>
+      <td><a class="btn btn-fantasma btn-sm" href="/inspecciones/dotaciones.html?plan=${Number(r.plan_id)}">Dotación</a> ${r.ejecucion === "CERRADO" || r.plan_estado === "CERRADO" ? "" : `<button type="button" class="btn btn-primario btn-sm" data-cerrar-rehab="${Number(r.inspeccion_id)}" data-plan="${Number(r.plan_id)}" data-nombre="${escapar(r.nombre_plantel)}">Cerrar ejecución</button>`}</td>
     </tr>`).join("");
     document.getElementById("tablaRehab").innerHTML = `<div class="tabla-responsive"><table>
       <thead><tr><th>Código</th><th>Plantel</th><th>Plan</th><th>Estado</th><th>Avance</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`;
@@ -100,7 +100,7 @@ function pintar() {
       <td>${planHtml}</td>
       <td>${p.estado === "CARGADA" ? etiqueta("Cargada", "#2f855a", "#e6f4ea") : etiqueta("Borrador", "#b7791f", "#fefcbf")}</td>
       <td style="text-align:center;">${p.rubros_con_cantidad}${p.adicionales_con_cantidad ? ` <span style="color:#9a3d00; font-size:.75rem;">+${p.adicionales_con_cantidad} adic.</span>` : ""}</td>
-      <td><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}${p.plan_id ? "&plan=" + Number(p.plan_id) : ""}">${accion}</a></td>
+      <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}${p.plan_id ? "&plan=" + Number(p.plan_id) : ""}">${accion}</a>${p.plan_id ? ` <a class="btn btn-fantasma btn-sm" href="/inspecciones/dotaciones.html?plan=${Number(p.plan_id)}">Dotación</a>` : ""}</td>
     </tr>`;
   }).join("");
   cont.innerHTML = `<div class="tabla-responsive"><table>

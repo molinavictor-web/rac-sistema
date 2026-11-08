@@ -497,5 +497,126 @@ async function avancePlan({ plan, fases, filas, avancePlan: promedioPlan, genera
   return libro.xlsx.writeBuffer();
 }
 
-module.exports = { consolidadoOficial, consolidadoAdicionales, planilla, reportePlan, avancePlan };
+// ---------------------------------------------------------------------------
+// Dotación: solicitud individual (formato «SOLICITUD DE DOTACIÓN» de FEDE) y consolidado del plan
+// ---------------------------------------------------------------------------
+const AZUL_CLARO = "FFBDD7EE";
+
+function cantidadDotacion(r) {
+  if (r.es_no) return "NO";
+  if (r.cantidad === null || r.cantidad === undefined) return null;
+  return r.cantidad;
+}
+
+async function dotacionIndividual({ dotacion, plan, bloques }) {
+  const ExcelJS = cargarExcelJS();
+  const libro = new ExcelJS.Workbook();
+  libro.creator = "SID — Zona Educativa Monagas";
+  const hoja = libro.addWorksheet(nombreHoja("DOTACION", "DOTACION"));
+  hoja.properties.tabColor = { argb: "FFC05621" };
+  hoja.getColumn(1).width = 54; hoja.getColumn(2).width = 21; hoja.getColumn(3).width = 21;
+  for (let r = 1; r <= 4; r++) hoja.getRow(r).height = 16;
+  logo(libro, hoja, "logo-educacion-grande.png", "png", 0.02, 0.1, 235, 61);
+  logo(libro, hoja, "logo-fede-grande.jpg", "jpeg", 1.15, 0.1, 205, 58);
+
+  const d = dotacion.datos || {};
+  hoja.mergeCells("A6:C6");
+  celda(hoja.getCell("A6"), "SOLICITUD DE DOTACIÓN", { tam: 14, negrita: true, borde: false });
+  hoja.getRow(6).height = 22;
+  if (dotacion.fecha) {
+    const [a, m, dd] = dotacion.fecha.split("-");
+    hoja.mergeCells("A7:C7");
+    celda(hoja.getCell("A7"), `FECHA: ${dd}/${m}/${a}`, { tam: 10, borde: false, h: "right" });
+  }
+  const sinBorde = { tam: 10, negrita: true, borde: false, h: "left" };
+  celda(hoja.getCell("A8"), `ESTADO: ${d.estado || ""}`, sinBorde);
+  celda(hoja.getCell("B8"), `MUNICIPIO: ${d.municipio || ""}`, sinBorde);
+  celda(hoja.getCell("C8"), `PARROQUIA: ${d.parroquia || ""}`, sinBorde);
+  hoja.mergeCells("A9:C9"); celda(hoja.getCell("A9"), `NOMBRE DEL PLANTEL: ${d.institucion || ""}`, sinBorde);
+  hoja.mergeCells("A10:C10"); celda(hoja.getCell("A10"), `DIRECCIÓN: ${d.direccion || ""}`, sinBorde);
+  celda(hoja.getCell("A11"), `CÓDIGO DEA: ${dotacion.codigo_dea}`, sinBorde);
+  celda(hoja.getCell("B11"), `MATRICULA: ${d.matricula || ""}`, sinBorde);
+  celda(hoja.getCell("C11"), `N° DE AULAS: ${d.aulas || ""}`, sinBorde);
+  hoja.mergeCells("A12:B12"); celda(hoja.getCell("A12"), `DIRECTOR: ${d.director || ""}`, sinBorde);
+  celda(hoja.getCell("C12"), `TELEFONO: ${d.telefono || ""}`, sinBorde);
+  [8, 9, 10, 11, 12].forEach((r) => { hoja.getRow(r).height = r === 10 || r === 9 ? 30 : 18; });
+
+  let fila = 14;
+  bloques.forEach((b) => {
+    const impresos = b.rubros.map((r) => ({ r, v: cantidadDotacion(r) })).filter((x) => x.v !== null);
+    if (!impresos.length) return;
+    hoja.mergeCells(fila, 1, fila, 3);
+    celda(hoja.getCell(fila, 1), b.titulo, { tam: 10, negrita: true, relleno: AZUL_CLARO });
+    ["B", "C"].forEach((c) => { hoja.getCell(`${c}${fila}`).border = BORDE; });
+    fila += 1;
+    ["DESCRIPCIÓN", "UNIDAD", "CANTIDAD"].forEach((t, i) => celda(hoja.getCell(fila, i + 1), t, { tam: 10, negrita: true, relleno: AZUL_CLARO }));
+    fila += 1;
+    impresos.forEach(({ r, v }) => {
+      celda(hoja.getCell(fila, 1), r.nombre.toUpperCase(), { tam: 9 });
+      celda(hoja.getCell(fila, 2), String(r.unidad || "").toUpperCase(), { tam: 9 });
+      celda(hoja.getCell(fila, 3), v, { tam: 10, formato: typeof v === "number" ? formatoNumero(v) : undefined });
+      fila += 1;
+    });
+    fila += 1;
+  });
+  if (dotacion.observaciones) {
+    hoja.mergeCells(fila, 1, fila, 3);
+    celda(hoja.getCell(fila, 1), `OBSERVACIONES: ${dotacion.observaciones}`, { tam: 9, borde: false, h: "left" });
+    hoja.getRow(fila).height = Math.max(24, 12 * Math.ceil(String(dotacion.observaciones).length / 80));
+  }
+  hoja.pageSetup = { orientation: "portrait", paperSize: 1, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0, footer: 0 } };
+  return libro.xlsx.writeBuffer();
+}
+
+async function dotacionConsolidado({ plan, planteles, bloques }) {
+  const ExcelJS = cargarExcelJS();
+  const libro = new ExcelJS.Workbook();
+  libro.creator = "SID — Zona Educativa Monagas";
+  const hoja = libro.addWorksheet(nombreHoja("Dotación", "Dotacion"));
+  hoja.properties.tabColor = { argb: "FFC05621" };
+  const n = planteles.length;
+  const colTotal = 3 + n;
+  hoja.getColumn(1).width = 50; hoja.getColumn(2).width = 11;
+  planteles.forEach((_, i) => { hoja.getColumn(3 + i).width = 16; });
+  hoja.getColumn(colTotal).width = 12;
+  hoja.getRow(1).height = 19.5;
+  for (let r = 2; r <= 7; r++) hoja.getRow(r).height = 12.75;
+  logo(libro, hoja, "logo-educacion-grande.png", "png", 0.1, 0.1, 364, 95);
+  if (n >= 2) logo(libro, hoja, "logo-fede-grande.jpg", "jpeg", Math.min(2 + Math.max(1, n - 2), colTotal - 1), 0.1, 363, 103);
+  const fin = Math.max(3, Math.min(colTotal, 8));
+  hoja.mergeCells(8, 1, 8, fin);
+  celda(hoja.getCell(8, 1), `CONSOLIDADO DE DOTACIÓN — ${String(plan.nombre).toUpperCase()}`, { tam: 16, negrita: true, borde: false, h: "left" });
+  hoja.getRow(8).height = 22;
+  hoja.mergeCells(9, 1, 9, fin);
+  celda(hoja.getCell(9, 1), `Planteles: ${n}`, { tam: 10, borde: false, h: "left" });
+
+  const filaEnc = 11;
+  hoja.getRow(filaEnc).height = 62;
+  celda(hoja.getCell(filaEnc, 1), "DESCRIPCIÓN", { negrita: true, color: "FFFFFFFF", relleno: AZUL });
+  celda(hoja.getCell(filaEnc, 2), "UNIDAD", { negrita: true, color: "FFFFFFFF", relleno: AZUL });
+  planteles.forEach((p, i) => celda(hoja.getCell(filaEnc, 3 + i), `${p.nombre_plantel}\n${p.codigo_dea}`, { tam: 8, negrita: true, color: "FFFFFFFF", relleno: AZUL }));
+  celda(hoja.getCell(filaEnc, colTotal), "TOTAL", { negrita: true, color: "FFFFFFFF", relleno: AZUL });
+
+  let fila = filaEnc + 1;
+  bloques.forEach((b) => {
+    if (!b.filas.length) return;
+    hoja.mergeCells(fila, 1, fila, colTotal);
+    celda(hoja.getCell(fila, 1), b.titulo, { negrita: true, relleno: AZUL_CLARO, h: "left" });
+    fila += 1;
+    b.filas.forEach((f, k) => {
+      const relleno = k % 2 ? "FFF5F8FC" : undefined;
+      celda(hoja.getCell(fila, 1), f.nombre, { tam: 9, h: "left", relleno });
+      celda(hoja.getCell(fila, 2), String(f.unidad || "").toUpperCase(), { tam: 9, relleno });
+      f.cantidades.forEach((c, i) => celda(hoja.getCell(fila, 3 + i), c > 0 ? c : null, { h: "right", relleno, formato: c > 0 ? formatoNumero(c) : undefined }));
+      celda(hoja.getCell(fila, colTotal), f.total, { negrita: true, h: "right", relleno: relleno || GRIS_CLARO, formato: formatoNumero(f.total) });
+      fila += 1;
+    });
+  });
+  hoja.views = [{ state: "frozen", ySplit: filaEnc, xSplit: 2, zoomScale: 90 }];
+  hoja.pageSetup = { orientation: "landscape", paperSize: 1, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.39, right: 0.39, top: 0.39, bottom: 0.39, header: 0, footer: 0 } };
+  hoja.pageSetup.printTitlesRow = `${filaEnc}:${filaEnc}`;
+  return libro.xlsx.writeBuffer();
+}
+
+module.exports = { consolidadoOficial, consolidadoAdicionales, planilla, reportePlan, avancePlan, dotacionIndividual, dotacionConsolidado };
 
