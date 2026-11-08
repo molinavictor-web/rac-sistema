@@ -243,6 +243,47 @@ router.get("/plan/:planId/mis-planteles", requireAuth, requireRol("insp_ingenier
   }
 });
 
+router.post("/plan/:planId/crear-todas", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+  const planId = entero(req.params.planId);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  const cliente = await pool.connect();
+  try {
+    const estado = await estadoDelPlan(planId);
+    if (!estado.existe) return res.status(404).json({ error: "Plan no encontrado." });
+    if (estado.cerrado) return res.status(409).json({ error: "El plan está cerrado: reábrelo para crear solicitudes." });
+    const { rows } = await cliente.query(
+      `SELECT pi.codigo_dea, pi.inspeccion_id, i.membrete
+         FROM plan_inspecciones pi JOIN inspecciones i ON i.id = pi.inspeccion_id
+        WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL
+          AND NOT EXISTS (SELECT 1 FROM dotaciones d WHERE d.plan_id = pi.plan_id AND d.codigo_dea = pi.codigo_dea)
+        ORDER BY pi.codigo_dea`, [planId]
+    );
+    await cliente.query("BEGIN");
+    for (const r of rows) {
+      const base = datosEfectivos(r.membrete);
+      const datos = limpiarDatos({
+        institucion: base.institucion, estado: valorGescolar(r.membrete, { candidatos: ["estado", "entidad_federal"] }) || "MONAGAS",
+        municipio: base.municipio, parroquia: base.parroquia, direccion: base.direccion, matricula: base.matricula,
+        aulas: base.aulas, director: base.director, telefono: base.telefono,
+      });
+      await cliente.query(
+        `INSERT INTO dotaciones (plan_id, codigo_dea, inspeccion_id, datos, creado_por, actualizado_por)
+         VALUES ($1::int, $2::text, $3::int, $4::jsonb, $5::int, $5::int) ON CONFLICT (plan_id, codigo_dea) DO NOTHING`,
+        [planId, r.codigo_dea, r.inspeccion_id, JSON.stringify(datos), req.usuario.id]
+      );
+    }
+    await cliente.query("COMMIT");
+    const total = (await cliente.query("SELECT COUNT(*)::int AS n FROM dotaciones WHERE plan_id = $1", [planId])).rows[0].n;
+    res.json({ ok: true, creadas: rows.length, total });
+  } catch (err) {
+    await cliente.query("ROLLBACK").catch(() => {});
+    if (err.code === SIN_TABLAS) return falta(res);
+    falloInterno(res, err, "No se pudieron crear las solicitudes de dotación.");
+  } finally {
+    cliente.release();
+  }
+});
+
 router.post("/plan/:planId", requireAuth, requireRol(...ROLES_GESTION, "insp_ingeniero"), async (req, res) => {
   const planId = entero(req.params.planId);
   const codigoPedido = texto((req.body || {}).codigo_dea);
@@ -255,6 +296,15 @@ router.post("/plan/:planId", requireAuth, requireRol(...ROLES_GESTION, "insp_ing
       [planId, codigoPedido, req.usuario.id]
     ).catch(() => ({ rows: [] }));
     if (!propio.rows.length) return res.status(403).json({ error: "Solo puedes crear la dotación de los planteles que tienes asignados en este plan." });
+  }
+  if ((req.body || {}).abrir_si_existe === true) {
+    try {
+      const ya = await pool.query("SELECT id FROM dotaciones WHERE plan_id = $1 AND codigo_dea = $2", [planId, codigoPedido]);
+      if (ya.rows.length) return res.json({ ok: true, id: ya.rows[0].id, existente: true });
+    } catch (err) {
+      if (err.code === SIN_TABLAS) return falta(res);
+      return falloInterno(res, err, "No se pudo abrir la solicitud de dotación.");
+    }
   }
   try {
     const estado = await estadoDelPlan(planId);
