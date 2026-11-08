@@ -320,6 +320,12 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Pantalla:** `public/inspecciones/otros-entes.html` + `public/js/inspecciones-otros-entes.js` (menú Inspecciones → Otros entes; botón «Catálogo de entes»; `?plantel=CODIGO` abre el formulario). Tarjeta «Historial de atenciones» en la ficha del plantel y bloque «Atenciones por ente» en el Resumen.
 - **Pendiente:** corregir el historial de FEDE por plantel solo si hace falta (se arma con tipo de atención, año y planes).
 
+### 6n. Posibles edificios compartidos por el código
+- Pista: códigos `S<4 dígitos><D|N><4 dígitos>` con el mismo número y sufijo, uno **D** (diurno) y otro **N** (nocturno), suelen compartir edificio. Solo cubre ese formato (los `OD…` y casos con números distintos no se detectan).
+- Servicio `sugerenciasPorCodigo()` (`src/services/infraestructuras.js`); rutas `GET /sugerencias`, `POST /sugerencias/descartar` y `/restaurar` (`src/routes/infraestructuras.js`). Omite parejas que ya están en el mismo edificio; marca `conflicto` si ambos están en edificios compartidos distintos (sin botón de confirmar: falta pantalla de unificar).
+- Confirmar = el flujo normal `POST /clasificar`. Descartadas en la tabla `infra_sugerencias_descartadas` (script 31; sin ella el panel funciona pero sin botón de descartar).
+- Panel en Infraestructuras (`#sugerencias`). Prueba: test43 (28 pruebas).
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada

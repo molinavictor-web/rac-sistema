@@ -24,6 +24,7 @@ function iniciar() {
       <p>Indica si cada plantel funciona solo en su edificio o lo comparte con otra institución. Cada edificio recibe un código <strong>INFRA-000001</strong>, <strong>INFRA-000002</strong>… y los compartidos también se anotan en la hoja «Coordenadas Planteles».</p>
     </div></section>
     <div id="tarjetas"><div class="cargando">Cargando…</div></div>
+    <div id="sugerencias"></div>
     <div class="panel">
       <div class="inf-filtros">
         <input type="text" id="q" placeholder="Buscar por código o nombre" style="min-width:230px;">
@@ -44,6 +45,7 @@ function iniciar() {
   const sync = document.getElementById("btnSync");
   if (sync) sync.addEventListener("click", sincronizar);
   cargarResumen();
+  cargarSugerencias();
   cargarLista();
 }
 
@@ -304,4 +306,55 @@ async function guardar() {
     err.textContent = ex.message;
     b.disabled = false; b.textContent = "Guardar";
   }
+}
+
+// ---- Posibles edificios compartidos (pista por el código: mismo número, uno D diurno y otro N nocturno) ----
+let verDescartadas = false;
+async function cargarSugerencias() {
+  const cont = document.getElementById("sugerencias");
+  if (!cont) return;
+  let r;
+  try { r = await RAC.get(`${BASE}/sugerencias`); } catch (_) { cont.innerHTML = ""; return; }
+  if (!r.descartadas.length) verDescartadas = false;
+  const lista = verDescartadas ? r.descartadas : r.sugerencias;
+  if (!r.sugerencias.length && !r.descartadas.length) { cont.innerHTML = ""; return; }
+  const etq = (p) => { const e = ETQ[p.estado]; return `<span class="inf-etq ${e[0]}">${e[1]}${p.codigo_infraestructura ? " · " + escapar(p.codigo_infraestructura) : ""}</span>`; };
+  const fila = (x) => `<div class="inf-sug" data-clave="${escapar(x.clave)}">
+      <div class="inf-sug-par">
+        ${[x.a, x.b].map((p) => `<div><strong>${escapar(p.nombre_plantel)}</strong> <code class="infra">${escapar(p.codigo_dea)}</code> ${etq(p)}<div style="font-size:.76rem; color:#718198;">${escapar(p.municipio)}${p.parroquia ? " · " + escapar(p.parroquia) : ""}</div></div>`).join("")}
+      </div>
+      ${x.conflicto ? `<div class="inf-aviso" style="margin:6px 0 0;">Ya están en edificios compartidos distintos: unirlos requiere unificar esos edificios (todavía no hay pantalla para eso).</div>` : ""}
+      ${r.puede_escribir ? `<div class="inf-sug-acc">
+        ${verDescartadas
+          ? `<button type="button" class="btn btn-fantasma btn-sm" data-restaurar="${escapar(x.clave)}">Volver a sugerir</button>`
+          : `${x.conflicto ? "" : `<button type="button" class="btn btn-primario btn-sm" data-confirmar="${escapar(x.clave)}">Sí, comparten edificio</button>`}
+             ${r.puede_descartar ? `<button type="button" class="btn btn-fantasma btn-sm" data-descartar="${escapar(x.clave)}">No comparten</button>` : ""}`}
+      </div>` : ""}
+    </div>`;
+  cont.innerHTML = `<details class="panel" style="margin-bottom:12px;" ${r.sugerencias.length && !verDescartadas ? "open" : ""}>
+    <summary style="cursor:pointer; padding:14px 20px; font-weight:600;">Posibles edificios compartidos por el código · ${n(r.sugerencias.length)} pareja${r.sugerencias.length === 1 ? "" : "s"}${r.descartadas.length ? ` <span style="font-weight:400; color:#718198;">(${n(r.descartadas.length)} descartada${r.descartadas.length === 1 ? "" : "s"})</span>` : ""}</summary>
+    <div style="padding:0 20px 16px;">
+      <p style="margin:0 0 10px; font-size:.84rem; color:#5b6b80;">Son planteles con el <strong>mismo número de código</strong>: uno con la letra <strong>D</strong> (diurno) y otro con <strong>N</strong> (nocturno), por ejemplo S3806<strong>D</strong>1608 y S3806<strong>N</strong>1608. Es solo una pista: confirma cada pareja antes de clasificarla.</p>
+      ${r.descartadas.length ? `<div style="margin-bottom:8px;"><button type="button" class="btn btn-fantasma btn-sm" id="btnVerDescartadas">${verDescartadas ? "← Ver las sugerencias" : "Ver las descartadas"}</button></div>` : ""}
+      ${lista.length ? lista.map(fila).join("") : `<div class="vacio"><strong>${verDescartadas ? "No hay descartadas" : "No quedan parejas por revisar"}</strong></div>`}
+    </div></details>`;
+  const ver = document.getElementById("btnVerDescartadas");
+  if (ver) ver.addEventListener("click", () => { verDescartadas = !verDescartadas; cargarSugerencias(); });
+  const buscar = (b, attr) => lista.find((x) => x.clave === b.dataset[attr]);
+  cont.querySelectorAll("[data-confirmar]").forEach((b) => b.addEventListener("click", async () => {
+    const x = buscar(b, "confirmar");
+    b.disabled = true;
+    try {
+      await RAC.post(`${BASE}/clasificar`, { codigo_dea: x.a.codigo_dea, comparte: true, otras: [{ codigo_dea: x.b.codigo_dea, nombre: x.b.nombre_plantel }] });
+      mostrarToast("Clasificados como edificio compartido.");
+      cargarResumen(); cargarSugerencias(); cargarLista();
+    } catch (ex) { b.disabled = false; mostrarToast(ex.message, true); }
+  }));
+  cont.querySelectorAll("[data-descartar]").forEach((b) => b.addEventListener("click", async () => {
+    const x = buscar(b, "descartar");
+    try { await RAC.post(`${BASE}/sugerencias/descartar`, { clave: x.clave, codigo_a: x.a.codigo_dea, codigo_b: x.b.codigo_dea }); mostrarToast("Pareja descartada."); cargarSugerencias(); } catch (ex) { mostrarToast(ex.message, true); }
+  }));
+  cont.querySelectorAll("[data-restaurar]").forEach((b) => b.addEventListener("click", async () => {
+    try { await RAC.post(`${BASE}/sugerencias/restaurar`, { clave: b.dataset.restaurar }); mostrarToast("Se volverá a sugerir."); cargarSugerencias(); } catch (ex) { mostrarToast(ex.message, true); }
+  }));
 }
