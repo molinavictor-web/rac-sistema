@@ -1013,3 +1013,4 @@ router.get("/drive-oauth/callback", async (req, res) => {
 });
 
 module.exports = router;
+module.exports.opcionesDatos = opcionesDatos; // lo usa proyectosComunales.js (listas de circuitos y consejos)

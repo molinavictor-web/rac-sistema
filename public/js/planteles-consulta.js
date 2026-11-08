@@ -221,6 +221,28 @@ function abrirFicha(plantel) {
   if (codigoDea) {
     cargarArchivosFicha(codigoDea); // esta también busca la foto de fachada, ver dibujarArchivosFicha
     cargarUbicacionFicha(codigoDea);
+    cargarProyectosComunalesFicha(codigoDea);
+  }
+}
+
+// ---- Proyecto comunal (resumen en la ficha; se registra en Inspecciones → Proyectos comunales) ----
+async function cargarProyectosComunalesFicha(codigoDea) {
+  const caja = document.getElementById("fichaComunalBox");
+  if (!caja) return;
+  try {
+    const r = await RAC.get(`/api/inspecciones/proyectos-comunales/plantel/${encodeURIComponent(codigoDea)}`);
+    const pl = r.plantel || {};
+    const reg = r.puede_editar ? `<a class="btn btn-fantasma btn-sm" href="/inspecciones/proyectos-comunales.html?plantel=${encodeURIComponent(codigoDea)}">Registrar proyecto comunal</a>` : "";
+    caja.innerHTML = `<h3 style="margin-bottom:8px;">Proyecto comunal</h3>
+      <div class="panel" style="box-shadow:none; padding:14px 18px;">
+        <div style="font-size:.85rem; margin-bottom:8px;"><strong>Circuito comunal:</strong> ${escapar([pl.circuito_codigo, pl.circuito_nombre].filter(Boolean).join(" · ") || "—")}<br>
+          <strong>Consejo comunal:</strong> ${escapar([pl.consejo_codigo, pl.consejo_nombre].filter(Boolean).join(" · ") || "—")}</div>
+        <div style="font-size:.9rem; margin-bottom:6px;"><strong>Proyecto comunal:</strong> ${r.tiene_proyecto ? `SÍ · ${r.total} aprobación${r.total === 1 ? "" : "es"}` : "NO"}</div>
+        ${r.proyectos.map((p) => `<div style="font-size:.84rem; padding:3px 0;">${p.numero}.ª aprobación · elección ${p.anio} · <strong>${escapar(p.nombre_proyecto)}</strong>${p.consejo_nombre ? ` <span style="color:var(--muted);">(${escapar(p.consejo_nombre)})</span>` : ""}</div>`).join("")}
+        ${reg ? `<div style="margin-top:8px;">${reg}</div>` : ""}
+      </div>`;
+  } catch (err) {
+    caja.innerHTML = "";
   }
 }
 
@@ -470,6 +492,7 @@ function renderizarFicha(plantel) {
       <button type="button" class="btn btn-primario btn-sm" id="btnEditarDatos">Editar datos del plantel</button>
       <button type="button" class="btn btn-fantasma btn-sm" id="btnHistorialDatos">Historial de cambios</button>
     </div>` : ""}
+    <div id="fichaComunalBox" style="margin-bottom:22px;"></div>
     <div id="fichaArchivosBox" style="margin-bottom:22px;">
       <h3 style="margin-bottom:8px;">Archivos disponibles (Drive)</h3>
       <div class="cargando">Buscando archivos…</div>
