@@ -15,11 +15,16 @@
   .pc-tabla th, .pc-tabla td { padding: 8px 10px; border-bottom: 1px solid var(--borde); vertical-align: top; text-align: left; }
   .pc-tabla th { background: #f4f7fb; font-size: .72rem; text-transform: uppercase; }
   .pc-sub { color: var(--muted); font-size: .76rem; }
-  .pc-form { display: grid; gap: 10px; }
-  .pc-form label { display: grid; gap: 3px; font-size: .78rem; color: var(--muted); }
-  .pc-form input, .pc-form select, .pc-form textarea { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .92rem; font-family: inherit; }
+  .pc-modal, .pc-modal * { box-sizing: border-box; }
+  .pc-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .pc-form label { display: grid; gap: 3px; min-width: 0; font-size: .78rem; color: var(--muted); }
+  .pc-form input, .pc-form select, .pc-form textarea { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .92rem; font-family: inherit; }
+  .pc-lista { display: grid; border: 1px solid var(--borde); border-radius: 8px; max-height: 190px; overflow-y: auto; }
+  .pc-lista:empty { display: none; }
+  .pc-opcion { text-align: left; background: #fff; border: 0; border-bottom: 1px solid var(--borde); padding: 8px 10px; cursor: pointer; font: inherit; font-size: .86rem; }
+  .pc-opcion:hover { background: #eef4fb; }
   .pc-fondo { position: fixed; inset: 0; background: rgba(13,43,82,.45); z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; }
-  .pc-modal { background: #fff; border-radius: 12px; padding: 20px; width: min(560px, 100%); max-height: 90vh; overflow: auto; display: grid; gap: 12px; }
+  .pc-modal { background: #fff; border-radius: 12px; padding: 20px; width: min(560px, 100%); max-height: 90vh; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 </style>
 </head>
 <body class="planteles-page">

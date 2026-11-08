@@ -75,48 +75,92 @@ async function quitar(id) {
   try { await RAC.del(`${API}/${id}`); mostrarToast("Proyecto quitado."); await cargar(); } catch (err) { mostrarToast(err.message, true); }
 }
 
+// Búsqueda "al escribir" (sin distinguir mayúsculas ni acentos), por código o por nombre: muestra TODOS los parecidos.
+const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+// Conecta un campo de texto con una lista de sugerencias. `fuente(texto)` devuelve (o promete) [{valor, etiqueta, sub}].
+function conectarBusqueda(input, caja, fuente, alElegir) {
+  let t = null;
+  let n = 0;
+  const pintar = async () => {
+    const mio = ++n;
+    let items = [];
+    try { items = await fuente(input.value); } catch (err) { if (mio === n) caja.innerHTML = `<div class="pc-sub" style="padding:6px 10px;color:#c53030;">${escapar(err.message)}</div>`; return; }
+    if (mio !== n) return;
+    caja.innerHTML = items.length
+      ? items.map((x, k) => `<button type="button" class="pc-opcion" data-k="${k}"><strong>${escapar(x.etiqueta)}</strong>${x.sub ? `<span class="pc-sub"> · ${escapar(x.sub)}</span>` : ""}</button>`).join("")
+      : `<div class="pc-sub" style="padding:6px 10px;">Sin coincidencias.</div>`;
+    caja.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); alElegir(items[Number(b.dataset.k)]); caja.innerHTML = ""; }));
+  };
+  input.addEventListener("input", () => { clearTimeout(t); t = setTimeout(pintar, 250); });
+  input.addEventListener("focus", () => { if (!caja.innerHTML) pintar(); });
+}
+
+// Lista fija (circuitos/consejos): filtra por código o nombre.
+function filtrarLista(arr) {
+  return (texto) => {
+    const q = sinAcentos(texto);
+    return arr.filter((x) => !q || sinAcentos(x.nombre).includes(q) || sinAcentos(x.codigo).includes(q)).slice(0, 40)
+      .map((x) => ({ valor: x.nombre, etiqueta: x.nombre, sub: x.codigo || "" }));
+  };
+}
+
 // Formulario: nuevo (sin id) o edición (con id). Si viene solo el código, se verifica el plantel al guardar.
 function abrirFormulario(p) {
   const editando = Boolean(p.id);
-  const lista = (arr, sel) => `<option value="">— sin indicar —</option>` + arr.map((x) => `<option value="${escapar(x.nombre)}" ${x.nombre === sel ? "selected" : ""}>${escapar(x.nombre)}</option>`).join("");
   const fondo = document.createElement("div");
   fondo.className = "pc-fondo";
   fondo.innerHTML = `<div class="pc-modal"><h3 style="margin:0;">${editando ? "Editar" : "Registrar"} proyecto comunal</h3>
     <div class="pc-form">
-      <label>Plantel (código DEA)<div style="display:flex; gap:6px;"><input type="text" id="pcCodigo" value="${escapar(p.codigo_dea || "")}" ${editando ? "disabled" : ""} placeholder="Código o nombre del plantel" style="flex:1;">${editando ? "" : `<button type="button" class="btn btn-fantasma btn-sm" id="pcBuscar">Buscar</button>`}</div></label>
-      <div id="pcResultados"></div>
+      ${editando ? `<label>Plantel<input type="text" value="${escapar((p.nombre_plantel || "") + " · " + (p.codigo_dea || ""))}" disabled></label>` : `
+      <label>Plantel (escribe el código o el nombre)<input type="text" id="pcBusca" autocomplete="off" placeholder="Ej.: OD06031608 o parte del nombre" value="${escapar(p.codigo_dea || "")}"></label>
+      <div class="pc-lista" id="pcResultados"></div>
+      <div id="pcElegido" class="pc-sub"></div>`}
       <label>Año de la elección<input type="number" id="pcAnio" min="2000" max="${new Date().getFullYear() + 1}" value="${escapar(p.anio || new Date().getFullYear())}"></label>
       <label>Nombre del proyecto<input type="text" id="pcNombre" maxlength="200" value="${escapar(p.nombre_proyecto || "")}"></label>
-      <label>Circuito comunal<select id="pcCircuito">${lista(OPCIONES.circuitos, p.circuito_nombre)}</select></label>
-      <label>Consejo comunal<select id="pcConsejo">${lista(OPCIONES.consejos, p.consejo_nombre)}</select></label>
+      <label>Circuito comunal (código o nombre)<input type="text" id="pcCircuito" autocomplete="off" placeholder="Escribe para buscar…" value="${escapar(p.circuito_nombre || "")}"></label>
+      <div class="pc-lista" id="pcListaCir"></div>
+      <label>Consejo comunal (código o nombre)<input type="text" id="pcConsejo" autocomplete="off" placeholder="Escribe para buscar…" value="${escapar(p.consejo_nombre || "")}"></label>
+      <div class="pc-lista" id="pcListaCon"></div>
       <label>Observaciones<textarea id="pcObs" rows="2" maxlength="1000">${escapar(p.observaciones || "")}</textarea></label>
       <div id="pcError" style="color:#c53030; font-size:.82rem;"></div>
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;"><button type="button" class="btn btn-fantasma btn-sm" id="pcCancelar">Cancelar</button><button type="button" class="btn btn-primario btn-sm" id="pcGuardar">Guardar</button></div></div>`;
   document.body.appendChild(fondo);
+  const $ = (id) => fondo.querySelector(id);
   const cerrar = () => fondo.remove();
-  fondo.querySelector("#pcCancelar").addEventListener("click", cerrar);
-  const buscar = fondo.querySelector("#pcBuscar");
-  if (buscar) buscar.addEventListener("click", async () => {
-    const caja = fondo.querySelector("#pcResultados");
-    const q = fondo.querySelector("#pcCodigo").value.trim();
-    if (q.length < 2) { caja.innerHTML = `<div class="pc-sub">Escribe al menos 2 caracteres.</div>`; return; }
-    try {
-      const r = await RAC.get(`${API}/buscar?q=${encodeURIComponent(q)}`);
-      caja.innerHTML = r.planteles.length ? r.planteles.map((x) => `<div style="padding:4px 0;"><button type="button" class="btn btn-fantasma btn-sm" data-pick="${escapar(x.cod_plantel)}">Elegir</button> ${escapar(x.nombre_plantel)} <span class="pc-sub">${escapar(x.cod_plantel)} · ${escapar(x.municipio)}</span></div>`).join("") + (r.limitado ? `<div class="pc-sub">Hay más resultados: afina la búsqueda.</div>` : "") : `<div class="pc-sub">Sin resultados.</div>`;
-      caja.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { fondo.querySelector("#pcCodigo").value = b.dataset.pick; caja.innerHTML = ""; }));
-    } catch (err) { caja.innerHTML = `<div style="color:#c53030;">${escapar(err.message)}</div>`; }
-  });
-  fondo.querySelector("#pcGuardar").addEventListener("click", async () => {
-    const err = fondo.querySelector("#pcError");
+  $("#pcCancelar").addEventListener("click", cerrar);
+  let codigoElegido = "";
+
+  if (!editando) {
+    conectarBusqueda($("#pcBusca"), $("#pcResultados"), async (texto) => {
+      if (texto.trim().length < 2) return [];
+      const r = await RAC.get(`${API}/buscar?q=${encodeURIComponent(texto.trim())}`);
+      return r.planteles.map((x) => ({ valor: x.cod_plantel, etiqueta: x.nombre_plantel, sub: `${x.cod_plantel} · ${x.municipio}${x.parroquia ? " · " + x.parroquia : ""}` }));
+    }, (x) => { codigoElegido = x.valor; $("#pcBusca").value = x.etiqueta; $("#pcElegido").textContent = `Plantel elegido: ${x.etiqueta} (${x.valor})`; });
+    $("#pcBusca").addEventListener("input", () => { codigoElegido = ""; $("#pcElegido").textContent = ""; });
+    if (p.codigo_dea) codigoElegido = String(p.codigo_dea).toUpperCase();
+  }
+  conectarBusqueda($("#pcCircuito"), $("#pcListaCir"), filtrarLista(OPCIONES.circuitos), (x) => { $("#pcCircuito").value = x.valor; });
+  conectarBusqueda($("#pcConsejo"), $("#pcListaCon"), filtrarLista(OPCIONES.consejos), (x) => { $("#pcConsejo").value = x.valor; });
+
+  // El texto de circuito/consejo debe coincidir con uno de la lista (por nombre o por código); vacío = sin indicar.
+  const resolver = (texto, arr, rotulo) => {
+    const q = sinAcentos(texto);
+    if (!q) return "";
+    const x = arr.find((y) => sinAcentos(y.nombre) === q) || arr.find((y) => y.codigo && sinAcentos(y.codigo) === q);
+    if (!x) throw new Error(`Elige el ${rotulo} de la lista de sugerencias.`);
+    return x.nombre;
+  };
+  $("#pcGuardar").addEventListener("click", async () => {
+    const err = $("#pcError");
     err.textContent = "";
-    const cuerpo = { anio: fondo.querySelector("#pcAnio").value, nombre_proyecto: fondo.querySelector("#pcNombre").value, circuito_nombre: fondo.querySelector("#pcCircuito").value, consejo_nombre: fondo.querySelector("#pcConsejo").value, observaciones: fondo.querySelector("#pcObs").value };
-    const codigo = fondo.querySelector("#pcCodigo").value.trim().toUpperCase();
     try {
+      const cuerpo = { anio: $("#pcAnio").value, nombre_proyecto: $("#pcNombre").value, circuito_nombre: resolver($("#pcCircuito").value, OPCIONES.circuitos, "circuito comunal"), consejo_nombre: resolver($("#pcConsejo").value, OPCIONES.consejos, "consejo comunal"), observaciones: $("#pcObs").value };
       if (editando) await RAC.put(`${API}/${p.id}`, cuerpo);
       else {
-        if (!codigo) { err.textContent = "Elige el plantel."; return; }
-        await RAC.post(`${API}/plantel/${encodeURIComponent(codigo)}`, cuerpo);
+        if (!codigoElegido) { err.textContent = "Elige el plantel de la lista de sugerencias."; return; }
+        await RAC.post(`${API}/plantel/${encodeURIComponent(codigoElegido)}`, cuerpo);
       }
       cerrar();
       mostrarToast("Proyecto comunal guardado.");
