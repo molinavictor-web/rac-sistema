@@ -158,6 +158,7 @@ function dibujarPlan() {
         <a class="btn btn-primario btn-sm" href="/inspecciones/consolidado.html?plan=${Number(plan.id)}">Consolidado oficial</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/adicionales-consolidado.html?plan=${Number(plan.id)}">Consolidado de adicionales</a>
         <a class="btn btn-primario btn-sm" href="/inspecciones/dotaciones.html?plan=${Number(plan.id)}">Dotación</a>
+        ${PUEDE_GESTIONAR && abierto ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnDotacionTodos" title="Crea una planilla de dotación vacía por cada plantel activo del plan (las que ya existen no se tocan)">Crear dotación de todos</button>` : ""}
       </div>
     </div>
 
@@ -184,6 +185,16 @@ function dibujarPlan() {
   if (btnReg) btnReg.addEventListener("click", () => abrirRegistroGescolar(plan));
   const btnAvance = document.getElementById("btnExcelAvance");
   if (btnAvance) btnAvance.addEventListener("click", (e) => descargarExcelAvance(plan, e.currentTarget));
+  const btnTodos = document.getElementById("btnDotacionTodos");
+  if (btnTodos) btnTodos.addEventListener("click", async () => {
+    if (!window.confirm("¿Crear una planilla de dotación vacía para cada plantel activo del plan? Las que ya existen no se tocan.")) return;
+    btnTodos.disabled = true;
+    try {
+      const r = await RAC.post(`/api/inspecciones/dotacion/plan/${Number(plan.id)}/crear-todas`, {});
+      mostrarToast(r.creadas ? `Se crearon ${r.creadas} planilla${r.creadas === 1 ? "" : "s"} de dotación.` : "Todos los planteles ya tenían su planilla de dotación.");
+    } catch (err) { mostrarToast(err.message, true); }
+    btnTodos.disabled = false;
+  });
   const btnFases = document.getElementById("btnFasesPesos");
   if (btnFases) btnFases.addEventListener("click", () => AvanceFases.abrirPesos({ fases: PLAN_ABIERTO.fases, onGuardado: recargarPlan }));
   if (PUEDE_GESTIONAR) {
