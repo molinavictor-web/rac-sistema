@@ -238,7 +238,8 @@ async function cargarProyectosComunalesFicha(codigoDea) {
         <div style="font-size:.85rem; margin-bottom:8px;"><strong>Circuito comunal:</strong> ${escapar([pl.circuito_codigo, pl.circuito_nombre].filter(Boolean).join(" · ") || "—")}<br>
           <strong>Consejo comunal:</strong> ${escapar([pl.consejo_codigo, pl.consejo_nombre].filter(Boolean).join(" · ") || "—")}</div>
         <div style="font-size:.9rem; margin-bottom:6px;"><strong>Proyecto comunal:</strong> ${r.tiene_proyecto ? `SÍ · ${r.total} aprobación${r.total === 1 ? "" : "es"}` : "NO"}</div>
-        ${r.proyectos.map((p) => `<div style="font-size:.84rem; padding:3px 0;">${p.numero}.ª aprobación · elección ${p.anio} · <strong>${escapar(p.nombre_proyecto)}</strong>${p.consejo_nombre ? ` <span style="color:var(--muted);">(${escapar(p.consejo_nombre)})</span>` : ""}</div>`).join("")}
+        ${r.proyectos.map((p) => `<div style="font-size:.84rem; padding:3px 0;">${p.numero}.ª consulta de la comuna · ${p.anio}${p.fecha_consulta ? ` (${escapar(p.fecha_consulta)})` : ""} · <strong>${escapar(p.nombre_proyecto)}</strong> <span style="color:var(--muted);">— ${p.estado === "ATENDIDO" ? "Atendido" : "Por atender"}</span></div>`).join("")}
+        ${r.proyectos_comuna_sin_definir ? `<div style="font-size:.8rem; color:#b7791f; padding-top:4px;">Su comuna tiene ${r.proyectos_comuna_sin_definir} proyecto${r.proyectos_comuna_sin_definir === 1 ? "" : "s"} sin planteles definidos: puede que lo incluyan.</div>` : ""}
         ${reg ? `<div style="margin-top:8px;">${reg}</div>` : ""}
       </div>`;
   } catch (err) {

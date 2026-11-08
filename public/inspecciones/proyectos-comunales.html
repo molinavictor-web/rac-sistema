@@ -23,6 +23,14 @@
   .pc-lista:empty { display: none; }
   .pc-opcion { text-align: left; background: #fff; border: 0; border-bottom: 1px solid var(--borde); padding: 8px 10px; cursor: pointer; font: inherit; font-size: .86rem; }
   .pc-opcion:hover { background: #eef4fb; }
+  .pc-proyecto { border: 1px solid var(--borde); border-radius: 10px; padding: 10px 14px; margin-top: 10px; }
+  .pc-proyecto summary { cursor: pointer; display: grid; gap: 2px; }
+  .pc-alerta { color: #b7791f; font-size: .8rem; font-weight: 600; }
+  .pc-estado { font-size: .74rem; padding: 2px 8px; border-radius: 10px; background: #fdf3d9; color: #8a5a00; }
+  .pc-estado.ok { background: #dcf3e4; color: #1f6b3a; }
+  .pc-fila { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 10px; }
+  .pc-plantel { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--borde); font-size: .86rem; }
+  .pc-plantel select { width: auto; padding: 5px 8px; }
   .pc-fondo { position: fixed; inset: 0; background: rgba(13,43,82,.45); z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; }
   .pc-modal { background: #fff; border-radius: 12px; padding: 20px; width: min(560px, 100%); max-height: 90vh; overflow-y: auto; overflow-x: hidden; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 </style>
