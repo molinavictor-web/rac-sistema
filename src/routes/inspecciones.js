@@ -2447,6 +2447,17 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
     } catch (err) {
       console.error("Dashboard: no se pudieron leer los nombres de los planes:", err.message);
     }
+    // Atenciones de OTROS ENTES (script 30): un plantel atendido por otro ente cuenta como atendido (una sola vez en el total).
+    const otrosPorCodigo = new Set();
+    const otrosFilas = [];
+    try {
+      const ro = await pool.query(
+        `SELECT lower(a.codigo_dea) AS c, a.ente_id, e.nombre, e.categoria FROM atenciones_otros_entes a JOIN entes_atencion e ON e.id = a.ente_id`);
+      ro.rows.forEach((f) => { otrosPorCodigo.add(f.c); otrosFilas.push(f); });
+    } catch (err) {
+      if (err.code !== "42P01") console.error("Dashboard: no se pudieron leer las atenciones de otros entes:", err.message);
+    }
+    let fedeAtendidos = 0, soloOtros = 0, ambosEntes = 0;
     const claveAnio = datos.length ? Object.keys(datos[0]).find((h) => gescolar.normalizar(h) === "ANO") : null;
     const programas = new Map(); // clave → { nombre, nota, planteles:Set, anios: Map(anio → Set) }
     const sumaBarras = { n: 0 };
@@ -2478,7 +2489,12 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
         sumaBarras.n++;
       }
       const insp = !!valorUtil(p[gescolar.CAMPO_RESPONSABLE]);
-      const atendido = !!(tipo || enAlgunPlan);
+      const porFede = !!(tipo || enAlgunPlan);
+      const porOtro = otrosPorCodigo.has(codigoMin);
+      const atendido = porFede || porOtro;
+      if (porFede) fedeAtendidos++;
+      if (porOtro && !porFede) soloOtros++;
+      if (porOtro && porFede) ambosEntes++;
       if (atendido) atendidos++;
       if (insp) conInspeccion++;
       if (atendido && insp) atendidosConInspeccion++;
@@ -2541,6 +2557,23 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
         repetidos_anios: g.conAnios ? [...g.anios.values()].reduce((x, set) => x + set.size, 0) - g.planteles.size : 0,
       }))
       .sort((a, b) => posicion(a.clave) - posicion(b.clave) || b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, "es"));
+    // Atenciones por ente: FEDE (lo de siempre) y cada ente/categoría del catálogo
+    const entesMap = new Map(), catMap = new Map();
+    for (const f of otrosFilas) {
+      if (!entesMap.has(f.ente_id)) entesMap.set(f.ente_id, { ente: f.nombre, categoria: f.categoria, atenciones: 0, planteles: new Set() });
+      const o = entesMap.get(f.ente_id); o.atenciones++; o.planteles.add(f.c);
+      if (!catMap.has(f.categoria)) catMap.set(f.categoria, { categoria: f.categoria, atenciones: 0, planteles: new Set() });
+      const k = catMap.get(f.categoria); k.atenciones++; k.planteles.add(f.c);
+    }
+    const entes = {
+      fede: { planteles: fedeAtendidos, atenciones: sumaBarras.n },
+      otros: [...entesMap.values()].map((o) => ({ ente: o.ente, categoria: o.categoria, atenciones: o.atenciones, planteles: o.planteles.size })).sort((a, b) => b.planteles - a.planteles || b.atenciones - a.atenciones || a.ente.localeCompare(b.ente, "es")),
+      categorias: [...catMap.values()].map((o) => ({ categoria: o.categoria, atenciones: o.atenciones, planteles: o.planteles.size })).sort((a, b) => b.planteles - a.planteles),
+      planteles_otros: otrosPorCodigo.size,
+      atenciones_otros: otrosFilas.length,
+      solo_otros: soloOtros,
+      ambos: ambosEntes,
+    };
     const cuadre = { suma_barras: sumaBarras.n, repetidos: sumaBarras.n - atendidos, atendidos };
 
     res.json({
@@ -2560,6 +2593,7 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       columnas_plan: columnasPlan.length,
       modulo,
       comunal,
+      entes,
     });
   } catch (err) {
     falloInterno(res, err, "No se pudo armar el dashboard.");
@@ -2895,5 +2929,5 @@ module.exports = router;
 module.exports.utilidades = { datosEfectivos,
   entero, texto, falloInterno, estadoDelPlan, filaDeEjecucion, esIngenieroDeRehabilitacion,
   valorGescolar, datosDeGescolar, nombreArchivo, enviarExcel,
-  ROLES_GESTION, ROLES_ESCRIBE, ROLES_LECTURA, ROLES_PLANILLA, CODIGO_DEA,
+  programaDe, aniosDe,   ROLES_GESTION, ROLES_ESCRIBE, ROLES_LECTURA, ROLES_PLANILLA, CODIGO_DEA,
 };

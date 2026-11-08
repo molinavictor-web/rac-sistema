@@ -311,6 +311,15 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Resumen:** bloque «Proyectos comunales» en `dashboard` (campo `comunal`): planteles distintos con proyecto, proyectos, planteles ya atendidos y proyectos sin planteles. **No suman** en «Planteles atendidos» (decisión del usuario: son atenciones menores).
 - **Pendiente:** catálogo para agregar comunas/consejos nuevos y vincular planteles sin vínculo; decidir si cuentan en el Resumen.
 
+### 6m. Atenciones de otros entes
+
+- **Qué es:** atenciones de Gobernación, alcaldías, ministerios, SENIAT, FANB u otros organismos a los planteles. FEDE NO va aquí: sigue siendo el sistema actual (tipo de atención, planes).
+- **Script:** `scripts/sql/30_otros_entes.sql` — `entes_atencion` (catálogo editable por categoría: GOBERNACION, ALCALDIA, MINISTERIO, INSTITUTO, FANB, OTRO; sembrado con Gobernación, FANB, Ministerio de Obras Públicas, SENIAT y las 13 alcaldías de Monagas) y `atenciones_otros_entes` (plantel + ente + año + mes opcional + qué se hizo).
+- **Regla del total:** el plantel cuenta UNA sola vez en «Planteles atendidos» (FEDE o cualquier ente); todas sus atenciones quedan en el historial. En `/dashboard` (campo `entes`): FEDE (planteles y atenciones), cada ente y cada categoría (planteles y atenciones), «solo otros entes» y «por FEDE y otro ente». También suma en la tabla por municipio.
+- **API:** `src/routes/otrosEntes.js` en `/api/inspecciones/otros-entes`: `/catalogo` (GET/POST/PUT), `/buscar`, `/lista`, `/historial/:codigo` (línea de tiempo FEDE + otros entes + proyecto comunal), `POST /plantel/:codigo`, `PUT|DELETE /:id`. Catálogo: lo editan admin e insp_coordinador; las atenciones las registran además operador_plantel; leen también insp_consulta e insp_ingeniero. Un ente con atenciones no se borra: se desactiva.
+- **Pantalla:** `public/inspecciones/otros-entes.html` + `public/js/inspecciones-otros-entes.js` (menú Inspecciones → Otros entes; botón «Catálogo de entes»; `?plantel=CODIGO` abre el formulario). Tarjeta «Historial de atenciones» en la ficha del plantel y bloque «Atenciones por ente» en el Resumen.
+- **Pendiente:** corregir el historial de FEDE por plantel solo si hace falta (se arma con tipo de atención, año y planes).
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada
