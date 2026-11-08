@@ -6,6 +6,7 @@ const usuario = renderShell("inspecciones-planes", "Dotación del plan");
 const PLAN_ID = Number(new URLSearchParams(window.location.search).get("plan"));
 let DATOS = null; // { plan, dotaciones, puede_gestionar }
 let CONS = null;
+let MIS = null;
 let temporizador = null;
 
 if (usuario) {
@@ -22,6 +23,7 @@ async function cargar() {
   document.getElementById("contenido").innerHTML = `<div class="panel"><div class="cargando">Cargando dotación…</div></div>`;
   try {
     DATOS = await RAC.get(`/api/inspecciones/dotacion/plan/${PLAN_ID}`);
+    MIS = usuario.rol === "insp_ingeniero" ? (await RAC.get(`/api/inspecciones/dotacion/plan/${PLAN_ID}/mis-planteles`)).planteles : null;
     CONS = ["admin", "operador_plantel", "insp_coordinador", "insp_consulta"].includes(usuario.rol)
       ? await RAC.get(`/api/inspecciones/dotacion/plan/${PLAN_ID}/consolidado`) : null;
   } catch (err) { error(err.message); return; }
@@ -49,6 +51,10 @@ function dibujar() {
       <p style="margin:0 0 10px; color:var(--muted); font-size:.82rem;">Busca por nombre, código DEA, municipio o parroquia. Los datos se copian de GESCOLAR y puedes corregirlos en la solicitud.</p>
       <input type="text" id="qPlantel" placeholder="Escribe al menos 2 caracteres…" style="width:100%; max-width:480px; padding:8px 10px; border:1px solid var(--borde); border-radius:8px;">
     </div><div id="resultados" style="margin-top:10px;"></div></div>` : ""}
+    ${MIS && MIS.length ? `<div class="panel" style="margin-bottom:16px;"><div style="padding:16px 20px;"><h3 style="margin:0 0 8px;">Mis planteles en este plan</h3>
+      ${MIS.map((m) => `<div style="display:flex; gap:10px; align-items:center; padding:6px 0;"><span style="flex:1;">${escapar(m.nombre_plantel)} <span class="dt-retirado">${escapar(m.codigo_dea)}</span></span>
+        ${m.dotacion_id ? `<a class="btn btn-primario btn-sm" href="/inspecciones/dotacion.html?id=${Number(m.dotacion_id)}">Abrir dotación</a>` : (abierto ? `<button type="button" class="btn btn-primario btn-sm" data-crear="${escapar(m.codigo_dea)}">Crear dotación</button>` : "")}</div>`).join("")}
+    </div></div>` : ""}
     <div class="panel"><div style="padding:16px 20px 0;"><h3 style="margin:0;">Solicitudes de dotación</h3></div>
       <div id="lista" style="margin-top:12px;"></div></div>
     ${CONS ? `<div class="panel" style="margin-top:16px;"><div style="padding:16px 20px 0;"><h3 style="margin:0;">Consolidado</h3></div><div id="consolidado"></div></div>` : ""}`;
@@ -58,6 +64,7 @@ function dibujar() {
   if (btnCat) btnCat.addEventListener("click", abrirCatalogo);
   const btnX = document.getElementById("btnExcelCons");
   if (btnX) btnX.addEventListener("click", (e) => descargar(`/api/inspecciones/dotacion/plan/${PLAN_ID}/consolidado.xlsx`, "DOTACION_CONSOLIDADO.xlsx", e.currentTarget));
+  document.querySelectorAll("[data-crear]").forEach((b) => b.addEventListener("click", () => agregar(b.dataset.crear)));
   const q = document.getElementById("qPlantel");
   if (q) q.addEventListener("input", () => { clearTimeout(temporizador); temporizador = setTimeout(() => buscar(q.value.trim()), 380); });
 }

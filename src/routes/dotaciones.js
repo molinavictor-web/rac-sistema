@@ -21,7 +21,7 @@ const gescolar = require("../services/gescolar");
 const insp = require("./inspecciones").utilidades;
 
 const router = express.Router();
-const { entero, texto, falloInterno, estadoDelPlan, esIngenieroDeRehabilitacion, valorGescolar, datosDeGescolar, nombreArchivo, enviarExcel,
+const { datosEfectivos, entero, texto, falloInterno, estadoDelPlan, esIngenieroDeRehabilitacion, valorGescolar, datosDeGescolar, nombreArchivo, enviarExcel,
   ROLES_GESTION, ROLES_LECTURA, ROLES_PLANILLA, CODIGO_DEA } = insp;
 
 const SIN_TABLAS = "42P01";
@@ -55,7 +55,16 @@ function agruparPorBloque(rubros) {
   return Object.keys(BLOQUES).map((b) => ({ bloque: b, titulo: BLOQUES[b], rubros: rubros.filter((r) => r.bloque === b) }));
 }
 
-// ¿Puede esta persona ver / llenar la solicitud? (el ingeniero, solo si es el de rehabilitación de ese plantel en ese plan)
+// El ingeniero que hizo la inspección del plantel (tiene la planilla asignada) llena la dotación en el momento.
+async function esIngenieroDeInspeccion(usuarioId, codigo) {
+  const { rows } = await pool.query(
+    "SELECT 1 FROM inspeccion_asignaciones a JOIN inspecciones i ON i.id = a.inspeccion_id WHERE a.usuario_id = $1 AND i.codigo_dea = $2 LIMIT 1",
+    [usuarioId, codigo]
+  );
+  return rows.length > 0;
+}
+
+// ¿Puede esta persona ver / llenar la solicitud? Gestión: todo. Ingeniero: el de inspección y el de rehabilitación de ese plantel.
 async function permisoSobre(usuario, d) {
   if (ROLES_GESTION.includes(usuario.rol)) return { ver: true, editar: true };
   if (ROLES_LECTURA.includes(usuario.rol)) return { ver: true, editar: false };
@@ -65,6 +74,7 @@ async function permisoSobre(usuario, d) {
       [d.plan_id, d.codigo_dea]
     );
     for (const r of rows) if (await esIngenieroDeRehabilitacion(usuario.id, r.ingeniero_rehab)) return { ver: true, editar: true };
+    if (await esIngenieroDeInspeccion(usuario.id, d.codigo_dea)) return { ver: true, editar: true };
   }
   return { ver: false, editar: false };
 }
@@ -213,11 +223,39 @@ router.get("/plan/:planId", requireAuth, requireRol(...ROLES_PLANILLA), async (r
   }
 });
 
-router.post("/plan/:planId", requireAuth, requireRol(...ROLES_GESTION), async (req, res) => {
+router.get("/plan/:planId/mis-planteles", requireAuth, requireRol("insp_ingeniero"), async (req, res) => {
+  const planId = entero(req.params.planId);
+  if (!planId) return res.status(400).json({ error: "Plan inválido." });
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT pi.codigo_dea, i.membrete, d.id AS dotacion_id
+         FROM plan_inspecciones pi
+         JOIN inspecciones i ON i.id = pi.inspeccion_id
+         LEFT JOIN dotaciones d ON d.plan_id = pi.plan_id AND d.codigo_dea = pi.codigo_dea
+        WHERE pi.plan_id = $1 AND pi.desenlazado_en IS NULL
+          AND EXISTS (SELECT 1 FROM inspeccion_asignaciones a JOIN inspecciones x ON x.id = a.inspeccion_id WHERE a.usuario_id = $2 AND x.codigo_dea = pi.codigo_dea)`,
+      [planId, req.usuario.id]
+    );
+    res.json({ planteles: rows.map((r) => ({ codigo_dea: r.codigo_dea, nombre_plantel: datosEfectivos(r.membrete).institucion || r.codigo_dea, dotacion_id: r.dotacion_id })) });
+  } catch (err) {
+    if (err.code === SIN_TABLAS) return falta(res);
+    falloInterno(res, err, "No se pudieron cargar tus planteles.");
+  }
+});
+
+router.post("/plan/:planId", requireAuth, requireRol(...ROLES_GESTION, "insp_ingeniero"), async (req, res) => {
   const planId = entero(req.params.planId);
   const codigoPedido = texto((req.body || {}).codigo_dea);
   if (!planId) return res.status(400).json({ error: "Plan inválido." });
   if (!CODIGO_DEA.test(codigoPedido)) return res.status(400).json({ error: "Código DEA inválido." });
+  if (req.usuario.rol === "insp_ingeniero") {
+    const propio = await pool.query(
+      `SELECT 1 FROM plan_inspecciones pi WHERE pi.plan_id = $1 AND pi.codigo_dea = $2 AND pi.desenlazado_en IS NULL
+          AND EXISTS (SELECT 1 FROM inspeccion_asignaciones a JOIN inspecciones x ON x.id = a.inspeccion_id WHERE a.usuario_id = $3 AND x.codigo_dea = pi.codigo_dea)`,
+      [planId, codigoPedido, req.usuario.id]
+    ).catch(() => ({ rows: [] }));
+    if (!propio.rows.length) return res.status(403).json({ error: "Solo puedes crear la dotación de los planteles que tienes asignados en este plan." });
+  }
   try {
     const estado = await estadoDelPlan(planId);
     if (!estado.existe) return res.status(404).json({ error: "Plan no encontrado." });

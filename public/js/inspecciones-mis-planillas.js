@@ -100,7 +100,7 @@ function pintar() {
       <td>${planHtml}</td>
       <td>${p.estado === "CARGADA" ? etiqueta("Cargada", "#2f855a", "#e6f4ea") : etiqueta("Borrador", "#b7791f", "#fefcbf")}</td>
       <td style="text-align:center;">${p.rubros_con_cantidad}${p.adicionales_con_cantidad ? ` <span style="color:#9a3d00; font-size:.75rem;">+${p.adicionales_con_cantidad} adic.</span>` : ""}</td>
-      <td><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}${p.plan_id ? "&plan=" + Number(p.plan_id) : ""}">${accion}</a></td>
+      <td style="white-space:nowrap;"><a class="btn btn-primario btn-sm" href="/inspecciones/planilla.html?id=${Number(p.inspeccion_id)}${p.plan_id ? "&plan=" + Number(p.plan_id) : ""}">${accion}</a>${p.plan_id ? ` <a class="btn btn-fantasma btn-sm" href="/inspecciones/dotaciones.html?plan=${Number(p.plan_id)}">Dotación</a>` : ""}</td>
     </tr>`;
   }).join("");
   cont.innerHTML = `<div class="tabla-responsive"><table>

@@ -2879,7 +2879,7 @@ router.put("/planes/:id/planteles/:inspeccionId/avance", requireAuth, requireRol
 
 module.exports = router;
 // Utilidades que reutilizan otros módulos del mismo bloque (p. ej. dotaciones).
-module.exports.utilidades = {
+module.exports.utilidades = { datosEfectivos,
   entero, texto, falloInterno, estadoDelPlan, filaDeEjecucion, esIngenieroDeRehabilitacion,
   valorGescolar, datosDeGescolar, nombreArchivo, enviarExcel,
   ROLES_GESTION, ROLES_ESCRIBE, ROLES_LECTURA, ROLES_PLANILLA, CODIGO_DEA,

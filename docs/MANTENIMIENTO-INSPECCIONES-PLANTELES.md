@@ -290,7 +290,7 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - Sirve para planes de rehabilitación y para planes «solo dotación» (se usa el tipo ATENCION_ESPECIAL): un plantel puede pedir dotación sin haber sido rehabilitado.
 - Pantallas (`public/inspecciones/`): `dotaciones.html` (botón «Dotación» en el plan: lista de solicitudes, agregar plantel desde GESCOLAR, consolidado rubros × planteles, catálogo de rubros) y `dotacion.html` (la solicitud: cabecera editable, cantidades a mano o «NO», fecha, observaciones). Todas las cantidades son manuales.
 - Excel: individual en el formato «SOLICITUD DE DOTACIÓN» (con logos; solo imprime rubros con cantidad o «NO») y consolidado del plan. Código: `src/routes/dotaciones.js`, `src/services/exportarExcel.js` (`dotacionIndividual`, `dotacionConsolidado`).
-- Permisos: admin y coordinador gestionan (agregar/quitar planteles, catálogo); el ingeniero de rehabilitación del plantel llena su solicitud; consulta y operador de plantel solo ven. Con el plan cerrado nada se modifica.
+- Permisos: admin y coordinador gestionan (agregar/quitar planteles, catálogo); el ingeniero de inspección (el de la planilla asignada) crea y llena la dotación de una vez desde «Mis planillas», y el ingeniero de rehabilitación del plantel puede modificar cualquier rubro; consulta y operador de plantel solo ven. Con el plan cerrado nada se modifica.
 - Un rubro retirado del catálogo sigue apareciendo en las solicitudes y consolidados que ya lo usaban.
 
 ## 7. Módulos de consulta de planteles
