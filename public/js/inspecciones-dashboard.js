@@ -99,7 +99,7 @@ function pintar(d) {
 
     <div class="dash-dos" style="margin-top:16px;">
       ${bloqueAvance("Planteles atendidos", "Tienen un tipo de atención (p. ej. GOTA DE AMOR), están en un plan de la hoja o del sistema, o los atendió otro ente (Gobernación, alcaldía, ministerio…).", d.atendidos, d.total, "ok")}
-      ${bloqueAvance("Planteles con inspección", "Tienen un ingeniero RESPONSABLE en GESCOLAR.", d.con_inspeccion, d.total, "azul")}
+      ${bloqueAvance("Planteles con inspección", "Tienen un ingeniero RESPONSABLE en GESCOLAR o una planilla de inspección en el sistema (sin repetir).", d.con_inspeccion, d.total, "azul")}
     </div>
 
     <div class="panel" style="margin-top:16px;"><div class="dash-bloque">

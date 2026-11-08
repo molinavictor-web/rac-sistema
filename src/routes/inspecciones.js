@@ -2458,6 +2458,13 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
       if (err.code !== "42P01") console.error("Dashboard: no se pudieron leer las atenciones de otros entes:", err.message);
     }
     let fedeAtendidos = 0, soloOtros = 0, ambosEntes = 0;
+    // Planteles con planilla de inspección en el sistema (borrador o cargada): también cuentan como «con inspección».
+    const conPlanilla = new Set();
+    try {
+      (await pool.query("SELECT DISTINCT lower(codigo_dea) AS c FROM inspecciones")).rows.forEach((f) => conPlanilla.add(f.c));
+    } catch (err) {
+      console.error("Dashboard: no se pudieron leer las planillas de inspección:", err.message);
+    }
     const claveAnio = datos.length ? Object.keys(datos[0]).find((h) => gescolar.normalizar(h) === "ANO") : null;
     const programas = new Map(); // clave → { nombre, nota, planteles:Set, anios: Map(anio → Set) }
     const sumaBarras = { n: 0 };
@@ -2488,7 +2495,7 @@ router.get("/dashboard", requireAuth, requireRol(...ROLES_PLANILLA), async (req,
         anios.forEach((a) => { if (!g.anios.has(a)) g.anios.set(a, new Set()); g.anios.get(a).add(codigoMin); });
         sumaBarras.n++;
       }
-      const insp = !!valorUtil(p[gescolar.CAMPO_RESPONSABLE]);
+      const insp = !!valorUtil(p[gescolar.CAMPO_RESPONSABLE]) || conPlanilla.has(codigoMin); // RESPONSABLE en GESCOLAR o planilla en el sistema
       const porFede = !!(tipo || enAlgunPlan);
       const porOtro = otrosPorCodigo.has(codigoMin);
       const atendido = porFede || porOtro;
