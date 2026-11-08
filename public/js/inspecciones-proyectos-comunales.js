@@ -83,7 +83,7 @@ function abrirFormulario(p) {
   fondo.className = "pc-fondo";
   fondo.innerHTML = `<div class="pc-modal"><h3 style="margin:0;">${editando ? "Editar" : "Registrar"} proyecto comunal</h3>
     <div class="pc-form">
-      <label>Plantel (código DEA)<div style="display:flex; gap:6px;"><input type="text" id="pcCodigo" value="${escapar(p.codigo_dea || "")}" ${editando ? "disabled" : ""} placeholder="Código o nombre del plantel" style="flex:1;">${editando ? "" : `<button type="button" class="btn btn-fantasma btn-sm" id="pcBuscar">Buscar</button>`}</div></label>
+      <label>Plantel (código DEA)<div style="display:flex; gap:6px; align-items:center;"><input type="text" id="pcCodigo" value="${escapar(p.codigo_dea || "")}" ${editando ? "disabled" : ""} placeholder="Código o nombre del plantel" style="flex:1;">${editando ? "" : `<button type="button" class="btn btn-fantasma btn-sm" id="pcBuscar">Buscar</button>`}</div></label>
       <div id="pcResultados"></div>
       <label>Año de la elección<input type="number" id="pcAnio" min="2000" max="${new Date().getFullYear() + 1}" value="${escapar(p.anio || new Date().getFullYear())}"></label>
       <label>Nombre del proyecto<input type="text" id="pcNombre" maxlength="200" value="${escapar(p.nombre_proyecto || "")}"></label>
