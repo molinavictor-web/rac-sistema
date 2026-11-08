@@ -410,6 +410,153 @@ router.post("/refrescar", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), 
   }
 });
 
+// ---------------------------------------------------------------------------------------------
+// Editar datos del plantel desde la ficha (admin y operador de plantel).
+//   PUT  /:codigoDea/datos          {campos: {<encabezado de la hoja>: valor}} → escribe en GESCOLAR
+//   GET  /:codigoDea/historial      últimos cambios del plantel
+//   POST /cambios/:id/revertir      devuelve cada celda a su valor anterior (si nadie la cambió después)
+// Nunca se editan el código ni el nombre: GESCOLAR manda. Cada cambio queda en plantel_cambios.
+// ---------------------------------------------------------------------------------------------
+function normalizarEncabezado(h) {
+  let t = String(h || "");
+  if (/[ÃÂ]/.test(t)) { try { t = Buffer.from(t, "latin1").toString("utf8"); } catch (_) { /* se deja igual */ } }
+  return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+const CAMPOS_EDITABLES = new Set([
+  "municipio", "parroquia", "director_nombre", "telefono_director", "telefono_movil_director",
+  "direccion", "direccion_plantel", "direccion_del_plantel", "zona_ubicacion", "cant_aulas",
+  "total_matricula_registrada", "cod_circuito", "nomb_circuito", "cod_consejo_com", "nom_consejo_com",
+]);
+const CAMPOS_NUMERICOS = new Set(["cant_aulas", "total_matricula_registrada"]);
+
+function letraDeColumna(indice) {
+  let n = indice + 1;
+  let letra = "";
+  while (n > 0) {
+    const resto = (n - 1) % 26;
+    letra = String.fromCharCode(65 + resto) + letra;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letra;
+}
+
+async function leerHojaFresca() {
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEETS_GESCOLAR_ID, range: RANGO_HOJA_GESCOLAR });
+  const [encabezado, ...filas] = r.data.values || [];
+  return { encabezado: encabezado || [], filas };
+}
+
+async function escribirCeldasGescolar(encabezado, celdas) {
+  for (let i = 0; i < celdas.length; i += 400) {
+    const data = celdas.slice(i, i + 400).map((c) => ({
+      range: `${NOMBRE_HOJA_GESCOLAR}!${letraDeColumna(encabezado.indexOf(c.campo))}${c.fila}`,
+      values: [[c.valor]],
+    }));
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SHEETS_GESCOLAR_ID,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
+}
+
+function refrescarCachesGescolar() {
+  cache.cargadoEn = 0;
+  try { require("../services/gescolar").cargarGescolar(true).catch(() => {}); } catch (_) { /* no estorba */ }
+}
+
+router.put("/:codigoDea/datos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  const codigoDea = String(req.params.codigoDea || "").trim().toUpperCase();
+  const pedidos = (req.body && req.body.campos) || null;
+  if (!codigoDea) return res.status(400).json({ error: "Falta el código DEA." });
+  if (!pedidos || typeof pedidos !== "object" || Array.isArray(pedidos) || !Object.keys(pedidos).length) {
+    return res.status(400).json({ error: "No se envió ningún campo para actualizar." });
+  }
+  if (!SHEETS_GESCOLAR_ID) return res.status(500).json({ error: "Falta configurar SHEETS_GESCOLAR_ID en el servidor." });
+  try {
+    const { encabezado, filas } = await leerHojaFresca();
+    const idxCodigo = encabezado.indexOf("cod_plantel");
+    const i = filas.findIndex((f) => String(f[idxCodigo] || "").trim().toUpperCase() === codigoDea);
+    if (i === -1) return res.status(404).json({ error: "No se encontró ese código DEA en GESCOLAR." });
+    const celdas = [];
+    const campos = [];
+    for (const [nombre, bruto] of Object.entries(pedidos)) {
+      const idx = encabezado.indexOf(nombre);
+      const clave = normalizarEncabezado(nombre);
+      if (idx === -1 || !CAMPOS_EDITABLES.has(clave)) return res.status(400).json({ error: `El campo «${nombre}» no se puede editar desde aquí.` });
+      let valor = bruto === null || bruto === undefined ? "" : String(bruto).trim().replace(/\s+/g, " ");
+      if (valor.length > 300) return res.status(400).json({ error: `«${nombre}» es demasiado largo (máximo 300 caracteres).` });
+      if (CAMPOS_NUMERICOS.has(clave) && valor !== "" && !/^\d{1,6}$/.test(valor)) {
+        return res.status(400).json({ error: `«${nombre}» debe ser un número entero (sin puntos ni comas).` });
+      }
+      if (/^[=+\-@]/.test(valor) && !/^[+\-]?\d[\d\s\-]*$/.test(valor)) valor = "'" + valor; // evita fórmulas de hoja
+      const antes = String(filas[i][idx] === undefined ? "" : filas[i][idx]).trim();
+      if (antes === valor) continue;
+      celdas.push({ fila: i + 2, campo: nombre, valor });
+      campos.push({ campo: nombre, antes, despues: valor });
+    }
+    if (!celdas.length) return res.json({ ok: true, cambiados: 0 });
+    // 1) queda el registro (con los valores anteriores) ANTES de escribir en la hoja
+    const log = await pool.query(
+      "INSERT INTO plantel_cambios (codigo_dea, usuario_id, campos) VALUES ($1::text, $2::int, $3::jsonb) RETURNING id",
+      [codigoDea, req.usuario.id, JSON.stringify(campos)]
+    );
+    // 2) se escribe en la hoja
+    await escribirCeldasGescolar(encabezado, celdas);
+    refrescarCachesGescolar();
+    res.json({ ok: true, id: log.rows[0].id, cambiados: campos.length });
+  } catch (err) {
+    if (err.code === "42P01") return res.status(503).json({ error: "Falta ejecutar el script 27 en Supabase." });
+    console.error("Error editando datos del plantel:", err);
+    res.status(500).json({ error: "No se pudo guardar. Verifica que la hoja GESCOLAR esté compartida como Editor con la cuenta de servicio." });
+  }
+});
+
+router.get("/:codigoDea/historial", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  const codigoDea = String(req.params.codigoDea || "").trim().toUpperCase();
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.creado_en, c.campos, c.revertido_en, u.nombre AS usuario
+         FROM plantel_cambios c LEFT JOIN usuarios u ON u.id = c.usuario_id
+        WHERE c.codigo_dea = $1 ORDER BY c.id DESC LIMIT 15`, [codigoDea]
+    );
+    res.json({ historial: rows });
+  } catch (err) {
+    if (err.code === "42P01") return res.status(503).json({ error: "Falta ejecutar el script 27 en Supabase." });
+    console.error("Error leyendo historial del plantel:", err);
+    res.status(500).json({ error: "No se pudo cargar el historial." });
+  }
+});
+
+router.post("/cambios/:id/revertir", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Registro no válido." });
+  try {
+    const c = (await pool.query("SELECT * FROM plantel_cambios WHERE id = $1", [id])).rows[0];
+    if (!c) return res.status(404).json({ error: "No existe ese cambio." });
+    if (c.revertido_en) return res.status(409).json({ error: "Este cambio ya se restauró." });
+    const { encabezado, filas } = await leerHojaFresca();
+    const idxCodigo = encabezado.indexOf("cod_plantel");
+    const i = filas.findIndex((f) => String(f[idxCodigo] || "").trim().toUpperCase() === c.codigo_dea);
+    if (i === -1) return res.status(404).json({ error: "El plantel ya no está en GESCOLAR." });
+    const celdas = [];
+    let omitidas = 0;
+    c.campos.forEach((x) => {
+      const idx = encabezado.indexOf(x.campo);
+      const actual = idx === -1 ? null : String(filas[i][idx] === undefined ? "" : filas[i][idx]).trim();
+      // solo se restaura si la celda sigue como la dejó ese cambio (si alguien la editó después, se respeta)
+      if (actual !== null && actual === String(x.despues)) celdas.push({ fila: i + 2, campo: x.campo, valor: x.antes }); else omitidas += 1;
+    });
+    if (celdas.length) await escribirCeldasGescolar(encabezado, celdas);
+    await pool.query("UPDATE plantel_cambios SET revertido_en = NOW(), revertido_por = $2 WHERE id = $1", [id, req.usuario.id]);
+    refrescarCachesGescolar();
+    res.json({ ok: true, restauradas: celdas.length, omitidas });
+  } catch (err) {
+    if (err.code === "42P01") return res.status(503).json({ error: "Falta ejecutar el script 27 en Supabase." });
+    console.error("Error restaurando cambio del plantel:", err);
+    res.status(500).json({ error: "No se pudo restaurar el cambio." });
+  }
+});
+
 // Ubica la subcarpeta de Drive cuyo nombre coincide EXACTO con el código DEA,
 // dentro de la carpeta raíz "Planteles". Cachea el id por 15 min.
 async function ubicarCarpetaDea(codigoDea) {

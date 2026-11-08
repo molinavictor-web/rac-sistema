@@ -293,6 +293,12 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - Permisos: admin y coordinador gestionan (agregar/quitar planteles, catálogo); el ingeniero de inspección (el de la planilla asignada) crea y llena la dotación de una vez desde «Mis planillas», y el ingeniero de rehabilitación del plantel puede modificar cualquier rubro; consulta y operador de plantel solo ven. Con el plan cerrado nada se modifica.
 - Un rubro retirado del catálogo sigue apareciendo en las solicitudes y consolidados que ya lo usaban.
 
+## 6k. Editar datos del plantel (ficha de Consultar planteles)
+- **Script `27_plantel_cambios.sql`** (ejecutar una vez en Supabase; debe responder «Success. No rows returned»): crea `plantel_cambios` (historial: quién, cuándo, valor anterior y nuevo).
+- En la ficha, botones «Editar datos del plantel» e «Historial de cambios» (solo `admin` y `operador_plantel`). Se editan director (nombre y teléfonos), municipio, parroquia, dirección, zona, N° de aulas, matrícula total, circuito y consejo comunal. **El código y el nombre nunca se editan** (GESCOLAR manda); tampoco las columnas de seguimiento.
+- Los cambios se escriben en la hoja GESCOLAR (Google Sheets). «Restaurar» devuelve cada dato a su valor anterior, salvo los que alguien haya cambiado después. Código: `src/routes/plantelesConsulta.js` (`PUT /:codigoDea/datos`, `GET /:codigoDea/historial`, `POST /cambios/:id/revertir`) y `public/js/planteles-consulta.js`.
+- Los datos de planillas y dotaciones ya creadas son copias del momento: no cambian solas.
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada
