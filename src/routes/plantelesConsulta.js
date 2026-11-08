@@ -464,6 +464,116 @@ function refrescarCachesGescolar() {
   try { require("../services/gescolar").cargarGescolar(true).catch(() => {}); } catch (_) { /* no estorba */ }
 }
 
+// ---- Listas válidas (salen de los valores que ya existen en GESCOLAR) ----
+const claveTexto = (t) => normalizarEncabezado(t).replace(/\s+/g, " ");
+const columnaReal = (obj, clave) => Object.keys(obj).find((k) => normalizarEncabezado(k) === clave);
+
+// Variante más frecuente de un conjunto de escrituras de lo mismo (MATURIN / MATURÍN → la que más se usa).
+function masFrecuente(mapa) {
+  let mejor = ""; let n = -1;
+  for (const [v, c] of mapa) if (c > n) { mejor = v; n = c; }
+  return mejor;
+}
+
+async function opcionesDatos() {
+  const datos = await cargarGescolar();
+  const vacio = { municipios: [], parroquias: {}, circuitos: [], consejos: [] };
+  if (!datos.length) return vacio;
+  const k = datos[0];
+  const cMun = columnaReal(k, "municipio"), cPar = columnaReal(k, "parroquia");
+  const cCodCir = columnaReal(k, "cod_circuito"), cNomCir = columnaReal(k, "nomb_circuito");
+  const cCodCon = columnaReal(k, "cod_consejo_com"), cNomCon = columnaReal(k, "nom_consejo_com");
+  const muns = new Map(); // clave -> Map(variante -> n)
+  const pars = new Map(); // claveMun -> Map(clavePar -> Map(variante -> n))
+  const cirs = new Map(); const cons = new Map(); // clave par -> {codigo: Map, nombre: Map}
+  const sumar = (m, clave, valor) => { if (!m.has(clave)) m.set(clave, new Map()); const v = m.get(clave); v.set(valor, (v.get(valor) || 0) + 1); };
+  for (const d of datos) {
+    const mun = String(d[cMun] || "").trim(), par = String(d[cPar] || "").trim();
+    if (mun) {
+      sumar(muns, claveTexto(mun), mun);
+      if (par) { if (!pars.has(claveTexto(mun))) pars.set(claveTexto(mun), new Map()); sumar(pars.get(claveTexto(mun)), claveTexto(par), par); }
+    }
+    for (const [mapa, cc, cn] of [[cirs, cCodCir, cNomCir], [cons, cCodCon, cNomCon]]) {
+      const cod = String(d[cc] || "").trim(), nom = String(d[cn] || "").trim();
+      if (!cc || !cn || !cod || !nom) continue;
+      const clave = claveTexto(cod) + "|" + claveTexto(nom);
+      if (!mapa.has(clave)) mapa.set(clave, { codigo: new Map(), nombre: new Map() });
+      const e = mapa.get(clave); e.codigo.set(cod, (e.codigo.get(cod) || 0) + 1); e.nombre.set(nom, (e.nombre.get(nom) || 0) + 1);
+    }
+  }
+  const alfa = (a, b) => a.localeCompare(b, "es");
+  const municipios = [...muns.values()].map(masFrecuente).sort(alfa);
+  const parroquias = {};
+  for (const [cm, m] of pars) parroquias[masFrecuente(muns.get(cm))] = [...m.values()].map(masFrecuente).sort(alfa);
+  const pares = (mapa) => [...mapa.values()].map((e) => ({ codigo: masFrecuente(e.codigo), nombre: masFrecuente(e.nombre) })).sort((a, b) => alfa(a.nombre, b.nombre));
+  return { municipios, parroquias, circuitos: pares(cirs), consejos: pares(cons) };
+}
+
+// Revisa y normaliza lo que se pidió editar. Devuelve {campo real: valor} listo para escribir, o lanza {http400}.
+function validarPedido(pedidos, encabezado, filaActual, op) {
+  const error = (m) => { const e = new Error(m); e.http400 = m; return e; };
+  const porClave = {}; // clave normalizada -> nombre real del encabezado
+  encabezado.forEach((h) => { porClave[normalizarEncabezado(h)] = h; });
+  const pedido = {}; // clave normalizada -> valor pedido
+  for (const [nombre, bruto] of Object.entries(pedidos)) pedido[normalizarEncabezado(nombre)] = bruto === null || bruto === undefined ? "" : String(bruto).trim().replace(/\s+/g, " ");
+  const actual = (clave) => { const h = porClave[clave]; const i = h === undefined ? -1 : encabezado.indexOf(h); return i === -1 ? "" : String(filaActual[i] === undefined ? "" : filaActual[i]).trim(); };
+  const salida = { ...pedido };
+
+  // Municipio y parroquia: solo valores que existen; la parroquia debe ser de ese municipio.
+  if ("municipio" in pedido || "parroquia" in pedido) {
+    const munDeseado = "municipio" in pedido ? pedido.municipio : actual("municipio");
+    const parDeseada = "parroquia" in pedido ? pedido.parroquia : actual("parroquia");
+    const munCanon = op.municipios.find((m) => claveTexto(m) === claveTexto(munDeseado));
+    if (!munCanon) throw error(`El municipio «${munDeseado || "(vacío)"}» no es válido: elígelo de la lista.`);
+    const parCanon = (op.parroquias[munCanon] || []).find((x) => claveTexto(x) === claveTexto(parDeseada));
+    if (!parCanon) throw error(`La parroquia «${parDeseada || "(vacío)"}» no pertenece al municipio ${munCanon}: elígela de la lista.`);
+    salida.municipio = claveTexto(actual("municipio")) === claveTexto(munCanon) ? actual("municipio") : munCanon;
+    salida.parroquia = claveTexto(actual("parroquia")) === claveTexto(parCanon) ? actual("parroquia") : parCanon;
+  }
+  // Circuito y consejo comunal: nombre y código van siempre juntos (se toman de la lista).
+  for (const [cCod, cNom, lista, rotulo] of [["cod_circuito", "nomb_circuito", op.circuitos, "circuito comunal"], ["cod_consejo_com", "nom_consejo_com", op.consejos, "consejo comunal"]]) {
+    if (!(cCod in pedido) && !(cNom in pedido)) continue;
+    const nom = cNom in pedido ? pedido[cNom] : actual(cNom);
+    const cod = cCod in pedido ? pedido[cCod] : actual(cCod);
+    if (nom === "" && cod === "") { salida[cCod] = ""; salida[cNom] = ""; continue; }
+    const par = lista.find((x) => claveTexto(x.nombre) === claveTexto(nom));
+    if (!par) throw error(`El ${rotulo} «${nom || "(vacío)"}» no existe: elígelo de la lista.`);
+    if (cCod in pedido && claveTexto(pedido[cCod]) !== claveTexto(par.codigo)) throw error(`El código del ${rotulo} no corresponde a «${par.nombre}».`);
+    salida[cCod] = claveTexto(actual(cCod)) === claveTexto(par.codigo) ? actual(cCod) : par.codigo;
+    salida[cNom] = claveTexto(actual(cNom)) === claveTexto(par.nombre) ? actual(cNom) : par.nombre;
+  }
+  // Teléfonos: solo números (10 u 11 dígitos); se guardan sin guiones ni espacios.
+  for (const t of ["telefono_director", "telefono_movil_director"]) {
+    if (!(t in pedido)) continue;
+    const digitos = pedido[t].replace(/[\s\-.()]/g, "");
+    if (digitos !== "" && !/^\d{10,11}$/.test(digitos)) throw error("Los teléfonos deben tener solo números (10 u 11 dígitos), por ejemplo 04161234567.");
+    salida[t] = digitos;
+  }
+  // Nombre del director: solo letras, en mayúsculas.
+  if ("director_nombre" in pedido) {
+    const n = pedido.director_nombre.toLocaleUpperCase("es");
+    if (n !== "" && !/^[\p{L}\s.'\-]+$/u.test(n)) throw error("El nombre del director solo puede llevar letras, espacios, punto, guion o apóstrofo.");
+    salida.director_nombre = n;
+  }
+  // de clave normalizada de vuelta al nombre real del encabezado
+  const real = {};
+  for (const [clave, valor] of Object.entries(salida)) {
+    const h = porClave[clave];
+    if (h === undefined) throw error(`El campo «${clave}» no existe en la hoja.`);
+    real[h] = valor;
+  }
+  return real;
+}
+
+router.get("/opciones-datos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
+  try {
+    res.json(await opcionesDatos());
+  } catch (err) {
+    console.error("Error armando las listas de opciones:", err);
+    res.status(500).json({ error: "No se pudieron cargar las listas de opciones." });
+  }
+});
+
 router.put("/:codigoDea/datos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTELES), async (req, res) => {
   const codigoDea = String(req.params.codigoDea || "").trim().toUpperCase();
   const pedidos = (req.body && req.body.campos) || null;
@@ -479,10 +589,14 @@ router.put("/:codigoDea/datos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTE
     if (i === -1) return res.status(404).json({ error: "No se encontró ese código DEA en GESCOLAR." });
     const celdas = [];
     const campos = [];
-    for (const [nombre, bruto] of Object.entries(pedidos)) {
+    for (const nombre of Object.keys(pedidos)) {
+      const idx = encabezado.indexOf(nombre);
+      if (idx === -1 || !CAMPOS_EDITABLES.has(normalizarEncabezado(nombre))) return res.status(400).json({ error: `El campo «${nombre}» no se puede editar desde aquí.` });
+    }
+    const validados = validarPedido(pedidos, encabezado, filas[i], await opcionesDatos());
+    for (const [nombre, bruto] of Object.entries(validados)) {
       const idx = encabezado.indexOf(nombre);
       const clave = normalizarEncabezado(nombre);
-      if (idx === -1 || !CAMPOS_EDITABLES.has(clave)) return res.status(400).json({ error: `El campo «${nombre}» no se puede editar desde aquí.` });
       let valor = bruto === null || bruto === undefined ? "" : String(bruto).trim().replace(/\s+/g, " ");
       if (valor.length > 300) return res.status(400).json({ error: `«${nombre}» es demasiado largo (máximo 300 caracteres).` });
       if (CAMPOS_NUMERICOS.has(clave) && valor !== "" && !/^\d{1,6}$/.test(valor)) {
@@ -505,6 +619,7 @@ router.put("/:codigoDea/datos", requireAuth, requireRol(...ROLES_CONSULTA_PLANTE
     refrescarCachesGescolar();
     res.json({ ok: true, id: log.rows[0].id, cambiados: campos.length });
   } catch (err) {
+    if (err.http400) return res.status(400).json({ error: err.http400 });
     if (err.code === "42P01") return res.status(503).json({ error: "Falta ejecutar el script 27 en Supabase." });
     console.error("Error editando datos del plantel:", err);
     res.status(500).json({ error: "No se pudo guardar. Verifica que la hoja GESCOLAR esté compartida como Editor con la cuenta de servicio." });

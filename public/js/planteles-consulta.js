@@ -253,17 +253,52 @@ function camposEditablesDe(plantel) {
   return out;
 }
 
-function abrirEdicionDatos(plantel, campoEnfocado) {
-  const campos = camposEditablesDe(plantel);
+// Municipio, parroquia, circuito y consejo comunal se ELIGEN de listas (las que ya existen en GESCOLAR);
+// teléfonos solo números; nombre del director en mayúsculas. El servidor revisa lo mismo.
+const TIPOS_CAMPO = {
+  municipio: "municipio", parroquia: "parroquia",
+  nomb_circuito: "circuito", cod_circuito: "circuito_cod", nom_consejo_com: "consejo", cod_consejo_com: "consejo_cod",
+  telefono_director: "telefono", telefono_movil_director: "telefono", director_nombre: "nombre",
+};
+const claveTxt = (t) => normalizarClave(t).replace(/\s+/g, " ");
+
+async function abrirEdicionDatos(plantel, campoEnfocado) {
+  let op;
+  try { op = await RAC.get("/api/planteles-consulta/opciones-datos"); }
+  catch (err) { mostrarToast(err.message, true); return; }
+  const campos = camposEditablesDe(plantel).map((c) => ({ ...c, tipo: TIPOS_CAMPO[normalizarClave(c.real)] || (["direccion_plantel", "direccion_del_plantel"].includes(normalizarClave(c.real)) ? "texto" : "texto") }));
+  const porTipo = (t) => campos.findIndex((c) => c.tipo === t);
+  const iMun = porTipo("municipio"), iPar = porTipo("parroquia");
+  const iCir = porTipo("circuito"), iCirCod = porTipo("circuito_cod"), iCon = porTipo("consejo"), iConCod = porTipo("consejo_cod");
+  const opt = (v, sel) => `<option value="${escapar(v).replace(/"/g, "&quot;")}"${sel ? " selected" : ""}>${escapar(v)}</option>`;
+  const estiloCaja = "padding:8px 10px; border:1px solid var(--borde); border-radius:8px; font-size:.9rem; width:100%;";
+  const estiloLabel = (c) => `display:grid; gap:3px; font-size:.76rem; color:var(--muted); ${c.ancho ? "grid-column:1/-1;" : ""}`;
+
+  function campoHtml(c, i) {
+    const nota = (t) => `<span style="color:#b7791f; font-size:.72rem;">${t}</span>`;
+    if (c.tipo === "municipio") {
+      const ok = op.municipios.find((m) => claveTxt(m) === claveTxt(c.valor));
+      return `<label style="${estiloLabel(c)}">${escapar(c.etiqueta)}<select data-i="${i}" style="${estiloCaja}">${ok ? "" : `<option value="">— elige un municipio —</option>`}${op.municipios.map((m) => opt(m, ok === m)).join("")}</select>${ok ? "" : nota(`Valor actual no válido: «${escapar(c.valor)}»`)}</label>`;
+    }
+    if (c.tipo === "parroquia") return `<label style="${estiloLabel(c)}">${escapar(c.etiqueta)}<select data-i="${i}" style="${estiloCaja}"></select><span id="notaParroquia" style="color:#b7791f; font-size:.72rem;"></span></label>`;
+    if (c.tipo === "circuito" || c.tipo === "consejo") {
+      const lista = c.tipo === "circuito" ? op.circuitos : op.consejos;
+      const ok = lista.find((x) => claveTxt(x.nombre) === claveTxt(c.valor));
+      return `<label style="${estiloLabel(c)}">${escapar(c.etiqueta)}<select data-i="${i}" style="${estiloCaja}">${ok ? "" : `<option value="">${c.valor ? "— elige —" : "— sin dato —"}</option>`}${lista.map((x) => opt(x.nombre, ok === x)).join("")}</select>${!ok && c.valor ? nota(`Valor actual no está en la lista: «${escapar(c.valor)}»`) : ""}</label>`;
+    }
+    if (c.tipo === "circuito_cod" || c.tipo === "consejo_cod") return `<label style="${estiloLabel(c)}">${escapar(c.etiqueta)} <span style="font-size:.7rem;">(se llena solo)</span><input type="text" data-i="${i}" value="${escapar(c.valor).replace(/"/g, "&quot;")}" readonly style="${estiloCaja} background:#f0f2f5;"></label>`;
+    const extra = c.tipo === "telefono" ? 'inputmode="numeric" maxlength="14" placeholder="04161234567"' : c.numero ? 'inputmode="numeric"' : "";
+    return `<label style="${estiloLabel(c)}">${escapar(c.etiqueta)}<input type="text" data-i="${i}" value="${escapar(c.valor).replace(/"/g, "&quot;")}" ${extra} style="${estiloCaja}"></label>`;
+  }
+
   const fondo = document.createElement("div");
   fondo.className = "modal-fondo visible";
   fondo.style.zIndex = "3000"; // por encima de la ficha a pantalla completa (z-index 999)
   fondo.innerHTML = `<div class="modal" role="dialog" aria-label="Editar datos del plantel" style="max-width:720px; width:100%;">
     <h2 style="margin:0 0 4px;">Editar datos del plantel</h2>
-    <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · ${escapar(plantel[CAMPO_CODIGO] || "")}. El código y el nombre no se editan: los manda GESCOLAR. Los cambios se escriben en la hoja de GESCOLAR y quedan en el historial.</p>
+    <p style="margin:0 0 12px; color:var(--muted); font-size:.82rem;">${escapar(plantel[CAMPO_NOMBRE] || "")} · ${escapar(plantel[CAMPO_CODIGO] || "")}. El código y el nombre no se editan: los manda GESCOLAR. Municipio, parroquia, circuito y consejo comunal se eligen de listas. Los cambios se escriben en la hoja de GESCOLAR y quedan en el historial.</p>
     <form id="formEditarDatos" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">
-      ${campos.map((c, i) => `<label style="display:grid; gap:3px; font-size:.76rem; color:var(--muted); ${c.ancho ? "grid-column:1/-1;" : ""}">${escapar(c.etiqueta)}
-        <input type="text" data-i="${i}" value="${escapar(c.valor).replace(/"/g, "&quot;")}" ${c.numero ? 'inputmode="numeric"' : ""} style="padding:8px 10px; border:1px solid var(--borde); border-radius:8px; font-size:.9rem;"></label>`).join("")}
+      ${campos.map((c, i) => campoHtml(c, i)).join("")}
     </form>
     <div id="errorEditarDatos" style="color:#c53030; font-size:.82rem; min-height:1.2em; margin-top:8px;"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
@@ -271,28 +306,71 @@ function abrirEdicionDatos(plantel, campoEnfocado) {
       <button type="button" class="btn btn-primario" id="btnGuardarEdicion">Guardar cambios</button>
     </div></div>`;
   document.body.appendChild(fondo);
+  const el = (i) => fondo.querySelector(`[data-i="${i}"]`);
+
+  // Parroquia: depende del municipio elegido.
+  function llenarParroquias(conservar) {
+    if (iPar < 0) return;
+    const mun = iMun >= 0 ? el(iMun).value : plantel[campos[iPar].real] ? "" : "";
+    const lista = op.parroquias[mun] || [];
+    const sel = el(iPar);
+    const actual = campos[iPar].valor;
+    const ok = conservar ? lista.find((x) => claveTxt(x) === claveTxt(actual)) : null;
+    sel.innerHTML = (ok ? "" : `<option value="">${mun ? "— elige una parroquia —" : "— elige primero el municipio —"}</option>`) + lista.map((x) => opt(x, ok === x)).join("");
+    const nota = document.getElementById("notaParroquia");
+    if (nota) nota.textContent = conservar && !ok && actual ? `Valor actual no válido: «${actual}»` : "";
+  }
+  if (iMun >= 0) { llenarParroquias(true); el(iMun).addEventListener("change", () => llenarParroquias(false)); } else llenarParroquias(true);
+
+  // Circuito / consejo: al elegir el nombre se llena su código.
+  function enlazarPar(iNom, iCod, lista) {
+    if (iNom < 0 || iCod < 0) return;
+    el(iNom).addEventListener("change", () => { const x = lista.find((y) => y.nombre === el(iNom).value); el(iCod).value = x ? x.codigo : campos[iCod].valor; });
+  }
+  enlazarPar(iCir, iCirCod, op.circuitos);
+  enlazarPar(iCon, iConCod, op.consejos);
+
   const enfocado = campoEnfocado ? campos.findIndex((c) => c.real === campoEnfocado) : -1;
   if (enfocado >= 0) {
-    const el = fondo.querySelector(`input[data-i="${enfocado}"]`);
-    if (el) { el.focus(); el.select(); }
+    const e = el(enfocado);
+    if (e) { e.focus(); if (e.select) e.select(); }
   }
   document.getElementById("btnCancelarEdicion").addEventListener("click", () => fondo.remove());
   document.getElementById("btnGuardarEdicion").addEventListener("click", async (e) => {
+    const error = document.getElementById("errorEditarDatos");
+    error.textContent = "";
     const cambios = {};
-    fondo.querySelectorAll("input[data-i]").forEach((el) => {
-      const c = campos[Number(el.dataset.i)];
-      if (el.value.trim() !== c.valor.trim()) cambios[c.real] = el.value;
+    const distinto = (i) => claveTxt(el(i).value) !== claveTxt(campos[i].valor) && !(el(i).tagName === "SELECT" && el(i).value === "");
+    campos.forEach((c, i) => {
+      if (["circuito_cod", "consejo_cod", "parroquia", "municipio"].includes(c.tipo)) return;
+      if (["circuito", "consejo"].includes(c.tipo)) {
+        if (distinto(i)) { cambios[c.real] = el(i).value; const iCod = c.tipo === "circuito" ? iCirCod : iConCod; if (iCod >= 0) cambios[campos[iCod].real] = el(iCod).value; }
+        return;
+      }
+      if (el(i).value.trim() !== c.valor.trim()) cambios[c.real] = el(i).value;
     });
-    if (!Object.keys(cambios).length) { document.getElementById("errorEditarDatos").textContent = "No cambiaste nada."; return; }
+    // municipio y parroquia van juntos
+    if (iMun >= 0 && iPar >= 0) {
+      const mCambio = distinto(iMun), pCambio = distinto(iPar);
+      if (mCambio && el(iPar).value === "") { error.textContent = "Elegiste otro municipio: elige también la parroquia."; return; }
+      if (mCambio || pCambio) { cambios[campos[iMun].real] = el(iMun).value || campos[iMun].valor; cambios[campos[iPar].real] = el(iPar).value; }
+    }
+    for (const c of campos.filter((x) => x.tipo === "telefono")) {
+      const v = cambios[c.real];
+      if (v !== undefined && v.replace(/[\s\-.()]/g, "") !== "" && !/^\d{10,11}$/.test(v.replace(/[\s\-.()]/g, ""))) { error.textContent = "Los teléfonos deben tener solo números (10 u 11 dígitos), por ejemplo 04161234567."; return; }
+    }
+    if (!Object.keys(cambios).length) { error.textContent = "No cambiaste nada."; return; }
     e.currentTarget.disabled = true;
     try {
       const r = await RAC.put(`/api/planteles-consulta/${encodeURIComponent(plantel[CAMPO_CODIGO])}/datos`, { campos: cambios });
-      Object.keys(cambios).forEach((k) => { plantel[k] = String(cambios[k]).trim(); });
       fondo.remove();
-      mostrarToast(`Se guardó ${r.cambiados} cambio${r.cambiados === 1 ? "" : "s"}.`);
+      mostrarToast(r.cambiados ? `Se guardó ${r.cambiados} cambio${r.cambiados === 1 ? "" : "s"}.` : "No había cambios que guardar.");
+      const q = await RAC.get(`/api/planteles-consulta/buscar?q=${encodeURIComponent(plantel[CAMPO_CODIGO])}`);
+      const nuevo = (q.planteles || []).find((x) => x[CAMPO_CODIGO] === plantel[CAMPO_CODIGO]);
+      if (nuevo) Object.assign(plantel, nuevo); else Object.keys(cambios).forEach((k) => { plantel[k] = String(cambios[k]).trim(); });
       abrirFicha(plantel);
     } catch (err) {
-      document.getElementById("errorEditarDatos").textContent = err.message;
+      error.textContent = err.message;
       e.currentTarget.disabled = false;
     }
   });
