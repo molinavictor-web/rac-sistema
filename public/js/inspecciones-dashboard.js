@@ -86,6 +86,9 @@ function pintar(d) {
     : `<div class="vacio"><strong>Sin datos</strong>No hay planteles del municipio Maturín en GESCOLAR.</div>`;
   const totParr = parr.reduce((x, o) => x + o.total, 0), cargParr = parr.reduce((x, o) => x + o.instrumento, 0);
 
+  let abiertoIU = false;
+  try { abiertoIU = window.localStorage.getItem("dashIUabierto") === "1"; } catch (_) { /* sin almacenamiento */ }
+
   document.getElementById("dash").innerHTML = `
     <div class="stats-grid">
       ${tarjeta("", n(d.total), "Planteles en GESCOLAR", "")}
@@ -106,7 +109,12 @@ function pintar(d) {
       <div class="dash-pie"><span>Atendidos con inspección: <strong>${n(d.atendidos_con_inspeccion)}</strong></span><span>Atendidos sin inspección: <strong>${n(d.atendidos_sin_inspeccion)}</strong></span></div>
     </div></div>
 
-    <div class="dash-dos" style="margin-top:16px;">
+    <details class="panel" id="detInstrumento" style="margin-top:16px;"${abiertoIU ? " open" : ""}>
+      <summary style="cursor:pointer; padding:16px 20px; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+        <span style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1rem; letter-spacing:.02em; text-transform:uppercase;">Estadística del Instrumento Uno CDCE</span>
+        <span style="font-size:.82rem; color:var(--muted);"><strong>${n(iu.cantidad)}</strong> de ${n(d.total)} planteles cargados (${pct(iu.porcentaje)}) · <span class="dash-iu-flecha">▾ Mostrar el detalle por municipio y parroquia</span></span>
+      </summary>
+    <div class="dash-dos" style="padding:0 16px 16px;">
       <div class="panel"><div class="dash-bloque">
         <h3>Planteles por municipio</h3>
         <p class="dash-nota">Total de planteles de GESCOLAR y cuántos ya están cargados con el Instrumento Uno CDCE (visitas enviadas). Avance general: <strong>${n(iu.cantidad)}</strong> de ${n(d.total)} (${pct(iu.porcentaje)}).</p>
@@ -118,6 +126,7 @@ function pintar(d) {
         ${filasParr}
       </div></div>
     </div>
+    </details>
 
     <div class="panel" style="margin-top:16px;"><div class="dash-bloque">
       <h3>Por municipio</h3>
@@ -165,4 +174,15 @@ function pintar(d) {
         ${tarjeta("stat-alert acento-riesgo", n(d.modulo.borradores), "Planillas en borrador", "")}
       </div>
     </div></div>`;
+
+  const det = document.getElementById("detInstrumento");
+  if (det) {
+    const flecha = det.querySelector(".dash-iu-flecha");
+    const poner = () => { flecha.textContent = det.open ? "▴ Ocultar el detalle" : "▾ Mostrar el detalle por municipio y parroquia"; };
+    poner();
+    det.addEventListener("toggle", () => {
+      poner();
+      try { window.localStorage.setItem("dashIUabierto", det.open ? "1" : "0"); } catch (_) { /* sin almacenamiento */ }
+    });
+  }
 }
