@@ -300,14 +300,15 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - **Validación:** municipio, parroquia, circuito comunal y consejo comunal se eligen de listas armadas con los valores que ya existen en GESCOLAR (MATURIN y MATURÍN cuentan como uno); la parroquia debe ser del municipio elegido y el código del circuito/consejo se llena solo con su nombre. Teléfonos: solo números (10 u 11 dígitos, se guardan sin guiones). Nombre del director: letras y en mayúsculas. El servidor revisa lo mismo (`GET /opciones-datos`, `validarPedido`).
 - Los datos de planillas y dotaciones ya creadas son copias del momento: no cambian solas.
 
-### 6l. Proyectos comunales
+### 6l. Proyectos comunales (por comuna / circuito comunal)
 
-- **Qué es:** atención a planteles mediante proyectos elegidos por los circuitos comunales (elección). Cada fila de `proyectos_comunales` es UNA aprobación (año de la elección, nombre del proyecto, circuito y consejo, observaciones). «Proyecto comunal: SÍ» = el plantel tiene al menos una; el N.º de aprobación (1, 2, 3…) se calcula por orden de año.
-- **Script:** `scripts/sql/28_proyectos_comunales.sql` (tabla con RLS; ejecutar una vez en Supabase).
-- **API:** `src/routes/proyectosComunales.js`, montada en `/api/inspecciones/proyectos-comunales` (antes de `/api/inspecciones`): `/opciones`, `/buscar`, `/lista`, `/plantel/:codigo` (GET y POST), `PUT|DELETE /:id`.
+- **Modelo:** el proyecto pertenece a una **comuna o circuito comunal** (código y nombre, obligatorios; se eligen de los circuitos de GESCOLAR). Lleva año, fecha de la consulta (elección) y nombre. El número (1.ª, 2.ª, 3.ª consulta) se calcula por comuna ordenando por año y fecha. Debajo va la **lista de planteles** que atiende, cada uno `POR_ATENDER` o `ATENDIDO`. Un proyecto sin planteles se marca «Falta definir los planteles»; así no queda ambiguo a quién toca.
+- **Script:** `scripts/sql/29_comunal_proyectos.sql` (tablas `comunal_proyectos` y `comunal_proyecto_planteles`, con RLS). Si existía la tabla del script 28 (`proyectos_comunales`), pasa sus filas con circuito a la nueva forma (plantel en `POR_ATENDER`) y NO la borra. Es repetible.
+- **API:** `src/routes/proyectosComunales.js` en `/api/inspecciones/proyectos-comunales`: `/opciones`, `/buscar`, `/circuito/:codigo` (planteles de la comuna según GESCOLAR), `/lista`, `/plantel/:codigo`, `POST /`, `PUT|DELETE /:id` (el PUT con `planteles` reemplaza la lista completa).
 - **Permisos:** escriben admin, insp_coordinador y operador_plantel; leen además insp_consulta e insp_ingeniero.
-- **Circuito y consejo:** se eligen de los que ya existen en GESCOLAR (`opcionesDatos()` de `plantelesConsulta.js`); el código se autollena. Agregar circuitos/consejos nuevos y vincular planteles sin vínculo queda para una entrega posterior.
-- **Pantalla:** `public/inspecciones/proyectos-comunales.html` + `public/js/inspecciones-proyectos-comunales.js` (menú Inspecciones → Proyectos comunales; `?plantel=CODIGO` abre el formulario). Tarjeta «Proyecto comunal» en la ficha del plantel (`planteles-consulta.js`).
+- **Pantalla:** `public/inspecciones/proyectos-comunales.html` + `public/js/inspecciones-proyectos-comunales.js`. Plantel y comuna se buscan escribiendo (código o nombre). Botón «Agregar los planteles de esta comuna». `?plantel=CODIGO` abre el formulario con la comuna del plantel.
+- **Ficha del plantel:** tarjeta «Proyecto comunal» (`planteles-consulta.js`): circuito/consejo, SÍ/NO, aprobaciones con N.º de consulta de la comuna, año, estado, y aviso si su comuna tiene proyectos sin planteles definidos.
+- **Pendiente:** catálogo para agregar comunas/consejos nuevos y vincular planteles sin vínculo; decidir si cuentan en el Resumen.
 
 ## 7. Módulos de consulta de planteles
 
