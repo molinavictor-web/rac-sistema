@@ -60,6 +60,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       { id: "inspecciones-dashboard", href: "/inspecciones/dashboard.html", label: "Resumen", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-iu", href: "/inspecciones/instrumento-uno.html", label: "Instrumento Uno CDCE", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-infra", href: "/inspecciones/infraestructuras.html", label: "Infraestructuras", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
+      { id: "inspecciones-comunales", href: "/inspecciones/proyectos-comunales.html", label: "Proyectos comunales", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-edificios", href: "/inspecciones/instrumento-uno-edificios.html", label: "Edificios compartidos", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-consultas", href: "/inspecciones/consultas.html", label: "Consultas exprés", roles: ["admin", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
       { id: "inspecciones-cambios", href: "/inspecciones/cambios.html", label: "Cambios recientes", roles: ["admin"] },

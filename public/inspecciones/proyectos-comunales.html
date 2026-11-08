@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SID — Inspecciones · Proyectos comunales</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .pc-filtros { display: flex; gap: 10px; flex-wrap: wrap; padding: 14px 20px; align-items: end; }
+  .pc-filtros label { display: grid; gap: 3px; font-size: .76rem; color: var(--muted); }
+  .pc-filtros input, .pc-filtros select { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .9rem; font-family: inherit; }
+  .pc-tabla { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  .pc-tabla th, .pc-tabla td { padding: 8px 10px; border-bottom: 1px solid var(--borde); vertical-align: top; text-align: left; }
+  .pc-tabla th { background: #f4f7fb; font-size: .72rem; text-transform: uppercase; }
+  .pc-sub { color: var(--muted); font-size: .76rem; }
+  .pc-form { display: grid; gap: 10px; }
+  .pc-form label { display: grid; gap: 3px; font-size: .78rem; color: var(--muted); }
+  .pc-form input, .pc-form select, .pc-form textarea { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 8px; font-size: .92rem; font-family: inherit; }
+  .pc-fondo { position: fixed; inset: 0; background: rgba(13,43,82,.45); z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .pc-modal { background: #fff; border-radius: 12px; padding: 20px; width: min(560px, 100%); max-height: 90vh; overflow: auto; display: grid; gap: 12px; }
+</style>
+</head>
+<body class="planteles-page">
+  <div id="shell"></div>
+  <script src="/js/api.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/inspecciones-proyectos-comunales.js"></script>
+</body>
+</html>
