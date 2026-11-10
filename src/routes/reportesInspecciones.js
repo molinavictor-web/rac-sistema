@@ -10,7 +10,7 @@
 //   GET /todos?columnas=...                todos los planteles de GESCOLAR (con los filtros rápidos); GET /todos/excel = en Excel
 //   GET /planes                            planes que se pueden elegir (con su cantidad de planteles activos)
 //   GET /comunas?municipio=&solo=          reporte «Por comuna» (una fila por comuna) en JSON; GET /comunas/excel = en Excel
-//   Los reportes por plantel aceptan filtros rápidos: ?f_datos=&f_proyecto=&f_atencion= (o {filtros} en el POST)
+//   Los reportes por plantel aceptan filtros rápidos: ?f_datos=&f_proyecto=&f_atencion=&f_edificio= (o {filtros} en el POST)
 //
 // Solo lectura. Perfiles: admin, insp_coordinador, insp_consulta y operador_plantel. Las columnas con datos de
 // contacto del director solo las ven admin e insp_coordinador (el servidor las rechaza al resto, no solo las oculta).
@@ -62,13 +62,13 @@ router.get("/planes", requireAuth, requireRol(...ROLES_LECTURA), async (req, res
   }
 });
 
-// Filtros rápidos por plantel (datos de comuna, proyecto comunal, atención): ?f_datos=&f_proyecto=&f_atencion=
-const filtrosDe = (q) => reportes.validarFiltros({ datos: q.f_datos, proyecto: q.f_proyecto, atencion: q.f_atencion });
+// Filtros rápidos por plantel (datos de comuna, proyecto comunal, atención): ?f_datos=&f_proyecto=&f_atencion=&f_edificio=
+const filtrosDe = (q) => reportes.validarFiltros({ datos: q.f_datos, proyecto: q.f_proyecto, atencion: q.f_atencion, edificio: q.f_edificio });
 
 async function reporteDeTodos(req) {
   const columnas = reportes.validarColumnas(req.query.columnas, req.usuario.rol);
   const filtros = filtrosDe(req.query);
-  if (columnas.some((c) => c.grupo === "edificio")) await asegurarSync();
+  if (columnas.some((c) => c.grupo === "edificio") || filtros.edificio !== "todos") await asegurarSync();
   return reportes.armarReporteTodos(columnas, filtros);
 }
 
@@ -99,7 +99,7 @@ router.get("/plan/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req, r
   try {
     const columnas = reportes.validarColumnas(req.query.columnas, req.usuario.rol);
     const filtros = filtrosDe(req.query);
-    if (columnas.some((c) => c.grupo === "edificio")) await asegurarSync();
+    if (columnas.some((c) => c.grupo === "edificio") || filtros.edificio !== "todos") await asegurarSync();
     const reporte = await reportes.armarReportePlan(planId, columnas, filtros);
     if (!reporte) return res.status(404).json({ error: "Plan no encontrado." });
     res.json(reporte);
@@ -114,7 +114,7 @@ router.get("/plan/:id/excel", requireAuth, requireRol(...ROLES_LECTURA), async (
   try {
     const columnas = reportes.validarColumnas(req.query.columnas, req.usuario.rol);
     const filtros = filtrosDe(req.query);
-    if (columnas.some((c) => c.grupo === "edificio")) await asegurarSync();
+    if (columnas.some((c) => c.grupo === "edificio") || filtros.edificio !== "todos") await asegurarSync();
     const reporte = await reportes.armarReportePlan(planId, columnas, filtros);
     if (!reporte) return res.status(404).json({ error: "Plan no encontrado." });
     const buffer = await require("../services/exportarExcel").reportePlan(reporte);
@@ -139,7 +139,7 @@ async function reporteDeSeleccion(req) {
   const columnas = reportes.validarColumnas(Array.isArray(req.body.columnas) ? req.body.columnas.join(",") : req.body.columnas, req.usuario.rol);
   const codigos = reportes.validarCodigos(req.body.codigos);
   const filtros = reportes.validarFiltros(req.body.filtros);
-  if (columnas.some((c) => c.grupo === "edificio")) await asegurarSync();
+  if (columnas.some((c) => c.grupo === "edificio") || filtros.edificio !== "todos") await asegurarSync();
   return reportes.armarReporteSeleccion(codigos, columnas, filtros);
 }
 

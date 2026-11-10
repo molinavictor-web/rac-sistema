@@ -292,7 +292,9 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
     });
   }
 
-  const pideEdificio = columnas.some((c) => c.grupo === "edificio");
+  const filtrosOk = filtros || comunas.validarFiltros({});
+  // El filtro por edificio también necesita saber cómo está clasificado cada plantel, aunque no se pidan las columnas de edificio.
+  const pideEdificio = columnas.some((c) => c.grupo === "edificio") || filtrosOk.edificio !== "todos";
   const pideMatEdificio = columnas.some((c) => c.id === "edificio_matricula");
   const edifDe = new Map(); // dea (minúsculas) -> edificio
   const espacios = new Map();
@@ -317,8 +319,7 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
   }
 
   // Comunas, proyectos comunales y «atendido»: solo se calculan si el reporte los pide (columnas o filtros).
-  const filtrosOk = filtros || comunas.validarFiltros({});
-  const pideComunas = columnas.some((c) => c.grupo === "comunas") || comunas.hayFiltros(filtrosOk);
+  const pideComunas = columnas.some((c) => c.grupo === "comunas") || comunas.hayFiltrosComuna(filtrosOk);
   const comunaDeCodigo = new Map(); // dea (minúsculas) -> { comuna, proyectos, atencion }
   let comunasDisponibles = false;
   if (pideComunas) {
@@ -441,7 +442,7 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
   // Filtros rápidos (datos de comuna, proyecto comunal, atención). Se aplican antes de totales y cifras.
   if (comunas.hayFiltros(filtrosOk)) {
     const antes = filas.length;
-    filas = filas.filter((f) => comunas.pasaFiltros(f._com, filtrosOk));
+    filas = filas.filter((f) => comunas.pasaFiltros(f._com, filtrosOk, f._estado));
     avisos.push(`Filtros aplicados: ${comunas.describirFiltros(filtrosOk)}. Se muestran ${filas.length} de ${antes} planteles.`);
   }
 

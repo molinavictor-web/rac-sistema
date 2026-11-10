@@ -389,3 +389,9 @@ subirlo y qué probar". No darle nunca claves, tokens ni el JSON de la cuenta de
 - Rutas nuevas: `GET /api/inspecciones/reportes/todos?columnas=…&f_datos=&f_proyecto=&f_atencion=` y `/todos/excel`. Mismos perfiles y mismo veto a las columnas de contacto que el resto de Reportes.
 - Servicio: `armarReporteTodos` en `reportesInspecciones.js` reutiliza `armarReporteSeleccion` (sin el tope de 300 planteles de la selección manual). Los planteles sin planilla muestran sus datos de GESCOLAR y las columnas de inspección quedan vacías (sale un aviso).
 - Pruebas: test45 (17).
+
+### 6q. Reportes: filtro rápido por edificio y botón «Limpiar»
+- Nuevo filtro rápido **Edificio**: Todos / Comparten edificio / Solos en su edificio / Sin clasificar (`?f_edificio=` o `filtros.edificio`). Funciona aunque no estén marcadas las columnas de edificio (el servidor calcula la clasificación por su cuenta y sincroniza la hoja de Coordenadas). Se puede combinar con los demás filtros y con «TODOS los planteles».
+- `comunasReporte.js`: `FILTROS.edificio`, `pasaFiltros(h, f, estadoEdificio)` y `hayFiltrosComuna` (el filtro de edificio no necesita leer GESCOLAR para comunas).
+- **Limpiar** ahora también devuelve los combos de filtros (Edificio, Datos de comuna, Proyecto comunal, Atención) a «Todos», y «Municipio»/«Mostrar» del reporte por comuna a sus valores iniciales. Antes solo borraba el resultado y los combos quedaban con lo último elegido.
+- Pruebas: test46 (20).

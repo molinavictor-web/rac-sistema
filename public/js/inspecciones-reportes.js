@@ -138,6 +138,13 @@ function dibujarArmado() {
     <div class="rep-filtros" id="bloqueFiltros">
       <h3>Filtros rápidos <span>(opcionales: reducen la lista antes de verla o descargarla)</span></h3>
       <div class="rep-fila">
+        <label for="fEdificio">Edificio</label>
+        <select id="fEdificio">
+          <option value="todos">Todos</option>
+          <option value="comparte">Comparten edificio</option>
+          <option value="solo">Solos en su edificio</option>
+          <option value="sin_clasificar">Sin clasificar</option>
+        </select>
         <label for="fDatos">Datos de comuna</label>
         <select id="fDatos">
           <option value="todos">Todos</option>
@@ -180,7 +187,7 @@ function dibujarArmado() {
   });
   const selPlan = document.getElementById("plan");
   if (selPlan) selPlan.addEventListener("change", limpiarResultado);
-  ["fDatos", "fProyecto", "fAtencion", "comMunicipio", "comSolo"].forEach((id) => document.getElementById(id).addEventListener("change", limpiarResultado));
+  ["fEdificio", "fDatos", "fProyecto", "fAtencion", "comMunicipio", "comSolo"].forEach((id) => document.getElementById(id).addEventListener("change", limpiarResultado));
   pintarSeleccion();
   cont.querySelectorAll("[data-col]").forEach((chk) => chk.addEventListener("change", () => {
     if (chk.checked) seleccion.add(chk.dataset.col); else seleccion.delete(chk.dataset.col);
@@ -199,6 +206,10 @@ function dibujarArmado() {
   document.getElementById("btnVer").addEventListener("click", verReporte);
   document.getElementById("btnLimpiar").addEventListener("click", () => {
     if (fuente === "planteles") { elegidos = []; recordarElegidos(); pintarElegidos(); document.getElementById("buscar").value = ""; document.getElementById("sugerencias").innerHTML = ""; }
+    // Los combos de filtros vuelven a «Todos» (antes se quedaban con lo último elegido).
+    ["fEdificio", "fDatos", "fProyecto", "fAtencion"].forEach((id) => { document.getElementById(id).value = "todos"; });
+    document.getElementById("comMunicipio").value = "";
+    document.getElementById("comSolo").value = "todas";
     limpiarResultado();
   });
   document.getElementById("btnExcel").addEventListener("click", (e) => descargarExcel(e.currentTarget));
@@ -269,11 +280,11 @@ function pintarSeleccion() {
 }
 
 function filtrosActuales() {
-  return { datos: document.getElementById("fDatos").value, proyecto: document.getElementById("fProyecto").value, atencion: document.getElementById("fAtencion").value };
+  return { datos: document.getElementById("fDatos").value, proyecto: document.getElementById("fProyecto").value, atencion: document.getElementById("fAtencion").value, edificio: document.getElementById("fEdificio").value };
 }
 function textoFiltros() {
   const f = filtrosActuales();
-  return `&f_datos=${encodeURIComponent(f.datos)}&f_proyecto=${encodeURIComponent(f.proyecto)}&f_atencion=${encodeURIComponent(f.atencion)}`;
+  return `&f_datos=${encodeURIComponent(f.datos)}&f_proyecto=${encodeURIComponent(f.proyecto)}&f_atencion=${encodeURIComponent(f.atencion)}&f_edificio=${encodeURIComponent(f.edificio)}`;
 }
 function textoComunas() {
   return `municipio=${encodeURIComponent(document.getElementById("comMunicipio").value)}&solo=${encodeURIComponent(document.getElementById("comSolo").value)}`;
