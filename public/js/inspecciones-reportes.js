@@ -188,6 +188,12 @@ function dibujarArmado() {
   const selPlan = document.getElementById("plan");
   if (selPlan) selPlan.addEventListener("change", limpiarResultado);
   ["fEdificio", "fDatos", "fProyecto", "fAtencion", "comMunicipio", "comSolo"].forEach((id) => document.getElementById(id).addEventListener("change", limpiarResultado));
+  // Al elegir un filtro rápido se marcan solas las columnas que tienen que ver con él (se pueden desmarcar después).
+  Object.keys(COLUMNAS_DE_FILTRO).forEach((id) => document.getElementById(id).addEventListener("change", (e) => {
+    if (e.target.value === "todos") return;
+    COLUMNAS_DE_FILTRO[id].forEach((c) => { if (CAT.columnas.some((x) => x.id === c)) seleccion.add(c); });
+    recordar(); pintarSeleccion();
+  }));
   pintarSeleccion();
   cont.querySelectorAll("[data-col]").forEach((chk) => chk.addEventListener("change", () => {
     if (chk.checked) seleccion.add(chk.dataset.col); else seleccion.delete(chk.dataset.col);
@@ -269,6 +275,13 @@ function pintarElegidos() {
   const qt = document.getElementById("quitarTodos");
   if (qt) qt.addEventListener("click", () => { elegidos = []; recordarElegidos(); pintarElegidos(); limpiarResultado(); });
 }
+
+const COLUMNAS_DE_FILTRO = {
+  fEdificio: ["edificio_estado"],
+  fDatos: ["com_codigo", "com_nombre", "com_consejo_codigo", "com_consejo", "com_datos"],
+  fProyecto: ["com_proyectos", "com_proy_estado"],
+  fAtencion: ["atendido", "atendido_por"],
+};
 
 function pintarSeleccion() {
   document.querySelectorAll("[data-col]").forEach((chk) => { chk.checked = seleccion.has(chk.dataset.col); });
