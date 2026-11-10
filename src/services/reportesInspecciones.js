@@ -26,6 +26,7 @@ const gescolar = require("./gescolar");
 const consultasExpres = require("./consultasExpres");
 const esquemaIU = require("./instrumentoUnoEsquema");
 const infra = require("./infraestructuras");
+const comunas = require("./comunasReporte");
 
 // ---------------------------------------------------------------------------
 // Catálogo de columnas
@@ -39,6 +40,7 @@ const GRUPOS = [
   { id: "proyeccion", etiqueta: "Proyección de rehabilitación (aulas)" },
   { id: "edificio", etiqueta: "Edificio" },
   { id: "inspeccion", etiqueta: "Inspección" },
+  { id: "comunas", etiqueta: "Comunas, proyectos comunales y atención" },
   { id: "director", etiqueta: "Director (datos de contacto)" },
 ];
 
@@ -91,6 +93,17 @@ const COLUMNAS = [
   { id: "insp_rubros", grupo: "inspeccion", etiqueta: "Rubros con cantidad", tipo: "entero", ancho: 11 },
   { id: "insp_adicionales", grupo: "inspeccion", etiqueta: "Adicionales con cantidad", tipo: "entero", ancho: 12 },
 
+  // Comunas y atención: salen de GESCOLAR VIGENTE (no de la copia de la planilla) y de los proyectos comunales.
+  { id: "com_codigo", grupo: "comunas", etiqueta: "Código de la comuna (circuito)", tipo: "texto", ancho: 15 },
+  { id: "com_nombre", grupo: "comunas", etiqueta: "Comuna (GESCOLAR vigente)", tipo: "texto", ancho: 30 },
+  { id: "com_consejo_codigo", grupo: "comunas", etiqueta: "Código del consejo comunal", tipo: "texto", ancho: 15 },
+  { id: "com_consejo", grupo: "comunas", etiqueta: "Consejo comunal", tipo: "texto", ancho: 30 },
+  { id: "com_datos", grupo: "comunas", etiqueta: "Datos de comuna", tipo: "texto", ancho: 22 },
+  { id: "com_proyectos", grupo: "comunas", etiqueta: "Proyectos comunales (cantidad)", tipo: "entero", sumable: true, ancho: 12 },
+  { id: "com_proy_estado", grupo: "comunas", etiqueta: "Estado del proyecto comunal", tipo: "texto", ancho: 18 },
+  { id: "com_proy_detalle", grupo: "comunas", etiqueta: "Detalle de los proyectos comunales", tipo: "texto", ancho: 50 },
+  { id: "atendido", grupo: "comunas", etiqueta: "Atendido (FEDE u otro ente)", tipo: "texto", ancho: 13 },
+  { id: "atendido_por", grupo: "comunas", etiqueta: "Atendido por", tipo: "texto", ancho: 17 },
   { id: "director_nombre", grupo: "director", etiqueta: "Director", tipo: "texto", ancho: 30, roles: ROLES_DIRECTOR },
   { id: "director_telefono", grupo: "director", etiqueta: "Teléfono del director", tipo: "texto", ancho: 16, roles: ROLES_DIRECTOR },
 ];
@@ -100,6 +113,7 @@ const PRESETS = [
   { id: "matricula_edificio", etiqueta: "Matrícula y edificio", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "edificio_estado", "edificio_codigo", "edificio_instituciones", "edificio_comparte_con", "edificio_matricula", "espacios_separados"] },
   { id: "matricula_niveles", etiqueta: "Matrícula por nivel", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "mat_maternal", "mat_preescolar", "mat_primaria", "mat_media_general", "mat_media", "mat_tecnica", "mat_adulto", "mat_especial"] },
   { id: "proyeccion_aulas", etiqueta: "Proyección de aulas", columnas: ["codigo", "nombre", "municipio", "parroquia", "mat_total", "aulas_total", "aulas_operativas", "aulas_no_operativas", "aulas_motivo", "aulas_fuerza_mayor", "alumnos_por_aula", "proy_alumnos_min", "proy_alumnos_max", "proy_mesas_min", "proy_mesas_max"] },
+  { id: "comunas_atencion", etiqueta: "Comunas y atención", columnas: ["codigo", "nombre", "municipio", "parroquia", "com_codigo", "com_nombre", "com_consejo", "com_datos", "com_proyectos", "com_proy_estado", "atendido", "atendido_por"] },
   { id: "seguimiento", etiqueta: "Seguimiento de la inspección", columnas: ["codigo", "nombre", "municipio", "parroquia", "insp_estado", "insp_fecha", "insp_responsable", "insp_rubros", "insp_adicionales"] },
 ];
 
@@ -117,6 +131,7 @@ function catalogoPara(rol) {
     grupos: GRUPOS.filter((g) => cols.some((c) => c.grupo === g.id)),
     columnas: cols.map(({ id, grupo, etiqueta, tipo }) => ({ id, grupo, etiqueta, tipo })),
     presets: PRESETS.map((p) => ({ ...p, columnas: p.columnas.filter((id) => ok.has(id)) })),
+    filtros: comunas.FILTROS,
   };
 }
 
@@ -249,7 +264,7 @@ const ETIQUETA_EDIFICIO = { solo: "Solo en su edificio", comparte: "Comparte edi
 
 // Núcleo: arma el reporte a partir de una lista de "entradas" ya resueltas.
 //   entrada = { inspeccion_id (o null), codigo, fecha, estado, membrete (copia de GESCOLAR + correcciones, o la fila de GESCOLAR), fuente }
-async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciales = [] }) {
+async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciales = [], filtros = null }) {
   const ids = entradas.map((r) => r.inspeccion_id).filter(Boolean);
   const deas = entradas.map((r) => String(r.codigo || "").toLowerCase());
 
@@ -301,6 +316,36 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
     }
   }
 
+  // Comunas, proyectos comunales y «atendido»: solo se calculan si el reporte los pide (columnas o filtros).
+  const filtrosOk = filtros || comunas.validarFiltros({});
+  const pideComunas = columnas.some((c) => c.grupo === "comunas") || comunas.hayFiltros(filtrosOk);
+  const comunaDeCodigo = new Map(); // dea (minúsculas) -> { comuna, proyectos, atencion }
+  let comunasDisponibles = false;
+  if (pideComunas) {
+    try {
+      const datosGescolar = await gescolar.cargarGescolar();
+      const filaDe = new Map();
+      datosGescolar.forEach((p) => { const k = texto(p[gescolar.CAMPO_CODIGO]).toLowerCase(); if (k) filaDe.set(k, p); });
+      const ctxAt = await comunas.contextoAtencion(datosGescolar);
+      const ctxProy = await comunas.cargarProyectos();
+      avisos.push(...ctxAt.avisos);
+      if (ctxProy.aviso) avisos.push(ctxProy.aviso);
+      let sinFila = 0;
+      entradas.forEach((r) => {
+        const k = String(r.codigo || "").toLowerCase();
+        const fila = filaDe.get(k);
+        if (!fila) sinFila += 1;
+        const base = fila || r.membrete || {};
+        comunaDeCodigo.set(k, { comuna: comunas.comunaDe(base), proyectos: comunas.proyectosDe(k, ctxProy), atencion: comunas.atencionDe(base, ctxAt) });
+      });
+      if (sinFila) avisos.push(`${sinFila} plantel(es) ya no aparecen en GESCOLAR vigente: sus datos de comuna y atención salen de la copia de la planilla.`);
+      comunasDisponibles = true;
+    } catch (err) {
+      console.error("Reportes: no se pudo leer GESCOLAR para comunas:", err.message);
+      throw new ErrorReporte(502, "No se pudo consultar GESCOLAR para los datos de comuna. Intenta de nuevo en un momento.");
+    }
+  }
+
   // Datos efectivos de cada plantel (también sirven para la matrícula de su edificio).
   const planillas = new Map(entradas.map((r) => [r.codigo, datosDePlanilla(r.membrete)]));
   const matriculaEnReporte = new Map();
@@ -308,7 +353,7 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
 
   const edificioSinDatos = new Set();
   let sinAulas = 0; let subocupados = 0;
-  const filas = entradas.map((r) => {
+  let filas = entradas.map((r) => {
     const d = planillas.get(r.codigo);
     const dea = String(r.codigo || "").toLowerCase();
     const e = edifDe.get(dea);
@@ -368,9 +413,20 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
       insp_ingenieros: (ing.get(r.inspeccion_id) || []).join("; "),
       insp_rubros: r.inspeccion_id ? (rubros.get(r.inspeccion_id) || 0) : null,
       insp_adicionales: r.inspeccion_id ? (adic.get(r.inspeccion_id) || 0) : null,
+      com_codigo: pideComunas ? comunaDeCodigo.get(dea).comuna.comuna_codigo : null,
+      com_nombre: pideComunas ? comunaDeCodigo.get(dea).comuna.comuna_nombre : null,
+      com_consejo_codigo: pideComunas ? comunaDeCodigo.get(dea).comuna.consejo_codigo : null,
+      com_consejo: pideComunas ? comunaDeCodigo.get(dea).comuna.consejo_nombre : null,
+      com_datos: pideComunas ? comunaDeCodigo.get(dea).comuna.datos : null,
+      com_proyectos: pideComunas ? comunaDeCodigo.get(dea).proyectos.cantidad : null,
+      com_proy_estado: pideComunas ? comunaDeCodigo.get(dea).proyectos.estado : null,
+      com_proy_detalle: pideComunas ? comunaDeCodigo.get(dea).proyectos.detalle : null,
+      atendido: pideComunas ? (comunaDeCodigo.get(dea).atencion.atendido ? "Sí" : "No") : null,
+      atendido_por: pideComunas ? (({ fede, otro }) => (fede && otro ? "FEDE y otro ente" : fede ? "FEDE" : otro ? "Otro ente" : ""))(comunaDeCodigo.get(dea).atencion) : null,
       director_nombre: d.director,
       director_telefono: d.telefono,
       _estado: estado,
+      _com: pideComunas ? comunaDeCodigo.get(dea) : null,
       _edificio: e ? e.codigo_infraestructura : "",
     };
     COLUMNAS.filter((c) => c.gescolar).forEach((c) => { valores[c.id] = aEntero(d.mapa[c.gescolar]); });
@@ -381,6 +437,13 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
     String(a.municipio || "").localeCompare(String(b.municipio || ""), "es") ||
     String(a.parroquia || "").localeCompare(String(b.parroquia || ""), "es") ||
     String(a.nombre || "").localeCompare(String(b.nombre || ""), "es"));
+
+  // Filtros rápidos (datos de comuna, proyecto comunal, atención). Se aplican antes de totales y cifras.
+  if (comunas.hayFiltros(filtrosOk)) {
+    const antes = filas.length;
+    filas = filas.filter((f) => comunas.pasaFiltros(f._com, filtrosOk));
+    avisos.push(`Filtros aplicados: ${comunas.describirFiltros(filtrosOk)}. Se muestran ${filas.length} de ${antes} planteles.`);
+  }
 
   const totales = {};
   columnas.filter((c) => c.sumable).forEach((c) => {
@@ -413,6 +476,11 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
       planteles_solos: pideEdificio ? filas.filter((f) => f._estado === "solo").length : null,
       planteles_comparten: pideEdificio ? filas.filter((f) => f._estado === "comparte").length : null,
       sin_clasificar: pideEdificio ? filas.filter((f) => f._estado === "sin_clasificar").length : null,
+      // Comunas y atención (solo si el reporte los usa)
+      comunas_completos: pideComunas ? filas.filter((f) => f._com.comuna.tieneComuna && f._com.comuna.tieneConsejo).length : null,
+      comunas_faltan: pideComunas ? filas.filter((f) => !(f._com.comuna.tieneComuna && f._com.comuna.tieneConsejo)).length : null,
+      con_proyecto_comunal: pideComunas ? filas.filter((f) => f._com.proyectos.cantidad > 0).length : null,
+      atendidos: pideComunas ? filas.filter((f) => f._com.atencion.atendido).length : null,
       // Proyección de aulas (solo si el reporte la incluye)
       con_datos_de_aulas: pideProyeccion ? filas.filter((f) => f.aulas_total !== null || f.aulas_no_operativas !== null).length : null,
       aulas_no_operativas: pideProyeccion ? filas.reduce((x, f) => x + (typeof f.aulas_no_operativas === "number" ? f.aulas_no_operativas : 0), 0) : null,
@@ -427,7 +495,7 @@ async function armarReporte({ titulo, planId, entradas, columnas, avisosIniciale
 }
 
 // Reporte de los planteles ACTIVOS de un plan.
-async function armarReportePlan(planId, columnas) {
+async function armarReportePlan(planId, columnas, filtros = null) {
   const plan = (await pool.query("SELECT id, nombre FROM planes_atencion WHERE id = $1", [planId])).rows[0];
   if (!plan) return null;
   const { rows } = await pool.query(
@@ -437,7 +505,7 @@ async function armarReportePlan(planId, columnas) {
     [planId]
   );
   const entradas = rows.map((r) => ({ inspeccion_id: r.inspeccion_id, codigo: r.codigo_dea, fecha: r.fecha, estado: r.estado, membrete: r.membrete || {}, fuente: "Planilla" }));
-  return armarReporte({ titulo: plan.nombre, planId: plan.id, entradas, columnas });
+  return armarReporte({ titulo: plan.nombre, planId: plan.id, entradas, columnas, filtros });
 }
 
 // Valida y limpia la lista de códigos elegidos (sin repetir, formato correcto, máximo permitido).
@@ -455,7 +523,7 @@ function validarCodigos(lista) {
 }
 
 // Reporte de los planteles elegidos uno a uno (estén o no en un plan).
-async function armarReporteSeleccion(codigos, columnas) {
+async function armarReporteSeleccion(codigos, columnas, filtros = null) {
   let filasGescolar;
   try {
     filasGescolar = await gescolar.cargarGescolar();
@@ -491,7 +559,7 @@ async function armarReporteSeleccion(codigos, columnas) {
   if (noEncontrados.length) avisos.push(`No se encontraron en GESCOLAR: ${noEncontrados.slice(0, 10).join(", ")}${noEncontrados.length > 10 ? "…" : ""}.`);
   const deGescolar = entradas.filter((e) => e.fuente === "GESCOLAR").length;
   if (deGescolar) avisos.push(`${deGescolar} plantel(es) no tienen planilla de inspección: sus datos salen de GESCOLAR vigente y las columnas de inspección quedan vacías.`);
-  return armarReporte({ titulo: `Planteles seleccionados (${entradas.length})`, planId: null, entradas, columnas, avisosIniciales: avisos });
+  return armarReporte({ titulo: `Planteles seleccionados (${entradas.length})`, planId: null, entradas, columnas, avisosIniciales: avisos, filtros });
 }
 
 // Búsqueda de planteles para agregarlos a la selección (por nombre, código, municipio o parroquia).
@@ -523,4 +591,4 @@ async function buscarParaSeleccion(entrada) {
   return { total, limitado: total > LIMITE, planteles: hallados };
 }
 
-module.exports = { ErrorReporte, catalogoPara, validarColumnas, validarCodigos, armarReportePlan, armarReporteSeleccion, buscarParaSeleccion, COLUMNAS };
+module.exports = { ErrorReporte, catalogoPara, validarColumnas, validarCodigos, armarReportePlan, armarReporteSeleccion, buscarParaSeleccion, COLUMNAS, validarFiltros: comunas.validarFiltros, armarReporteComunas: comunas.armarReporteComunas, listarMunicipios: comunas.listarMunicipios };
