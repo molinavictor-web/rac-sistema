@@ -138,33 +138,33 @@ function dibujarArmado() {
     <div class="rep-filtros" id="bloqueFiltros">
       <h3>Filtros rápidos <span>(opcionales: reducen la lista antes de verla o descargarla)</span></h3>
       <div class="rep-fila">
-        <label for="fEdificio">Edificio</label>
+        <span class="rep-par"><label for="fEdificio">Edificio</label>
         <select id="fEdificio">
           <option value="todos">Todos</option>
           <option value="comparte">Comparten edificio</option>
           <option value="solo">Solos en su edificio</option>
           <option value="sin_clasificar">Sin clasificar</option>
-        </select>
-        <label for="fDatos">Datos de comuna</label>
+        </select></span>
+        <span class="rep-par"><label for="fDatos">Datos de comuna</label>
         <select id="fDatos">
           <option value="todos">Todos</option>
           <option value="completos">Completos (comuna y consejo comunal cargados)</option>
           <option value="faltan">Les falta algún dato</option>
           <option value="sin_comuna">Sin comuna</option>
           <option value="sin_consejo">Sin consejo comunal</option>
-        </select>
-        <label for="fProyecto">Proyecto comunal</label>
+        </select></span>
+        <span class="rep-par"><label for="fProyecto">Proyecto comunal</label>
         <select id="fProyecto">
           <option value="todos">Todos</option>
           <option value="con">Con proyecto comunal</option>
           <option value="sin">Sin proyecto comunal</option>
-        </select>
-        <label for="fAtencion">Atención</label>
+        </select></span>
+        <span class="rep-par"><label for="fAtencion">Atención</label>
         <select id="fAtencion">
           <option value="todos">Todos</option>
           <option value="atendidos">Atendidos (FEDE u otro ente)</option>
           <option value="sin_atender">Sin atender</option>
-        </select>
+        </select></span>
       </div>
     </div>
     <div class="rep-acciones">
