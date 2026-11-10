@@ -395,3 +395,7 @@ subirlo y qué probar". No darle nunca claves, tokens ni el JSON de la cuenta de
 - `comunasReporte.js`: `FILTROS.edificio`, `pasaFiltros(h, f, estadoEdificio)` y `hayFiltrosComuna` (el filtro de edificio no necesita leer GESCOLAR para comunas).
 - **Limpiar** ahora también devuelve los combos de filtros (Edificio, Datos de comuna, Proyecto comunal, Atención) a «Todos», y «Municipio»/«Mostrar» del reporte por comuna a sus valores iniciales. Antes solo borraba el resultado y los combos quedaban con lo último elegido.
 - Pruebas: test46 (20).
+
+### 6r. Reportes: los filtros rápidos marcan sus columnas
+- Los filtros solo reducen la lista; las columnas salen si están marcadas. Para que no falten datos al descargar, al elegir un filtro (distinto de «Todos») se marcan solas las columnas relacionadas: Edificio → «Edificio»; Datos de comuna → código y nombre de la comuna, código y nombre del consejo comunal y «Datos de comuna»; Proyecto comunal → cantidad y estado; Atención → «Atendido» y «Atendido por». Se pueden desmarcar a mano y volver a «Todos» no las quita. (`COLUMNAS_DE_FILTRO` en `inspecciones-reportes.js`.)
+- Pruebas: test47 (11).
