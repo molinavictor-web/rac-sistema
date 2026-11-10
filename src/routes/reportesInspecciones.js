@@ -7,6 +7,7 @@
 //   GET /seleccion/buscar?q=texto          busca planteles (GESCOLAR) para ir agregándolos a la selección
 //   POST /seleccion        {codigos, columnas}   reporte de los planteles elegidos uno a uno (JSON)
 //   POST /seleccion/excel  {codigos, columnas}   el mismo reporte en Excel
+//   GET /todos?columnas=...                todos los planteles de GESCOLAR (con los filtros rápidos); GET /todos/excel = en Excel
 //   GET /planes                            planes que se pueden elegir (con su cantidad de planteles activos)
 //   GET /comunas?municipio=&solo=          reporte «Por comuna» (una fila por comuna) en JSON; GET /comunas/excel = en Excel
 //   Los reportes por plantel aceptan filtros rápidos: ?f_datos=&f_proyecto=&f_atencion= (o {filtros} en el POST)
@@ -63,6 +64,34 @@ router.get("/planes", requireAuth, requireRol(...ROLES_LECTURA), async (req, res
 
 // Filtros rápidos por plantel (datos de comuna, proyecto comunal, atención): ?f_datos=&f_proyecto=&f_atencion=
 const filtrosDe = (q) => reportes.validarFiltros({ datos: q.f_datos, proyecto: q.f_proyecto, atencion: q.f_atencion });
+
+async function reporteDeTodos(req) {
+  const columnas = reportes.validarColumnas(req.query.columnas, req.usuario.rol);
+  const filtros = filtrosDe(req.query);
+  if (columnas.some((c) => c.grupo === "edificio")) await asegurarSync();
+  return reportes.armarReporteTodos(columnas, filtros);
+}
+
+router.get("/todos", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    res.json(await reporteDeTodos(req));
+  } catch (err) {
+    responderError(res, err, "No se pudo armar el reporte.");
+  }
+});
+
+router.get("/todos/excel", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+  try {
+    const reporte = await reporteDeTodos(req);
+    const buffer = await require("../services/exportarExcel").reportePlan(reporte);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${nombreArchivo("REPORTE", "todos_los_planteles", String(reporte.filas.length))}.xlsx"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    responderError(res, err, "No se pudo generar el Excel del reporte.");
+  }
+});
 
 router.get("/plan/:id", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
   const planId = entero(req.params.id);

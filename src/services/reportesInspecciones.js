@@ -523,7 +523,7 @@ function validarCodigos(lista) {
 }
 
 // Reporte de los planteles elegidos uno a uno (estén o no en un plan).
-async function armarReporteSeleccion(codigos, columnas, filtros = null) {
+async function armarReporteSeleccion(codigos, columnas, filtros = null, opciones = {}) {
   let filasGescolar;
   try {
     filasGescolar = await gescolar.cargarGescolar();
@@ -559,7 +559,21 @@ async function armarReporteSeleccion(codigos, columnas, filtros = null) {
   if (noEncontrados.length) avisos.push(`No se encontraron en GESCOLAR: ${noEncontrados.slice(0, 10).join(", ")}${noEncontrados.length > 10 ? "…" : ""}.`);
   const deGescolar = entradas.filter((e) => e.fuente === "GESCOLAR").length;
   if (deGescolar) avisos.push(`${deGescolar} plantel(es) no tienen planilla de inspección: sus datos salen de GESCOLAR vigente y las columnas de inspección quedan vacías.`);
-  return armarReporte({ titulo: `Planteles seleccionados (${entradas.length})`, planId: null, entradas, columnas, avisosIniciales: avisos, filtros });
+  return armarReporte({ titulo: opciones.titulo || `Planteles seleccionados (${entradas.length})`, planId: null, entradas, columnas, avisosIniciales: avisos, filtros });
+}
+
+// Reporte de TODOS los planteles de GESCOLAR (sirve para ver, por ejemplo, a cuántos les falta la comuna o el consejo comunal en todo el estado).
+async function armarReporteTodos(columnas, filtros = null) {
+  let filasGescolar;
+  try {
+    filasGescolar = await gescolar.cargarGescolar();
+  } catch (err) {
+    console.error("Reportes: no se pudo leer GESCOLAR:", err.message);
+    throw new ErrorReporte(502, "No se pudo consultar GESCOLAR. Intenta de nuevo en un momento.");
+  }
+  const vistos = new Set(); const codigos = [];
+  filasGescolar.forEach((p) => { const c = texto(p[gescolar.CAMPO_CODIGO]); if (c && !vistos.has(c.toLowerCase())) { vistos.add(c.toLowerCase()); codigos.push(c); } });
+  return armarReporteSeleccion(codigos, columnas, filtros, { titulo: "Todos los planteles" });
 }
 
 // Búsqueda de planteles para agregarlos a la selección (por nombre, código, municipio o parroquia).
@@ -591,4 +605,4 @@ async function buscarParaSeleccion(entrada) {
   return { total, limitado: total > LIMITE, planteles: hallados };
 }
 
-module.exports = { ErrorReporte, catalogoPara, validarColumnas, validarCodigos, armarReportePlan, armarReporteSeleccion, buscarParaSeleccion, COLUMNAS, validarFiltros: comunas.validarFiltros, armarReporteComunas: comunas.armarReporteComunas, listarMunicipios: comunas.listarMunicipios };
+module.exports = { ErrorReporte, catalogoPara, validarColumnas, validarCodigos, armarReportePlan, armarReporteSeleccion, armarReporteTodos, buscarParaSeleccion, COLUMNAS, validarFiltros: comunas.validarFiltros, armarReporteComunas: comunas.armarReporteComunas, listarMunicipios: comunas.listarMunicipios };
