@@ -84,6 +84,7 @@ function recordarElegidos() {
 }
 
 function planInicial() {
+  if (new URLSearchParams(window.location.search).get("plan") === "todos") return "todos";
   const deUrl = Number(new URLSearchParams(window.location.search).get("plan"));
   if (deUrl && PLANES.some((p) => p.id === deUrl)) return deUrl;
   const activo = PLANES.find((p) => p.estado !== "CERRADO" && p.planteles > 0) || PLANES.find((p) => p.planteles > 0) || PLANES[0];
@@ -101,7 +102,7 @@ function dibujarArmado() {
     </div>
     <div class="rep-fila" id="bloquePlan">
       <label for="plan"><strong>Plan de atención</strong></label>
-      <select id="plan">${PLANES.map((p) => `<option value="${p.id}"${p.id === idPlan ? " selected" : ""}>${escapar(p.nombre)} (${p.planteles} planteles)</option>`).join("")}</select>
+      <select id="plan"><option value="todos"${idPlan === "todos" ? " selected" : ""}>TODOS los planteles (todo GESCOLAR)</option>${PLANES.map((p) => `<option value="${p.id}"${p.id === idPlan ? " selected" : ""}>${escapar(p.nombre)} (${p.planteles} planteles)</option>`).join("")}</select>
     </div>
     <div id="bloquePlanteles" style="display:none;">
       <div class="rep-fila">
@@ -278,6 +279,11 @@ function textoComunas() {
   return `municipio=${encodeURIComponent(document.getElementById("comMunicipio").value)}&solo=${encodeURIComponent(document.getElementById("comSolo").value)}`;
 }
 
+// «todos» = todos los planteles de GESCOLAR; si no, el id de un plan.
+function rutaPlan(plan) {
+  return plan === "todos" ? "/api/inspecciones/reportes/todos" : `/api/inspecciones/reportes/plan/${encodeURIComponent(plan)}`;
+}
+
 function parametros() {
   const plan = fuente === "plan" ? document.getElementById("plan").value : "";
   // El orden de las columnas lo define el catálogo, no el orden en que se marcaron.
@@ -305,7 +311,7 @@ async function verReporte() {
     ultimo = fuente === "comunas"
       ? await RAC.get(`/api/inspecciones/reportes/comunas?${textoComunas()}`)
       : fuente === "plan"
-        ? await RAC.get(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}?columnas=${encodeURIComponent(p.cols.join(","))}${textoFiltros()}`)
+        ? await RAC.get(`${rutaPlan(p.plan)}?columnas=${encodeURIComponent(p.cols.join(","))}${textoFiltros()}`)
         : await RAC.post("/api/inspecciones/reportes/seleccion", { codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols, filtros: filtrosActuales() });
     dibujarResultado();
   } catch (err) {
@@ -363,7 +369,7 @@ async function descargarExcel(boton) {
     const resp = fuente === "comunas"
       ? await fetch(`/api/inspecciones/reportes/comunas/excel?${textoComunas()}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
       : fuente === "plan"
-        ? await fetch(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}/excel?columnas=${encodeURIComponent(p.cols.join(","))}${textoFiltros()}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
+        ? await fetch(`${rutaPlan(p.plan)}/excel?columnas=${encodeURIComponent(p.cols.join(","))}${textoFiltros()}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
         : await fetch("/api/inspecciones/reportes/seleccion/excel", {
           method: "POST",
           headers: { Authorization: "Bearer " + RAC.getToken(), "Content-Type": "application/json" },

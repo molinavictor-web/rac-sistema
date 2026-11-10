@@ -383,3 +383,9 @@ documentado aquí; ver su propio README.**
 Pasarle: este archivo + `README.md` + `src/db/schema.sql` + el archivo concreto a modificar
 (completo y actual). Pedirle: "devuélveme el archivo completo modificado, dime en qué carpeta
 subirlo y qué probar". No darle nunca claves, tokens ni el JSON de la cuenta de servicio.
+
+### 6p. Reportes: opción «TODOS los planteles»
+- En Reportes → «Un plan de atención», el selector de plan trae primero **«TODOS los planteles (todo GESCOLAR)»**. Con esa opción el reporte parte de los ~973 planteles de GESCOLAR (no solo los de un plan) y los **filtros rápidos** actúan sobre todos. Ejemplo: «Datos de comuna → Les falta algún dato» da cuántos planteles del estado no tienen comuna o consejo comunal.
+- Rutas nuevas: `GET /api/inspecciones/reportes/todos?columnas=…&f_datos=&f_proyecto=&f_atencion=` y `/todos/excel`. Mismos perfiles y mismo veto a las columnas de contacto que el resto de Reportes.
+- Servicio: `armarReporteTodos` en `reportesInspecciones.js` reutiliza `armarReporteSeleccion` (sin el tope de 300 planteles de la selección manual). Los planteles sin planilla muestran sus datos de GESCOLAR y las columnas de inspección quedan vacías (sale un aviso).
+- Pruebas: test45 (17).
