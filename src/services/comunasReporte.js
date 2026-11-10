@@ -146,18 +146,20 @@ const FILTROS = {
   datos: ["todos", "completos", "faltan", "sin_comuna", "sin_consejo"],
   proyecto: ["todos", "con", "sin"],
   atencion: ["todos", "atendidos", "sin_atender"],
+  edificio: ["todos", "comparte", "solo", "sin_clasificar"],
 };
 const ETQ_FILTRO = {
   datos: { completos: "datos de comuna completos", faltan: "les falta algún dato de comuna", sin_comuna: "sin comuna", sin_consejo: "sin consejo comunal" },
   proyecto: { con: "con proyecto comunal", sin: "sin proyecto comunal" },
   atencion: { atendidos: "atendidos", sin_atender: "sin atender" },
+  edificio: { comparte: "comparten edificio", solo: "solos en su edificio", sin_clasificar: "edificio sin clasificar" },
 };
 
 class ErrorFiltro extends Error { constructor(m) { super(m); this.estado = 400; } }
 
 // Acepta { datos, proyecto, atencion }; lo que no venga es «todos». Rechaza valores desconocidos.
 function validarFiltros(entrada) {
-  const f = { datos: "todos", proyecto: "todos", atencion: "todos" };
+  const f = { datos: "todos", proyecto: "todos", atencion: "todos", edificio: "todos" };
   const e = entrada && typeof entrada === "object" ? entrada : {};
   for (const k of Object.keys(FILTROS)) {
     const v = e[k] === undefined || e[k] === null || e[k] === "" ? "todos" : String(e[k]);
@@ -167,8 +169,11 @@ function validarFiltros(entrada) {
   return f;
 }
 const hayFiltros = (f) => Object.keys(FILTROS).some((k) => f[k] !== "todos");
+// Los filtros de comuna / proyecto / atención necesitan leer GESCOLAR; el de edificio no.
+const hayFiltrosComuna = (f) => ["datos", "proyecto", "atencion"].some((k) => f[k] !== "todos");
 
-function pasaFiltros(h, f) {
+function pasaFiltros(h, f, estadoEdificio) {
+  if (f.edificio && f.edificio !== "todos" && estadoEdificio !== f.edificio) return false;
   if (f.datos === "completos" && !(h.comuna.tieneComuna && h.comuna.tieneConsejo)) return false;
   if (f.datos === "faltan" && h.comuna.tieneComuna && h.comuna.tieneConsejo) return false;
   if (f.datos === "sin_comuna" && h.comuna.tieneComuna) return false;
@@ -339,5 +344,5 @@ async function listarMunicipios() {
 module.exports = {
   listarMunicipios,
   ErrorFiltro, limpiar, datoComuna, comunaDe, contextoAtencion, atencionDe, cargarProyectos, proyectosDe,
-  FILTROS, validarFiltros, hayFiltros, pasaFiltros, describirFiltros, armarReporteComunas, SOLO_COMUNA,
+  FILTROS, validarFiltros, hayFiltros, hayFiltrosComuna, pasaFiltros, describirFiltros, armarReporteComunas, SOLO_COMUNA,
 };
