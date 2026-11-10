@@ -326,6 +326,13 @@ Permiten pedir solo una parte del Instrumento Uno (una o varias fases) a cualqui
 - Confirmar = el flujo normal `POST /clasificar`. Descartadas en la tabla `infra_sugerencias_descartadas` (script 31; sin ella el panel funciona pero sin botón de descartar).
 - Panel en Infraestructuras (`#sugerencias`). Prueba: test43 (28 pruebas).
 
+### 6o. Reportes: comunas, proyectos comunales y atención
+- **Columnas** (grupo «Comunas, proyectos comunales y atención»): código y nombre de la comuna, código y nombre del consejo comunal, «Datos de comuna» (Completos / Falta comuna / Falta consejo comunal / Faltan ambos), cantidad, estado y detalle de proyectos comunales, «Atendido» y «Atendido por» (FEDE / Otro ente / ambos). Preset «Comunas y atención».
+- **Filtros rápidos** por plantel (se aplican en el servidor antes de totales y Excel): datos de comuna (completos, faltan alguno, sin comuna, sin consejo), proyecto comunal (con / sin) y atención (atendidos / sin atender). GET `?f_datos=&f_proyecto=&f_atencion=`; POST `{filtros}`.
+- **Reporte «Por comuna»** (una fila por comuna): `GET /api/inspecciones/reportes/comunas?municipio=&solo=todas|con_proyecto|sin_proyecto`, `/comunas/excel` y `/comunas/municipios`. Incluye una fila «(Sin comuna cargada)» y las comunas con proyecto aunque no tengan planteles propios en GESCOLAR.
+- **Fuente de los datos:** comuna y consejo salen de GESCOLAR VIGENTE (no de la copia de la planilla); «falta» = vacío, #N/A, 0 o guiones. **«Atendido» usa la misma regla del Resumen** (TIPO ATENCION válido, marca en «PLAN …» de un plan que no existe en el sistema, enlace activo a un plan del sistema, o atención de otro ente); los proyectos comunales NO cuentan como atendido.
+- Código: `src/services/comunasReporte.js` (nuevo), `src/services/reportesInspecciones.js`, `src/routes/reportesInspecciones.js`, `public/js/inspecciones-reportes.js`. Si cambia la regla de «atendido» en el Resumen (`routes/inspecciones.js`), hay que cambiarla también en `comunasReporte.js` (`atencionDe`). Prueba test44 (72 comprobaciones) incluye la paridad con el Resumen.
+
 ## 7. Módulos de consulta de planteles
 
 - `plantelesConsulta.js`: ficha por DEA con archivos de Drive, fachada

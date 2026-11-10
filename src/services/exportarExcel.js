@@ -357,9 +357,13 @@ async function reportePlan({ plan, columnas, filas, totales, resumen, avisos, ge
   hoja.getRow(8).height = 22;
 
   const lineas = [`Generado el ${new Date(generado_en).toLocaleDateString("es-VE", { day: "2-digit", month: "2-digit", year: "numeric" })}`];
-  lineas.push(`Planteles: ${resumen.planteles} · Matrícula total: ${Number(resumen.matricula_total).toLocaleString("es-VE")}`);
-  if (resumen.edificios_distintos !== null && resumen.edificios_distintos !== undefined) {
+  if (Array.isArray(resumen.lineas)) lineas.push(...resumen.lineas);
+  else lineas.push(`Planteles: ${resumen.planteles} · Matrícula total: ${Number(resumen.matricula_total).toLocaleString("es-VE")}`);
+  if (!Array.isArray(resumen.lineas) && resumen.edificios_distintos !== null && resumen.edificios_distintos !== undefined) {
     lineas.push(`Edificios distintos: ${resumen.edificios_distintos} · Solos: ${resumen.planteles_solos} · Comparten: ${resumen.planteles_comparten} · Sin clasificar: ${resumen.sin_clasificar}`);
+  }
+  if (resumen.comunas_completos !== null && resumen.comunas_completos !== undefined) {
+    lineas.push(`Datos de comuna completos: ${resumen.comunas_completos} · Les falta algún dato: ${resumen.comunas_faltan} · Con proyecto comunal: ${resumen.con_proyecto_comunal} · Atendidos (FEDE u otro ente): ${resumen.atendidos}`);
   }
   if (resumen.alumnos_adicionales_min !== null && resumen.alumnos_adicionales_min !== undefined) {
     lineas.push(`Aulas no operativas: ${resumen.aulas_no_operativas} · Alumnos adicionales posibles: ${Number(resumen.alumnos_adicionales_min).toLocaleString("es-VE")} a ${Number(resumen.alumnos_adicionales_max).toLocaleString("es-VE")}`);

@@ -10,7 +10,8 @@ let CAT = null;          // { grupos, columnas, presets }
 let PLANES = [];
 let seleccion = new Set();
 let ultimo = null;        // último reporte mostrado
-let fuente = "plan";      // "plan" | "planteles"
+let fuente = "plan";      // "plan" | "planteles" | "comunas"
+let MUNICIPIOS = [];      // municipios para el reporte por comuna (los trae el servidor)
 let elegidos = [];        // [{codigo_dea, nombre, municipio, parroquia}] cuando la fuente es "planteles"
 const CLAVE_ELEGIDOS = "rep_planteles_" + (usuario && usuario.id ? usuario.id : "x");
 let temporizador = null;
@@ -26,7 +27,7 @@ async function iniciar() {
     <section class="planteles-hero"><div class="planteles-hero-copy">
       <span class="planteles-eyebrow">INSPECCIONES</span>
       <h1>Reportes</h1>
-      <p>Elige un plan de atención, o busca y agrega los planteles que quieras, y marca los datos que quieres ver de sus planteles: matrícula, si comparten edificio o están solos, estado de la inspección, proyección de aulas a rehabilitar y más. Puedes verlo en pantalla o descargarlo en Excel.</p>
+      <p>Elige un plan de atención, o busca y agrega los planteles que quieras, y marca los datos que quieres ver de sus planteles: matrícula, si comparten edificio o están solos, estado de la inspección, proyección de aulas a rehabilitar, comunas, proyectos comunales y atención, y más. También hay un reporte «Por comuna» (una fila por comuna). Puedes verlo en pantalla o descargarlo en Excel.</p>
     </div></section>
     <div class="panel rep-panel" id="armado"><div class="cargando">Cargando…</div></div>
     <div id="resultado"></div>`;
@@ -96,6 +97,7 @@ function dibujarArmado() {
     <div class="rep-presets" id="fuentes">
       <button type="button" class="rep-chip" data-fuente="plan">Un plan de atención</button>
       <button type="button" class="rep-chip" data-fuente="planteles">Planteles que yo elija</button>
+      <button type="button" class="rep-chip" data-fuente="comunas">Por comuna (una fila por comuna)</button>
     </div>
     <div class="rep-fila" id="bloquePlan">
       <label for="plan"><strong>Plan de atención</strong></label>
@@ -109,6 +111,19 @@ function dibujarArmado() {
       <div id="sugerencias" class="rep-sugerencias"></div>
       <div id="elegidos" class="rep-elegidos"></div>
     </div>
+    <div id="bloqueComunas" style="display:none;">
+      <p class="rep-nota" style="margin:0 0 8px;">Una fila por comuna (circuito comunal): cuántos planteles tiene, cuántos tienen el consejo comunal cargado, sus proyectos comunales y cuántos planteles están atendidos.</p>
+      <div class="rep-fila">
+        <label for="comMunicipio"><strong>Municipio</strong></label>
+        <select id="comMunicipio"><option value="">Todo el estado</option></select>
+        <label for="comSolo"><strong>Mostrar</strong></label>
+        <select id="comSolo">
+          <option value="todas">Todas las comunas</option>
+          <option value="con_proyecto">Solo comunas con proyecto comunal</option>
+          <option value="sin_proyecto">Solo comunas sin proyecto comunal</option>
+        </select>
+      </div>
+    </div>
     <div class="rep-presets" id="presets"><span style="font-size:.84rem; color:#5b6b80; align-self:center;">Combinaciones listas:</span>
       ${CAT.presets.map((p) => `<button type="button" class="rep-chip" data-preset="${escapar(p.id)}">${escapar(p.etiqueta)}</button>`).join("")}
     </div>
@@ -118,6 +133,31 @@ function dibujarArmado() {
           <h3>${escapar(g.etiqueta)} <button type="button" data-todo="${escapar(g.id)}">marcar / quitar todo</button></h3>
           ${CAT.columnas.filter((c) => c.grupo === g.id).map((c) => `<label><input type="checkbox" data-col="${escapar(c.id)}"> <span>${escapar(c.etiqueta)}</span></label>`).join("")}
         </div>`).join("")}
+    </div>
+    <div class="rep-filtros" id="bloqueFiltros">
+      <h3>Filtros rápidos <span>(opcionales: reducen la lista antes de verla o descargarla)</span></h3>
+      <div class="rep-fila">
+        <label for="fDatos">Datos de comuna</label>
+        <select id="fDatos">
+          <option value="todos">Todos</option>
+          <option value="completos">Completos (comuna y consejo comunal cargados)</option>
+          <option value="faltan">Les falta algún dato</option>
+          <option value="sin_comuna">Sin comuna</option>
+          <option value="sin_consejo">Sin consejo comunal</option>
+        </select>
+        <label for="fProyecto">Proyecto comunal</label>
+        <select id="fProyecto">
+          <option value="todos">Todos</option>
+          <option value="con">Con proyecto comunal</option>
+          <option value="sin">Sin proyecto comunal</option>
+        </select>
+        <label for="fAtencion">Atención</label>
+        <select id="fAtencion">
+          <option value="todos">Todos</option>
+          <option value="atendidos">Atendidos (FEDE u otro ente)</option>
+          <option value="sin_atender">Sin atender</option>
+        </select>
+      </div>
     </div>
     <div class="rep-acciones">
       <button type="button" class="btn btn-primario" id="btnVer">Ver reporte</button>
@@ -139,6 +179,7 @@ function dibujarArmado() {
   });
   const selPlan = document.getElementById("plan");
   if (selPlan) selPlan.addEventListener("change", limpiarResultado);
+  ["fDatos", "fProyecto", "fAtencion", "comMunicipio", "comSolo"].forEach((id) => document.getElementById(id).addEventListener("change", limpiarResultado));
   pintarSeleccion();
   cont.querySelectorAll("[data-col]").forEach((chk) => chk.addEventListener("change", () => {
     if (chk.checked) seleccion.add(chk.dataset.col); else seleccion.delete(chk.dataset.col);
@@ -166,9 +207,24 @@ function pintarFuente() {
   document.querySelectorAll("[data-fuente]").forEach((b) => b.classList.toggle("activa", b.dataset.fuente === fuente));
   document.getElementById("bloquePlan").style.display = fuente === "plan" ? "" : "none";
   document.getElementById("bloquePlanteles").style.display = fuente === "planteles" ? "" : "none";
+  document.getElementById("bloqueComunas").style.display = fuente === "comunas" ? "" : "none";
+  // Presets, columnas y filtros por plantel no aplican al reporte «Por comuna» (sus columnas son fijas).
+  ["presets", "grupos", "bloqueFiltros"].forEach((id) => { document.getElementById(id).style.display = fuente === "comunas" ? "none" : ""; });
+  if (fuente === "comunas") cargarMunicipios();
   if (fuente === "plan" && !PLANES.length) {
     document.getElementById("bloquePlan").innerHTML = `<span style="color:#5b6b80;">Todavía no hay planes de atención. Usa «Planteles que yo elija».</span>`;
   }
+}
+
+// Los municipios de GESCOLAR para el reporte por comuna.
+async function cargarMunicipios() {
+  if (MUNICIPIOS.length) return;
+  try {
+    const r = await RAC.get("/api/inspecciones/reportes/comunas/municipios");
+    MUNICIPIOS = r.municipios || [];
+    const sel = document.getElementById("comMunicipio");
+    if (sel) sel.innerHTML = `<option value="">Todo el estado</option>` + MUNICIPIOS.map((m) => `<option value="${escapar(m)}">${escapar(m)}</option>`).join("");
+  } catch (_) { /* queda solo «Todo el estado» */ }
 }
 
 async function buscar(q) {
@@ -211,6 +267,17 @@ function pintarSeleccion() {
   });
 }
 
+function filtrosActuales() {
+  return { datos: document.getElementById("fDatos").value, proyecto: document.getElementById("fProyecto").value, atencion: document.getElementById("fAtencion").value };
+}
+function textoFiltros() {
+  const f = filtrosActuales();
+  return `&f_datos=${encodeURIComponent(f.datos)}&f_proyecto=${encodeURIComponent(f.proyecto)}&f_atencion=${encodeURIComponent(f.atencion)}`;
+}
+function textoComunas() {
+  return `municipio=${encodeURIComponent(document.getElementById("comMunicipio").value)}&solo=${encodeURIComponent(document.getElementById("comSolo").value)}`;
+}
+
 function parametros() {
   const plan = fuente === "plan" ? document.getElementById("plan").value : "";
   // El orden de las columnas lo define el catálogo, no el orden en que se marcaron.
@@ -222,6 +289,7 @@ function validar() {
   const err = document.getElementById("repError");
   err.textContent = "";
   const { plan, cols } = parametros();
+  if (fuente === "comunas") return { plan: "", cols: [] };
   if (fuente === "plan" && !plan) { err.textContent = "Elige un plan."; return null; }
   if (fuente === "planteles" && !elegidos.length) { err.textContent = "Agrega al menos un plantel."; return null; }
   if (!cols.length) { err.textContent = "Marca al menos una columna."; return null; }
@@ -234,9 +302,11 @@ async function verReporte() {
   const cont = document.getElementById("resultado");
   cont.innerHTML = `<div class="panel"><div class="cargando">Armando el reporte…</div></div>`;
   try {
-    ultimo = fuente === "plan"
-      ? await RAC.get(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}?columnas=${encodeURIComponent(p.cols.join(","))}`)
-      : await RAC.post("/api/inspecciones/reportes/seleccion", { codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols });
+    ultimo = fuente === "comunas"
+      ? await RAC.get(`/api/inspecciones/reportes/comunas?${textoComunas()}`)
+      : fuente === "plan"
+        ? await RAC.get(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}?columnas=${encodeURIComponent(p.cols.join(","))}${textoFiltros()}`)
+        : await RAC.post("/api/inspecciones/reportes/seleccion", { codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols, filtros: filtrosActuales() });
     dibujarResultado();
   } catch (err) {
     cont.innerHTML = `<div class="panel rep-panel"><div class="rep-error">${escapar(err.message)}</div></div>`;
@@ -250,6 +320,8 @@ function celda(c, v) {
     const clase = v === "Comparte edificio" ? "comparte" : v === "Solo en su edificio" ? "solo" : "sin";
     return `<td><span class="rep-etq ${clase}">${escapar(v)}</span></td>`;
   }
+  if (c.id === "com_datos") return `<td><span class="rep-etq ${v === "Completos" ? "comparte" : "falta"}">${escapar(v)}</span></td>`;
+  if (c.id === "atendido") return `<td><span class="rep-etq ${v === "Sí" ? "comparte" : "sin"}">${escapar(v)}</span></td>`;
   if (c.id === "edificio_codigo") return `<td><code style="font-family:'IBM Plex Mono',monospace;">${escapar(v)}</code></td>`;
   return `<td>${escapar(v)}</td>`;
 }
@@ -265,8 +337,8 @@ function dibujarResultado() {
     : "";
   document.getElementById("resultado").innerHTML = `
     <div class="rep-tarjetas">
-      ${tarjeta(res.planteles, "Planteles")}
-      ${tarjeta(res.matricula_total, "Matrícula total")}
+      ${res.tarjetas ? res.tarjetas.map((t) => tarjeta(t.num, t.txt)).join("") : tarjeta(res.planteles, "Planteles") + tarjeta(res.matricula_total, "Matrícula total")}
+      ${res.comunas_completos !== null && res.comunas_completos !== undefined ? tarjeta(res.comunas_completos, "Con datos de comuna completos") + tarjeta(res.comunas_faltan, "Les falta algún dato de comuna") + tarjeta(res.con_proyecto_comunal, "Con proyecto comunal") + tarjeta(res.atendidos, "Atendidos (FEDE u otro ente)") : ""}
       ${conProy ? tarjeta(res.aulas_no_operativas, "Aulas no operativas") + tarjeta(res.alumnos_adicionales_min, "Alumnos adicionales (mín.)") + tarjeta(res.alumnos_adicionales_max, "Alumnos adicionales (máx.)") + (res.planteles_fuerza_mayor ? tarjeta(res.planteles_fuerza_mayor, "Planteles con aulas perdidas por fuerza mayor") : "") : ""}
       ${conEdificio ? tarjeta(res.edificios_distintos, "Edificios distintos") + tarjeta(res.planteles_solos, "Solos en su edificio") + tarjeta(res.planteles_comparten, "Comparten edificio") + tarjeta(res.sin_clasificar, "Sin clasificar") : ""}
     </div>
@@ -276,7 +348,7 @@ function dibujarResultado() {
         <thead><tr>${r.columnas.map((c) => `<th class="${c.tipo === "texto" ? "" : "num"}">${escapar(c.etiqueta)}</th>`).join("")}</tr></thead>
         <tbody>${r.filas.map((f) => `<tr>${r.columnas.map((c) => celda(c, f[c.id])).join("")}</tr>`).join("")}</tbody>
         ${tfoot}
-      </table></div>` : `<div class="vacio"><strong>No hay planteles para mostrar</strong>Si es un plan, enlaza planteles desde «Planes de atención».</div>`}
+      </table></div>` : `<div class="vacio"><strong>${fuente === "comunas" ? "No hay comunas para mostrar" : "No hay planteles para mostrar"}</strong>${fuente === "comunas" ? "Prueba con otro municipio u otra opción de «Mostrar»." : "Si es un plan, enlaza planteles desde «Planes de atención»; si pusiste filtros, prueba quitarlos."}</div>`}
     </div>`;
 }
 
@@ -288,13 +360,15 @@ async function descargarExcel(boton) {
   boton.disabled = true;
   boton.textContent = "Generando Excel…";
   try {
-    const resp = fuente === "plan"
-      ? await fetch(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}/excel?columnas=${encodeURIComponent(p.cols.join(","))}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
-      : await fetch("/api/inspecciones/reportes/seleccion/excel", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + RAC.getToken(), "Content-Type": "application/json" },
-        body: JSON.stringify({ codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols }),
-      });
+    const resp = fuente === "comunas"
+      ? await fetch(`/api/inspecciones/reportes/comunas/excel?${textoComunas()}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
+      : fuente === "plan"
+        ? await fetch(`/api/inspecciones/reportes/plan/${encodeURIComponent(p.plan)}/excel?columnas=${encodeURIComponent(p.cols.join(","))}${textoFiltros()}`, { headers: { Authorization: "Bearer " + RAC.getToken() } })
+        : await fetch("/api/inspecciones/reportes/seleccion/excel", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + RAC.getToken(), "Content-Type": "application/json" },
+          body: JSON.stringify({ codigos: elegidos.map((e) => e.codigo_dea), columnas: p.cols, filtros: filtrosActuales() }),
+        });
     if (resp.status === 401) { RAC.cerrarSesion(); return; }
     if (!resp.ok) {
       let mensaje = `Error ${resp.status}`;
