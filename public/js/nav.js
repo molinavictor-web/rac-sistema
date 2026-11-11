@@ -55,6 +55,7 @@ function renderShell(paginaActiva, tituloTopbar) {
       { id: "supervision-circuitos", href: "/supervision/circuitos.html", label: "Circuitos", roles: ["admin", "supervision"] },
       { id: "supervision-directores", href: "/supervision/directores.html", label: "Directores", roles: ["admin", "supervision"] },
       { id: "supervision-mi-plantel", href: "/supervision/mi-plantel.html", label: "Mi plantel", roles: ["director"] },
+      { id: "supervision-consulta-express", href: "/supervision/consulta-express.html", label: "Consulta exprés", roles: ["director"] },
     ]},
     { id: "inspecciones-grupo", titulo: "Inspecciones", enlaces: [
       { id: "inspecciones-dashboard", href: "/inspecciones/dashboard.html", label: "Resumen", roles: ["admin", "operador_plantel", "insp_coordinador", "insp_consulta", "insp_ingeniero"] },
@@ -132,6 +133,7 @@ function renderShell(paginaActiva, tituloTopbar) {
     "inspecciones-otros-entes": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6M12 9v.01"/></svg>`,
     "inspecciones-edificios": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V8l8-5 8 5v13M9 21v-6h6v6M8 11h1M15 11h1"/></svg>`,
     "inspecciones-planes": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>`,
+    "supervision-consulta-express": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>`,
     "inspecciones-consultas": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>`,
     "inspecciones-cambios": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5M12 8v5l3 2"/></svg>`,
     "inspecciones-reportes": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 17v-4M12 17V8M16 17v-6"/></svg>`,

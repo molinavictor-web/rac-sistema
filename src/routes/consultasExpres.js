@@ -4,6 +4,9 @@
 //   GET   /fases                  fases que se pueden elegir
 //   POST  /                       crea una consulta {nombre, descripcion, fases[]}        (admin, coordinador)
 //   PATCH /:id                    cambia nombre o la abre/cierra {nombre?, estado?}       (admin, coordinador)
+//   GET   /director               (director) consultas abiertas
+//   GET   /director/:id           (director) formulario de SU plantel (el de su sesión)
+//   PUT   /director/:id           (director) guarda {datos, nota, verificado}; los avisos de aulas le bloquean el guardado
 //   GET   /:id/plantel/:codigo    formulario de las fases de la consulta con el dato vigente del plantel
 //   PUT   /:id/plantel/:codigo    guarda {datos, nota, verificado}
 //   GET   /cambios                cambios recientes con filtros ?municipio=&q=&limite=    (solo admin)
@@ -32,6 +35,56 @@ function responder(res, err, mensaje) {
 }
 
 router.get("/fases", requireAuth, requireRol(...ROLES_VER), (req, res) => res.json({ fases: consultas.FASES }));
+
+// ---- Director: solo SU plantel (el de su sesión) y solo consultas ABIERTAS ----
+// Van antes de /:id. El código del plantel nunca viene de la dirección: sale del usuario.
+function plantelDelDirector(req, res) {
+  const codigo = String(req.usuario.codigo_plantel || "").trim();
+  if (!codigo) {
+    res.status(403).json({ error: "Tu usuario no tiene un plantel asignado. Avisa a la oficina de Supervisión." });
+    return null;
+  }
+  return codigo;
+}
+
+router.get("/director", requireAuth, requireRol("director"), async (req, res) => {
+  if (!plantelDelDirector(req, res)) return;
+  try {
+    const lista = await consultas.listarConsultas({ soloAbiertas: true });
+    res.json({ consultas: lista.map((c) => ({ id: c.id, nombre: c.nombre, descripcion: c.descripcion, titulos_fases: c.titulos_fases })) });
+  } catch (err) {
+    responder(res, err, "No se pudieron cargar las consultas.");
+  }
+});
+
+router.get("/director/:id", requireAuth, requireRol("director"), async (req, res) => {
+  const codigo = plantelDelDirector(req, res);
+  if (!codigo) return;
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Consulta inválida." });
+  try {
+    const consulta = await consultas.obtenerConsulta(id);
+    if (consulta.estado !== "ABIERTA") return res.status(403).json({ error: "Esta consulta está cerrada." });
+    const abierto = await consultas.abrirPlantel(consulta, codigo);
+    res.json({ consulta: { id: consulta.id, nombre: consulta.nombre, estado: consulta.estado, fases: consulta.fases }, ...abierto, puede_guardar: true });
+  } catch (err) {
+    responder(res, err, "No se pudo abrir tu plantel.");
+  }
+});
+
+router.put("/director/:id", requireAuth, requireRol("director"), async (req, res) => {
+  const codigo = plantelDelDirector(req, res);
+  if (!codigo) return;
+  const id = entero(req.params.id);
+  if (!id) return res.status(400).json({ error: "Consulta inválida." });
+  try {
+    const consulta = await consultas.obtenerConsulta(id);
+    const r = await consultas.guardarPlantel({ consulta, codigoPedido: codigo, datos: req.body.datos, nota: req.body.nota, verificado: req.body.verificado === true, usuario: req.usuario });
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    responder(res, err, "No se pudo guardar.");
+  }
+});
 
 router.get("/cambios", requireAuth, requireRol("admin"), async (req, res) => {
   try {

@@ -2,8 +2,13 @@
 // de las fases de la consulta, se verifican o actualizan y se guarda. Las preguntas salen del esquema del Instrumento Uno
 // (el servidor valida todo; aquí solo se muestran los campos y se ocultan los que dependen de otra respuesta).
 
-const usuario = renderShell("inspecciones-consultas", "Llenar consulta");
-const API = "/api/inspecciones/consultas";
+// Esta misma pantalla la usan el personal (Inspecciones: escribe el código DEA de cualquier plantel) y el DIRECTOR
+// (Supervisión: llena solo su plantel, el de su sesión; el servidor ignora cualquier otro código).
+const MODO_DIRECTOR = window.location.pathname.startsWith("/supervision/");
+const usuario = renderShell(MODO_DIRECTOR ? "supervision-consulta-express" : "inspecciones-consultas", "Llenar consulta");
+const API = MODO_DIRECTOR ? "/api/inspecciones/consultas/director" : "/api/inspecciones/consultas";
+const VOLVER = MODO_DIRECTOR ? "/supervision/consulta-express.html" : "/inspecciones/consultas.html";
+const rutaPlantel = (codigo) => (MODO_DIRECTOR ? `${API}/${idConsulta}` : `${API}/${idConsulta}/plantel/${encodeURIComponent(codigo)}`);
 const idConsulta = Number(new URLSearchParams(window.location.search).get("id")) || 0;
 
 function escapar(v) {
@@ -41,7 +46,8 @@ if (usuario) iniciar();
 
 async function iniciar() {
   const cont = document.getElementById("contenido");
-  if (!idConsulta) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Falta elegir la consulta</strong><a href="/inspecciones/consultas.html">Ir a Consultas exprés</a></div></div>`; return; }
+  if (MODO_DIRECTOR) return iniciarDirector(cont);
+  if (!idConsulta) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Falta elegir la consulta</strong><a href="${VOLVER}">Ir a Consultas exprés</a></div></div>`; return; }
   try {
     const l = await api("GET", `${API}/`);
     CONSULTA = l.consultas.find((c) => c.id === idConsulta);
@@ -49,7 +55,7 @@ async function iniciar() {
     cont.innerHTML = `<div class="panel"><div class="iu-msg-error" style="padding:14px;">${escapar(err.message)}</div></div>`;
     return;
   }
-  if (!CONSULTA) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Esa consulta no existe o está cerrada</strong><a href="/inspecciones/consultas.html">Volver a Consultas exprés</a></div></div>`; return; }
+  if (!CONSULTA) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Esa consulta no existe o está cerrada</strong><a href="${VOLVER}">Volver a Consultas exprés</a></div></div>`; return; }
   cont.innerHTML = `
     <section class="planteles-hero"><div class="planteles-hero-copy">
       <span class="planteles-eyebrow">CONSULTA EXPRÉS</span>
@@ -76,6 +82,50 @@ async function iniciar() {
   });
 }
 
+// ---- Director: lista de consultas abiertas y, al elegir una, el formulario de su plantel ----
+async function iniciarDirector(cont) {
+  let lista;
+  try {
+    lista = (await api("GET", `${API}/`)).consultas;
+  } catch (err) {
+    cont.innerHTML = `<div class="panel"><div class="iu-msg-error" style="padding:14px;">${escapar(err.message)}</div></div>`;
+    return;
+  }
+  if (!idConsulta) {
+    cont.innerHTML = `
+      <section class="planteles-hero"><div class="planteles-hero-copy">
+        <span class="planteles-eyebrow">CONSULTA EXPRÉS</span>
+        <h1>Consultas abiertas</h1>
+        <p>Aquí puedes revisar y actualizar los datos de tu plantel cuando la oficina abre una consulta.</p>
+      </div></section>
+      ${lista.length
+        ? lista.map((c) => `<div class="ce-tarjeta"><h3>${escapar(c.nombre)}</h3>
+            ${c.descripcion ? `<p class="iu-ayuda" style="margin:0 0 6px;">${escapar(c.descripcion)}</p>` : ""}
+            <div>${c.titulos_fases.map((t) => `<span class="ce-etq">${escapar(t)}</span>`).join("")}</div>
+            <div style="margin-top:10px;"><a class="btn btn-primario" style="text-decoration:none;" href="/supervision/consulta-express.html?id=${c.id}">Llenar para mi plantel</a></div></div>`).join("")
+        : `<div class="panel"><div class="vacio"><strong>No hay consultas abiertas por ahora</strong>Cuando la oficina abra una, aparecerá aquí.</div></div>`}`;
+    return;
+  }
+  CONSULTA = lista.find((c) => c.id === idConsulta);
+  if (!CONSULTA) { cont.innerHTML = `<div class="panel"><div class="vacio"><strong>Esa consulta no existe o ya está cerrada</strong><a href="${VOLVER}">Volver a las consultas</a></div></div>`; return; }
+  cont.innerHTML = `
+    <section class="planteles-hero"><div class="planteles-hero-copy">
+      <span class="planteles-eyebrow">CONSULTA EXPRÉS</span>
+      <h1>${escapar(CONSULTA.nombre)}</h1>
+      <p>${CONSULTA.titulos_fases.map(escapar).join(" · ")}</p>
+    </div></section>
+    <div id="formulario"></div>`;
+  const form = document.getElementById("formulario");
+  form.innerHTML = `<div class="panel"><div class="cargando">Abriendo tu plantel…</div></div>`;
+  try {
+    P = await api("GET", rutaPlantel());
+  } catch (e) {
+    form.innerHTML = `<div class="panel"><div class="iu-msg-error" style="padding:14px;">${escapar(e.message)} <a href="${VOLVER}">Volver</a></div></div>`;
+    return;
+  }
+  mostrarPlantel();
+}
+
 async function sugerir(q) {
   const box = document.getElementById("sugerencias");
   try {
@@ -96,19 +146,24 @@ async function abrir(codigo) {
   const form = document.getElementById("formulario");
   form.innerHTML = `<div class="panel"><div class="cargando">Abriendo plantel…</div></div>`;
   try {
-    P = await api("GET", `${API}/${idConsulta}/plantel/${encodeURIComponent(c)}`);
+    P = await api("GET", rutaPlantel(c));
   } catch (e) {
     form.innerHTML = "";
     err.textContent = e.message;
     return;
   }
   document.getElementById("sugerencias").innerHTML = "";
+  mostrarPlantel();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Prepara los datos del plantel abierto (P) y dibuja el formulario.
+function mostrarPlantel() {
   datos = JSON.parse(JSON.stringify(P.datos || {}));
   if (P.secciones.some((x) => x.lista) && !Array.isArray(datos.otras_instituciones)) datos.otras_instituciones = [];
   errores = {};
   Object.keys(infoFilas).forEach((k) => delete infoFilas[k]);
   pintar();
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // ---- Dibujo del formulario ----
@@ -309,7 +364,10 @@ function enganchar() {
     form.dataset.enganchado = "1";
     enlazarFormulario(form);
   }
-  document.getElementById("btnOtro").addEventListener("click", () => { form.innerHTML = ""; P = null; document.getElementById("codigo").value = ""; document.getElementById("codigo").focus(); });
+  document.getElementById("btnOtro").addEventListener("click", () => {
+    if (MODO_DIRECTOR) { window.location.href = VOLVER; return; }
+    form.innerHTML = ""; P = null; document.getElementById("codigo").value = ""; document.getElementById("codigo").focus();
+  });
   document.getElementById("btnGuardar").addEventListener("click", guardar);
 }
 
@@ -359,7 +417,7 @@ async function guardar() {
   todosCampos().forEach((c) => { const v = datos[c.clave]; envio[c.clave] = v === undefined ? "" : v; });
   if (P.secciones.some((x) => x.lista)) envio.otras_instituciones = datos.otras_instituciones || [];
   try {
-    const r = await api("PUT", `${API}/${idConsulta}/plantel/${encodeURIComponent(P.plantel.codigo_dea)}`, {
+    const r = await api("PUT", rutaPlantel(P.plantel.codigo_dea), {
       datos: envio, nota: document.getElementById("nota").value, verificado: document.getElementById("verificado").checked,
     });
     const ed = r.edificio;
@@ -370,9 +428,9 @@ async function guardar() {
     document.getElementById("formulario").innerHTML = `
       <div class="iu-resultado"><strong>Guardado.</strong> ${r.cambios ? `${r.cambios} dato(s) actualizado(s) en ${escapar(r.plantel.nombre_plantel)}.` : `No hubo cambios en ${escapar(r.plantel.nombre_plantel)}.`}
         ${avisos}
-        <div style="margin-top:12px;"><button type="button" class="btn btn-primario" id="btnSiguiente">Otro plantel</button> <a class="btn btn-fantasma" style="text-decoration:none;" href="/inspecciones/consultas.html">Volver a las consultas</a></div>
+        <div style="margin-top:12px;">${MODO_DIRECTOR ? "" : `<button type="button" class="btn btn-primario" id="btnSiguiente">Otro plantel</button> `}<a class="btn ${MODO_DIRECTOR ? "btn-primario" : "btn-fantasma"}" style="text-decoration:none;" href="${VOLVER}">Volver a las consultas</a></div>
       </div>`;
-    document.getElementById("btnSiguiente").addEventListener("click", () => { document.getElementById("formulario").innerHTML = ""; P = null; const c = document.getElementById("codigo"); c.value = ""; c.focus(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+    if (!MODO_DIRECTOR) document.getElementById("btnSiguiente").addEventListener("click", () => { document.getElementById("formulario").innerHTML = ""; P = null; const c = document.getElementById("codigo"); c.value = ""; c.focus(); window.scrollTo({ top: 0, behavior: "smooth" }); });
   } catch (e) {
     b.disabled = false;
     if (e.errores) {

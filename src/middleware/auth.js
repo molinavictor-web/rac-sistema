@@ -5,6 +5,9 @@ const jwt = require("jsonwebtoken");
 // responde 403, aunque esa ruta solo use requireAuth sin requireRol.
 const ROLES_SOLO_SUPERVISION = ["supervision", "director"];
 const RUTAS_PERMITIDAS_SUPERVISION = /^\/api\/(supervision|auth)(\/|\?|$)/;
+// Además, SOLO el director puede llenar las consultas exprés de SU plantel (el servidor usa el plantel de su sesión,
+// nunca uno que venga en la dirección) y buscar otras instituciones para la fase «Edificio compartido».
+const RUTAS_DIRECTOR_CONSULTAS = /^\/api\/inspecciones\/(consultas\/director|instrumento-uno\/(buscar|plantel\/[^/?]+))(\/|\?|$)/;
 
 // Roles del módulo Inspecciones: SOLO pueden usar /api/inspecciones (su panel)
 // y /api/auth (sesión). Igual que Supervisión, el resto del sistema les responde 403.
@@ -32,7 +35,11 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Token inválido o expirado." });
   }
 
-  if (ROLES_SOLO_SUPERVISION.includes(req.usuario.rol) && !RUTAS_PERMITIDAS_SUPERVISION.test(req.originalUrl)) {
+  if (
+    ROLES_SOLO_SUPERVISION.includes(req.usuario.rol) &&
+    !RUTAS_PERMITIDAS_SUPERVISION.test(req.originalUrl) &&
+    !(req.usuario.rol === "director" && RUTAS_DIRECTOR_CONSULTAS.test(req.originalUrl))
+  ) {
     return res.status(403).json({ error: "Tu usuario solo tiene acceso al panel de Supervisión." });
   }
 

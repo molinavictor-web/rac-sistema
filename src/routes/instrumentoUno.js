@@ -113,7 +113,7 @@ router.get("/esquema", requireAuth, requireRol(...ROLES_LECTURA), (req, res) => 
 });
 
 // Búsqueda por nombre o código (sin acentos ni mayúsculas) para elegir otra institución del edificio.
-router.get("/buscar", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+router.get("/buscar", requireAuth, requireRol(...ROLES_LECTURA, "director"), async (req, res) => {
   const q = esquema.normalizar(req.query.q || "");
   if (q.length < 3) return res.json({ planteles: [] });
   const excluir = esquemaLimpiar(req.query.excluir).toLowerCase();
@@ -136,7 +136,7 @@ router.get("/buscar", requireAuth, requireRol(...ROLES_LECTURA), async (req, res
   }
 });
 
-router.get("/plantel/:codigo", requireAuth, requireRol(...ROLES_LECTURA), async (req, res) => {
+router.get("/plantel/:codigo", requireAuth, requireRol(...ROLES_LECTURA, "director"), async (req, res) => {
   const codigo = esquemaLimpiar(req.params.codigo);
   if (!codigo) return res.status(400).json({ error: "Falta el código DEA." });
   let fila;
