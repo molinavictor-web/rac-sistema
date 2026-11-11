@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { pool } = require("../db/pool");
+const limite = require("../services/limiteLogin");
 
 const router = express.Router();
 
@@ -17,19 +18,29 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Email y password deben ser texto." });
     }
 
+    // Bloqueo temporal tras varios intentos fallidos seguidos (ver services/limiteLogin.js).
+    const espera = limite.minutosDeEspera(email);
+    if (espera > 0) {
+      res.set("Retry-After", String(espera * 60));
+      return res.status(429).json({ error: limite.mensajeEspera(espera) });
+    }
+
     const { rows } = await pool.query(
       "SELECT id, nombre, email, password_hash, rol, municipio_id, codigo_plantel, activo FROM usuarios WHERE email = $1",
       [email]
     );
     const usuario = rows[0];
     if (!usuario || !usuario.activo) {
+      limite.registrarFallo(email);
       return res.status(401).json({ error: "Credenciales inválidas." });
     }
 
     const ok = await bcrypt.compare(password, usuario.password_hash);
     if (!ok) {
+      limite.registrarFallo(email);
       return res.status(401).json({ error: "Credenciales inválidas." });
     }
+    limite.registrarExito(email);
 
     const token = jwt.sign(
       {

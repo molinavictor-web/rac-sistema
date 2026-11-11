@@ -7,7 +7,7 @@
 // que sean MÁS NUEVOS que esa visita. Cada cambio queda en iu_cambios (quién, cuándo, valor anterior y nuevo, nota)
 // y se puede revertir. Los reportes leen el dato vigente con datosVigentesLote().
 //
-// Etapa 1: la llenan usuarios del sistema (origen "personal"). El campo `origen` ya admite "director" para la etapa 2.
+// La llenan usuarios del sistema (origen "personal") y los directores, solo de su plantel (origen "director").
 // La fase "Edificio compartido" NO se guarda solo como dato: al guardar usa la misma clasificación de la pantalla
 // Infraestructuras (código INFRA-…, hoja «Coordenadas Planteles», mismos avisos 409/502). Esos cambios quedan en el
 // historial pero NO se revierten desde «Cambios recientes»: se corrigen en Infraestructuras.
@@ -255,6 +255,13 @@ async function guardarPlantel({ consulta, codigoPedido, datos: entrada, nota, ve
   Object.keys(enviado).forEach((k) => { if (claves.has(k)) mezcla[k] = enviado[k]; });
   const { datos, errores } = esquema.validar(mezcla, { enviar: true, claves });
   if (Object.keys(errores).length) throw new ErrorConsulta(400, "Revisa los campos marcados.", { errores });
+  // Al director los avisos le BLOQUEAN el guardado (a los ingenieros solo se les avisa).
+  const esDirector = usuario.rol === "director";
+  const origen = esDirector ? "director" : "personal";
+  if (esDirector) {
+    const pendientes = esquema.avisos(datos);
+    if (pendientes.length) throw new ErrorConsulta(400, pendientes[0]);
+  }
 
   // ---- Fase Edificio: se clasifica en Infraestructuras ANTES de guardar; si falla (409/502) no se guarda nada ----
   let clasif = null;
@@ -310,17 +317,17 @@ async function guardarPlantel({ consulta, codigoPedido, datos: entrada, nota, ve
         cambios += 1;
         await cliente.query(
           `INSERT INTO iu_cambios (codigo_dea, clave, valor_anterior, valor_nuevo, origen, usuario_id, consulta_id, nota)
-           VALUES ($1, $2, $3::jsonb, $4::jsonb, 'personal', $5, $6, $7)`,
-          [dea, k, JSON.stringify(viejo), JSON.stringify(nuevo), usuario.id, consulta.id, textoNota]);
+           VALUES ($1, $2, $3::jsonb, $4::jsonb, $8::text, $5, $6, $7)`,
+          [dea, k, JSON.stringify(viejo), JSON.stringify(nuevo), usuario.id, consulta.id, textoNota, origen]);
       }
       if (cambio || (marcaCampo && nuevo !== null)) {
         await cliente.query(
           `INSERT INTO iu_valores (codigo_dea, clave, valor, origen, verificado_campo, usuario_id, consulta_id, actualizado_en)
-           VALUES ($1, $2, $3::jsonb, 'personal', $4, $5, $6, NOW())
+           VALUES ($1, $2, $3::jsonb, $7::text, $4, $5, $6, NOW())
            ON CONFLICT (codigo_dea, clave) DO UPDATE
-             SET valor = EXCLUDED.valor, origen = 'personal', verificado_campo = EXCLUDED.verificado_campo,
+             SET valor = EXCLUDED.valor, origen = EXCLUDED.origen, verificado_campo = EXCLUDED.verificado_campo,
                  usuario_id = EXCLUDED.usuario_id, consulta_id = EXCLUDED.consulta_id, actualizado_en = NOW()`,
-          [dea, k, JSON.stringify(nuevo), marcaCampo, usuario.id, consulta.id]);
+          [dea, k, JSON.stringify(nuevo), marcaCampo, usuario.id, consulta.id, origen]);
       }
     }
     await cliente.query("COMMIT");
