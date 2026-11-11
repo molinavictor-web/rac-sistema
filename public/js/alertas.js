@@ -67,6 +67,7 @@ const usuario = renderShell("alertas", "Alertas");
                 <option value="registro_actualizado">Registro actualizado</option>
                 <option value="registro_no_encontrado_en_carga">No encontrado en la última carga</option>
                 <option value="incongruencia_tipo_personal">Incongruencia de tipo de personal</option>
+                <option value="nombramiento_duplicado_en_archivo">Nombramiento duplicado en el archivo</option>
               </select>
               ${puedeExportar ? `<button type="button" class="btn btn-fantasma btn-sm" id="btnExportarAlertas">Exportar alertas</button>` : ""}
             </div>
@@ -203,18 +204,18 @@ const usuario = renderShell("alertas", "Alertas");
 
       const filas = items.map((a) => `
         <tr>
-          <td><span class="cod">${a.cedula || "—"}</span></td>
-          <td>${[a.nombres, a.apellidos].filter(Boolean).join(" ") || "—"}</td>
-          <td>${etiquetaTipo(a.tipo)}</td>
-          <td>${a.detalle || "—"}</td>
-          <td>${badgeEstado(a.estado)}</td>
-          <td>${accionesFila(a)}</td>
+          <td class="col-cedula"><span class="cod">${a.cedula || "—"}</span></td>
+          <td class="col-nombre">${[a.nombres, a.apellidos].filter(Boolean).join(" ") || "—"}</td>
+          <td class="col-tipo"><span class="alerta-tipo">${etiquetaTipo(a.tipo)}</span></td>
+          <td class="col-detalle">${a.detalle || "—"}</td>
+          <td class="col-estado">${badgeEstado(a.estado)}</td>
+          <td class="col-acciones"><div class="alerta-acciones">${accionesFila(a)}</div></td>
         </tr>
       `).join("");
 
       cont.innerHTML = `
-        <table>
-          <thead><tr><th>Cédula</th><th>Nombre y Apellido</th><th>Tipo</th><th>Detalle</th><th>Estado</th><th></th></tr></thead>
+        <table class="tabla-alertas">
+          <thead><tr><th class="col-cedula">Cédula</th><th class="col-nombre">Nombre y apellido</th><th class="col-tipo">Tipo</th><th class="col-detalle">Detalle</th><th class="col-estado">Estado</th><th class="col-acciones">Acciones</th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
       `;
@@ -246,6 +247,7 @@ const usuario = renderShell("alertas", "Alertas");
       "registro_actualizado",
       "registro_no_encontrado_en_carga",
       "incongruencia_tipo_personal",
+      "nombramiento_duplicado_en_archivo",
     ];
 
     function accionesFila(a) {
@@ -305,6 +307,7 @@ const usuario = renderShell("alertas", "Alertas");
         registro_actualizado: "Registro actualizado",
         registro_no_encontrado_en_carga: "No encontrado en la última carga",
         incongruencia_tipo_personal: "Incongruencia de tipo de personal",
+        nombramiento_duplicado_en_archivo: "Nombramiento duplicado en el archivo",
       };
       return mapa[tipo] || tipo || "—";
     }
