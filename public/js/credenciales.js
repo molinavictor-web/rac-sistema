@@ -7,12 +7,14 @@ function dibujarPanel() {
       <div class="panel-cabecera">
         <h2>Generar credencial (nómina + RAC)</h2>
       </div>
-      <div class="buscador-credenciales" style="display:flex; gap:10px; margin-bottom:16px;">
-        <input type="text" id="cedulaBuscar" placeholder="Escribe una cédula, ej. 9293431" style="flex:1; padding:10px 14px; font-size:1rem; border:1px solid #ccc; border-radius:6px;">
-        <button class="btn btn-primario btn-sm" id="btnBuscar">Buscar</button>
+      <div class="panel-cuerpo">
+        <div class="buscador-credenciales">
+          <input type="text" id="cedulaBuscar" placeholder="Escribe una cédula, ej. 9293431">
+          <button class="btn btn-primario btn-sm" id="btnBuscar">Buscar</button>
+        </div>
+        <div id="firmanteActual" class="firmante-actual"></div>
+        <div id="resultadosCredenciales"></div>
       </div>
-      <div id="firmanteActual" style="font-size:.88rem; color:#555; margin:-6px 0 14px;"></div>
-      <div id="resultadosCredenciales"></div>
     </div>
 
     ${usuario.rol === "admin" ? `
@@ -20,11 +22,13 @@ function dibujarPanel() {
       <div class="panel-cabecera">
         <h2>Autoridad que firma (solo administrador)</h2>
       </div>
-      <p style="margin-bottom:12px;">
-        Estos datos salen en el texto y en la firma de las credenciales <strong>nuevas</strong>.
-        Las ya emitidas conservan la firma con la que salieron, y la hoja anota quién firmó cada una.
-      </p>
-      <div id="formFirmante"><div class="cargando">Cargando…</div></div>
+      <div class="panel-cuerpo">
+        <p class="panel-nota">
+          Estos datos salen en el texto y en la firma de las credenciales <strong>nuevas</strong>.
+          Las ya emitidas conservan la firma con la que salieron, y la hoja anota quién firmó cada una.
+        </p>
+        <div id="formFirmante"><div class="cargando">Cargando…</div></div>
+      </div>
     </div>
     ` : ""}
 
@@ -33,7 +37,9 @@ function dibujarPanel() {
         <h2>Pendientes de aprobación</h2>
         <button class="btn btn-fantasma btn-sm" id="btnRefrescarPendientes">Actualizar</button>
       </div>
-      <p style="margin-bottom:12px;">Aprueba solo después de haber impreso, firmado físicamente y escaneado el documento.</p>
+      <div class="panel-cuerpo panel-cuerpo-tabla">
+        <p class="panel-nota">Aprueba solo después de haber impreso, firmado físicamente y escaneado el documento.</p>
+      </div>
       <div id="tablaPendientes"></div>
     </div>
 
@@ -43,10 +49,12 @@ function dibujarPanel() {
         <h2>Todas las credenciales (solo administrador)</h2>
         <button class="btn btn-fantasma btn-sm" id="btnRefrescarTodas">Actualizar</button>
       </div>
-      <p style="margin-bottom:12px;">
-        Eliminar marca la credencial como no válida (no se borra el registro, queda
-        guardado para auditoría). Si ya está aprobada, se pedirá una confirmación extra.
-      </p>
+      <div class="panel-cuerpo panel-cuerpo-tabla">
+        <p class="panel-nota">
+          Eliminar marca la credencial como no válida (no se borra el registro, queda
+          guardado para auditoría). Si ya está aprobada, se pedirá una confirmación extra.
+        </p>
+      </div>
       <div id="tablaTodas"></div>
     </div>
     ` : ""}
@@ -283,7 +291,7 @@ async function cargarFirmante() {
   try {
     const f = await RAC.get("/api/credenciales/firmante");
     if (linea) {
-      linea.innerHTML = `Firma actualmente: <strong>${escapar(f.nombre)}</strong> — ${escapar(f.cargo)}`;
+      linea.innerHTML = `<span class="firmante-actual-etiqueta">Firma actualmente</span> <strong>${escapar(f.nombre)}</strong> · ${escapar(f.cargo)}`;
     }
     if (usuario.rol === "admin") dibujarFormFirmante(f);
   } catch (err) {
@@ -298,23 +306,24 @@ function dibujarFormFirmante(f) {
   if (!cont) return;
   const estiloInput = "width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:.95rem; box-sizing:border-box;";
   const campo = (id, etiqueta, valor, ayuda) => `
-    <label style="display:block; font-size:.85rem; color:#555;">${etiqueta}
+    <label class="firmante-campo">
+      <span class="firmante-etiqueta">${etiqueta}</span>
       <input type="text" data-firmante="${id}" value="${escapar(valor)}" style="${estiloInput}">
-      ${ayuda ? `<span style="font-size:.78rem; color:#888;">${ayuda}</span>` : ""}
+      ${ayuda ? `<span class="firmante-ayuda">${ayuda}</span>` : ""}
     </label>`;
   const ultima = f.actualizado_en
     ? `Último cambio: ${escapar(new Date(f.actualizado_en).toLocaleString("es-VE"))}${f.actualizado_por ? ` por ${escapar(f.actualizado_por)}` : ""}.`
     : "Todavía no se ha cambiado desde aquí (se usan los datos configurados en el servidor).";
   cont.innerHTML = `
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px 14px;">
+    <div class="firmante-grid">
       ${campo("nombre", "Nombre completo (como debe salir)", f.nombre, "Ej. PROFA. MARÍA PÉREZ")}
       ${campo("cedula", "Cédula", f.cedula, "Ej. V-12.345.678")}
       ${campo("cargo", "Cargo", f.cargo, "Ej. Directora de Zona Educativa del Estado Monagas")}
       ${campo("resolucion", "Resolución / Gaceta", f.resolucion, "Sale debajo de la firma")}
     </div>
-    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:14px;">
+    <div class="firmante-pie">
+      <span>${ultima}</span>
       <button class="btn btn-primario btn-sm" id="btnGuardarFirmante">Guardar autoridad</button>
-      <span style="font-size:.85rem; color:#777;">${ultima}</span>
     </div>
   `;
   document.getElementById("btnGuardarFirmante").addEventListener("click", guardarFirmante);
