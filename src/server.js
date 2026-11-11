@@ -66,7 +66,8 @@ const app = express();
 //    como blob: (URL.createObjectURL) en planteles-consulta.js. Hay que
 //    agregar blob: a mano.
 //  - frame-src 'self'      -> bloquearía el <iframe> de Google Maps que se
-//    usa para mostrar la ubicación del plantel (maps.google.com).
+//    usa para mostrar la ubicación del plantel (maps.google.com). También se
+//    agrega blob: para la vista previa del PDF en Credenciales (2026-11-10).
 //  - style-src / font-src  -> el <head> de planteles-consulta.html (y demás
 //    páginas) cargan la tipografía desde fonts.googleapis.com /
 //    fonts.gstatic.com.
@@ -79,7 +80,7 @@ app.use(
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         "img-src": ["'self'", "data:", "blob:"],
-        "frame-src": ["'self'", "https://www.google.com"],
+        "frame-src": ["'self'", "https://www.google.com", "blob:"],
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         "font-src": ["'self'", "https://fonts.gstatic.com"],
       },
