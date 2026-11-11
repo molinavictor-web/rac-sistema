@@ -80,3 +80,73 @@
     font-size: 13px;
   }
 }
+
+/* ---------- Distribución de los paneles (2026-11-11) ----------
+   El contenido de cada panel tenía el texto y los campos pegados al borde
+   izquierdo. Ahora va dentro de .panel-cuerpo con margen interno. */
+.panel-cuerpo { padding: 18px 20px 20px; }
+.panel-cuerpo-tabla { padding-bottom: 12px; }
+.panel-nota { margin: 0 0 14px; color: #5b6b7f; font-size: .9rem; line-height: 1.5; }
+.panel-cuerpo-tabla .panel-nota { margin-bottom: 0; }
+
+.buscador-credenciales { display: flex; gap: 10px; margin-bottom: 12px; }
+.buscador-credenciales input {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 1rem;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+}
+.buscador-credenciales button { min-width: 96px; }
+
+.firmante-actual {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  margin-bottom: 14px;
+  background: #f4f7fb;
+  border: 1px solid #e3e9f1;
+  border-radius: 8px;
+  font-size: .86rem;
+  color: #34465d;
+}
+.firmante-actual:empty { display: none; }
+.firmante-actual-etiqueta {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #7a8aa0;
+}
+
+.firmante-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+}
+.firmante-campo { display: flex; flex-direction: column; gap: 5px; }
+.firmante-etiqueta { font-size: .82rem; font-weight: 600; color: #34465d; }
+.firmante-ayuda { font-size: .76rem; color: #8a98aa; }
+.firmante-pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #e7edf4;
+  font-size: .84rem;
+  color: #7a8aa0;
+}
+
+@media (max-width: 700px) {
+  .firmante-grid { grid-template-columns: 1fr; }
+  .panel-cuerpo { padding: 14px; }
+}
+#tablaPendientes th:first-child, #tablaPendientes td:first-child,
+#tablaTodas th:first-child, #tablaTodas td:first-child { padding-left: 20px; }
+#tablaPendientes th:last-child, #tablaPendientes td:last-child,
+#tablaTodas th:last-child, #tablaTodas td:last-child { padding-right: 20px; text-align: right; }
