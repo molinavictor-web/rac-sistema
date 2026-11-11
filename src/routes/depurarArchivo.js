@@ -5,6 +5,7 @@ const router = express.Router();
 
 const { requireAuth, requireRol } = require('../middleware/auth');
 const { parsearCSV } = require('../utils/csv');
+const { decodificarArchivo } = require('../utils/texto');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -33,7 +34,7 @@ function limpiarCelda(valor) {
 router.post(
   '/depurar-archivo',
   requireAuth,
-  requireRol('admin'),
+  requireRol('admin', 'operador'),
   upload.single('archivo'),
   (req, res) => {
     if (!req.file) {
@@ -41,7 +42,8 @@ router.post(
     }
 
     try {
-      const contenido = iconv.decode(req.file.buffer, 'latin1');
+      // 2026-11-11: misma lectura que la carga real (UTF-8 o latin1, ver utils/texto.js).
+      const contenido = decodificarArchivo(req.file.buffer);
       const filas = parsearCSV(contenido, ';').filter(
         (cols) => !(cols.length === 1 && (cols[0] === undefined || cols[0].trim() === ''))
       );

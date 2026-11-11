@@ -74,7 +74,7 @@ function dibujarTabla(planteles) {
       <td data-label="Municipio"><span class="plantel-location">${esc(p.municipio_nombre || "—")}</span></td>
       <td data-label="Dependencia">${esc(p.dependencia || "—")}</td>
       <td data-label="Estado">${badgeEstado(p.estado)}</td>
-      <td data-label="Acciones" class="plantel-acciones"><button class="btn btn-fantasma btn-sm" data-editar="${p.id}">Editar</button><button class="btn btn-peligro btn-sm plantel-delete" data-eliminar="${p.id}">Eliminar</button></td>
+      <td data-label="Acciones" class="plantel-acciones"><button class="btn btn-fantasma btn-sm" data-editar="${p.id}">Editar</button>${usuario.rol === "admin" ? `<button class="btn btn-peligro btn-sm plantel-delete" data-eliminar="${p.id}">Eliminar</button>` : ""}</td>
     </tr>`).join("");
 
   cont.innerHTML = `

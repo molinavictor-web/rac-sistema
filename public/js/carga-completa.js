@@ -30,12 +30,12 @@
 // carga (capturada por el código, no recordada por el usuario). Sigue
 // siendo editable por si hace falta ajustarla a mano.
 
-// Solo admin -- si alguien más entra directo por URL, se le redirige. Los
-// 4 pasos son todos exclusivos de admin, así que un solo chequeo alcanza.
+// Admin y operador (el operador del RAC puede hacer la carga masiva desde
+// 2026-11-11). Si alguien más entra directo por URL, se le muestra el aviso.
 const usuario = renderShell("carga-completa", "Carga completa mensual");
-if (usuario && usuario.rol !== "admin") {
+if (usuario && !["admin", "operador"].includes(usuario.rol)) {
   document.getElementById("contenido").innerHTML = `
-    <div class="vacio"><strong>No tienes permiso</strong>Solo un administrador puede hacer la carga completa mensual.</div>
+    <div class="vacio"><strong>No tienes permiso</strong>Solo un administrador u operador del RAC puede hacer la carga completa mensual.</div>
   `;
 } else if (usuario) {
   dibujar();

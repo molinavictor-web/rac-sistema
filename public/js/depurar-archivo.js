@@ -1,8 +1,8 @@
-// Solo admin -- mismo patrón de protección que rac-completo.js.
+// Admin y operador (2026-11-11) -- mismo patrón que carga-completa.js.
 const usuario = renderShell("depurar-archivo", "Depurar archivo");
-if (usuario && usuario.rol !== "admin") {
+if (usuario && !["admin", "operador"].includes(usuario.rol)) {
   document.getElementById("contenido").innerHTML = `
-    <div class="vacio"><strong>No tienes permiso</strong>Solo un administrador puede depurar el archivo del RAC.</div>
+    <div class="vacio"><strong>No tienes permiso</strong>Solo un administrador u operador del RAC puede depurar el archivo.</div>
   `;
 } else if (usuario) {
   dibujar();
