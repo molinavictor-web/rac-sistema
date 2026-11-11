@@ -24,6 +24,52 @@ const RESOLUCION_TEXTO =
 const SHEETS_CREDENCIALES_ID = process.env.SHEETS_CREDENCIALES_ID; // mismo spreadsheet que ya usa whatsapp-credenciales
 const NOMBRE_HOJA_CREDENCIALES = "CredencialesEmitidas";
 
+// ---------- Autoridad que firma (2026-11-11, opción A) ----------
+// Se edita desde la pantalla Credenciales (solo admin) y se guarda en la
+// tabla `configuracion` (clave credenciales_firmante, valor JSON). Si todavía
+// no se ha guardado nada, se usan las variables de entorno de arriba.
+// Cambiarla solo afecta a las credenciales NUEVAS: las ya emitidas conservan
+// su firma, y la hoja anota en la columna L quién firmó cada una.
+const CLAVE_FIRMANTE = "credenciales_firmante";
+const CAMPOS_FIRMANTE = {
+  nombre: { etiqueta: "Nombre", max: 120 },
+  cedula: { etiqueta: "Cédula", max: 30 },
+  cargo: { etiqueta: "Cargo", max: 150 },
+  resolucion: { etiqueta: "Resolución / Gaceta", max: 250 },
+};
+
+function firmantePorDefecto() {
+  return {
+    nombre: DIRECTOR_NOMBRE,
+    cedula: DIRECTOR_CEDULA,
+    cargo: DIRECTOR_CARGO,
+    resolucion: RESOLUCION_TEXTO,
+    actualizado_en: null,
+    actualizado_por: null,
+    origen: "variables de entorno",
+  };
+}
+
+async function obtenerFirmante() {
+  try {
+    const { rows } = await pool.query("SELECT valor FROM configuracion WHERE clave = $1", [CLAVE_FIRMANTE]);
+    if (rows.length && rows[0].valor) {
+      const guardado = JSON.parse(rows[0].valor);
+      const base = firmantePorDefecto();
+      return {
+        ...base,
+        ...Object.fromEntries(Object.keys(CAMPOS_FIRMANTE).map((c) => [c, guardado[c] || base[c]])),
+        actualizado_en: guardado.actualizado_en || null,
+        actualizado_por: guardado.actualizado_por || null,
+        origen: "configuración",
+      };
+    }
+  } catch (err) {
+    console.error("No se pudo leer la autoridad que firma (se usan los valores por defecto):", err.message);
+  }
+  return firmantePorDefecto();
+}
+
 // Membrete oficial (logo del Ministerio del Poder Popular para la Educación),
 // insertado en la cabecera del PDF de la credencial.
 const RUTA_LOGO_MEMBRETE = path.join(__dirname, "../assets/membrete-logo.png");
@@ -194,6 +240,7 @@ function textoPdf(valor) {
 // ---------- Generación del PDF con QR (mismo diseño que whatsapp-credenciales, + membrete oficial) ----------
 async function generarPdfCredencial(registro, codigoVerificacion, opciones = {}) {
   const { vistaPrevia = false } = opciones;
+  const firmante = opciones.firmante || (await obtenerFirmante());
   const pdfDoc = await PDFDocument.create();
   const pagina = pdfDoc.addPage([612, 792]); // carta
   const fuente = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -277,8 +324,8 @@ async function generarPdfCredencial(registro, codigoVerificacion, opciones = {})
   const fechaIngresoTexto = registro.fecha_ingreso ? formatearFecha(registro.fecha_ingreso) : "—";
 
   const parrafo =
-    `Quien suscribe, ${DIRECTOR_NOMBRE}, Titular de la Cédula de Identidad N° ${DIRECTOR_CEDULA}, ` +
-    `${DIRECTOR_CARGO}, ha propuesto a él (la) ciudadano (a): ${nombreCompleto}, Titular de la Cédula ` +
+    `Quien suscribe, ${firmante.nombre}, Titular de la Cédula de Identidad N° ${firmante.cedula}, ` +
+    `${firmante.cargo}, ha propuesto a él (la) ciudadano (a): ${nombreCompleto}, Titular de la Cédula ` +
     `de Identidad N° V-${registro.cedula}, cargo nominal: ${registro.cargo || "—"}, Código: ${registro.codigo_cargo || "—"}, ` +
     `para ejercer las funciones de: ${tipoPersonalTexto}. Con una carga horaria de ` +
     `${horas || "—"} horas a partir del día ${fechaIngresoTexto}.`;
@@ -302,9 +349,26 @@ async function generarPdfCredencial(registro, codigoVerificacion, opciones = {})
   escribir("Atentamente,", { salto: 70 });
 
   escribir("_________________________________", { salto: 14 });
-  escribir(DIRECTOR_NOMBRE, { tamano: 9, negrita: true, salto: 12 });
-  escribir(DIRECTOR_CARGO, { tamano: 9, salto: 12 });
-  escribir(RESOLUCION_TEXTO, { tamano: 8, salto: 20 });
+  // Bloque de firma: se parte en varias líneas si el texto es largo.
+  const escribirEnvuelto = (texto, opcionesTexto) => {
+    const { tamano, negrita = false, salto } = opcionesTexto;
+    const f = negrita ? fuenteNegrita : fuente;
+    const anchoMax = width - 112;
+    let lineaFirma = "";
+    for (const palabra of textoPdf(texto).split(" ")) {
+      const prueba = lineaFirma ? `${lineaFirma} ${palabra}` : palabra;
+      if (lineaFirma && f.widthOfTextAtSize(prueba, tamano) > anchoMax) {
+        escribir(lineaFirma, { tamano, negrita, salto: tamano + 3 });
+        lineaFirma = palabra;
+      } else {
+        lineaFirma = prueba;
+      }
+    }
+    if (lineaFirma) escribir(lineaFirma, { tamano, negrita, salto });
+  };
+  escribirEnvuelto(firmante.nombre, { tamano: 9, negrita: true, salto: 12 });
+  escribirEnvuelto(firmante.cargo, { tamano: 9, salto: 12 });
+  escribirEnvuelto(firmante.resolucion, { tamano: 8, salto: 20 });
 
   escribir(`Fecha: ${fechaHoy}`, { salto: 16 });
   escribir(`Código de verificación: ${codigoVerificacion}`, { tamano: 9 });
@@ -349,7 +413,7 @@ async function generarPdfCredencial(registro, codigoVerificacion, opciones = {})
 }
 
 // ---------- Google Sheets: registrar / buscar / aprobar credenciales ----------
-async function registrarCredencialEnSheet(registro, codigoVerificacion, cambios = [], generadoPor = "") {
+async function registrarCredencialEnSheet(registro, codigoVerificacion, cambios = [], generadoPor = "", firmante = null) {
   const nombreCompleto = [registro.nombres, registro.apellidos].filter(Boolean).join(" ");
   const fechaGeneracion = new Date().toISOString();
   const fila = [
@@ -365,10 +429,11 @@ async function registrarCredencialEnSheet(registro, codigoVerificacion, cambios 
     // Columnas nuevas (2026-11-10). Las lecturas existentes usan A:I y no se afectan.
     cambios.length ? cambios.join(" | ") : "sin cambios",   // J: datos corregidos a mano
     generadoPor,                                            // K: quién la generó
+    firmante ? `${firmante.nombre} (${firmante.cedula})` : "", // L: autoridad que firmó (2026-11-11)
   ];
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEETS_CREDENCIALES_ID,
-    range: `${NOMBRE_HOJA_CREDENCIALES}!A:K`,
+    range: `${NOMBRE_HOJA_CREDENCIALES}!A:L`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [fila] },
   });
@@ -410,6 +475,37 @@ async function prepararRegistro(req) {
   return { registro, cambios };
 }
 
+// Autoridad que firma: todos los que usan Credenciales la ven; solo admin la cambia.
+router.get("/firmante", requireAuth, requireRol(...ROLES_CREDENCIALES), async (req, res) => {
+  res.json(await obtenerFirmante());
+});
+
+router.put("/firmante", requireAuth, requireRol("admin"), async (req, res) => {
+  try {
+    const nuevo = {};
+    for (const [campo, regla] of Object.entries(CAMPOS_FIRMANTE)) {
+      const valor = normalizarValor(req.body && req.body[campo]).replace(/\s+/g, " ");
+      if (!valor) return res.status(400).json({ error: `Falta: ${regla.etiqueta}.` });
+      if (valor.length > regla.max) {
+        return res.status(400).json({ error: `${regla.etiqueta}: máximo ${regla.max} caracteres.` });
+      }
+      nuevo[campo] = valor;
+    }
+    const u = req.usuario || {};
+    nuevo.actualizado_en = new Date().toISOString();
+    nuevo.actualizado_por = u.nombre || u.email || (u.id ? `usuario ${u.id}` : "");
+    await pool.query(
+      `INSERT INTO configuracion (clave, valor) VALUES ($1, $2)
+       ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor`,
+      [CLAVE_FIRMANTE, JSON.stringify(nuevo)]
+    );
+    res.json(await obtenerFirmante());
+  } catch (err) {
+    console.error("Error guardando la autoridad que firma:", err);
+    res.status(500).json({ error: "No se pudo guardar la autoridad que firma." });
+  }
+});
+
 // Vista previa: mismo PDF con marca de agua, NO se registra en la hoja.
 router.post("/vista-previa", requireAuth, requireRol(...ROLES_CREDENCIALES), async (req, res) => {
   try {
@@ -432,10 +528,11 @@ router.post("/generar/:cedula", requireAuth, requireRol(...ROLES_CREDENCIALES), 
     const registro = r.registro;
 
     const codigoVerificacion = crypto.randomBytes(5).toString("hex").toUpperCase();
-    const pdfBytes = await generarPdfCredencial(registro, codigoVerificacion);
+    const firmante = await obtenerFirmante();
+    const pdfBytes = await generarPdfCredencial(registro, codigoVerificacion, { firmante });
     const u = req.usuario || {};
     const generadoPor = u.nombre || u.email || (u.id ? `usuario ${u.id}` : "");
-    await registrarCredencialEnSheet(registro, codigoVerificacion, r.cambios, generadoPor);
+    await registrarCredencialEnSheet(registro, codigoVerificacion, r.cambios, generadoPor, firmante);
 
     res.set("Content-Type", "application/pdf");
     res.set("Content-Disposition", `attachment; filename="credencial_${registro.cedula}.pdf"`);

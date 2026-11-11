@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const { pool } = require("../db/pool");
 const { requireAuth, requireRol } = require("../middleware/auth");
+const { decodificarArchivo } = require("../utils/texto");
 
 const router = express.Router();
 const upload = multer({
@@ -29,12 +30,13 @@ function parseLinea(linea) {
  * durante esta carga para no generar ~800k filas de auditoría en
  * cada corrida mensual -- se reactiva automáticamente al terminar.
  */
-router.post("/cargar", requireAuth, requireRol("admin"), upload.single("archivo"), async (req, res) => {
+router.post("/cargar", requireAuth, requireRol("admin", "operador"), upload.single("archivo"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "Falta el archivo." });
   }
 
-  const contenido = req.file.buffer.toString("latin1");
+  // 2026-11-11: detecta UTF-8 o latin1 y repara acentos dañados (ver utils/texto.js).
+  const contenido = decodificarArchivo(req.file.buffer);
   const lineas = contenido.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lineas.length < 2) {
     return res.status(400).json({ error: "El archivo no tiene filas de datos." });

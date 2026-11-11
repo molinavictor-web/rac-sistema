@@ -20,6 +20,7 @@ const { requireAuth, requireRol } = require('../middleware/auth');
 // con la nueva herramienta "Depurar archivo" (src/routes/depurarArchivo.js),
 // que analiza el archivo con exactamente la misma lógica antes de la carga.
 const { parsearCSV } = require('../utils/csv');
+const { decodificarArchivo } = require('../utils/texto');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -129,7 +130,7 @@ async function insertarAlerta(client, tipo, cedula, detalle, detalleFila = null)
 router.post(
   '/cargar-completo',
   requireAuth,
-  requireRol('admin'),
+  requireRol('admin', 'operador'),
   upload.single('archivo'),
   async (req, res) => {
     if (!req.file) {
@@ -137,7 +138,8 @@ router.post(
     }
 
     try {
-      const contenido = iconv.decode(req.file.buffer, 'latin1');
+      // 2026-11-11: detecta UTF-8 o latin1 y repara acentos dañados (ver utils/texto.js).
+      const contenido = decodificarArchivo(req.file.buffer);
       // CORRECCIÓN (2026-09-12): `filas` ahora es un arreglo de arreglos de
       // columnas (ya parseado respetando comillas), no un arreglo de líneas
       // de texto crudo -- ver parsearCSV arriba. Se descartan filas
@@ -824,7 +826,7 @@ router.post(
 // realmente cambia, así que una fila "sin cambios" (vigente, solo que igual
 // a como ya estaba) tendría actualizado_en viejo y se marcaría como falsa
 // baja si se comparara contra esa columna. No se borra nada automáticamente.
-router.post('/verificar-obsoletos', requireAuth, requireRol('admin'), async (req, res) => {
+router.post('/verificar-obsoletos', requireAuth, requireRol('admin', 'operador'), async (req, res) => {
   const { desde } = req.body;
 
   if (!desde) {

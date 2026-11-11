@@ -1,6 +1,7 @@
 const express = require("express");
 const { pool, conTransaccionAuditada } = require("../db/pool");
 const { requireAuth, requireRol } = require("../middleware/auth");
+const { decodificarArchivo } = require("../utils/texto");
 const multer = require('multer');
 
 const router = express.Router();
@@ -332,7 +333,7 @@ function parsearLineaCSV(linea, delimitador) {
 //
 // Comportamiento: UPSERT por codigo_plantel (no TRUNCATE), porque
 // planteles.id es referenciado por rac.plantel_id.
-router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.single('archivo'), async (req, res) => {
+router.post('/cargar-masiva', requireAuth, requireRol('admin', 'operador'), uploadPlanteles.single('archivo'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No se recibió ningún archivo' });
   }
@@ -340,8 +341,8 @@ router.post('/cargar-masiva', requireAuth, requireRol('admin'), uploadPlanteles.
   const client = await pool.connect();
 
   try {
-    // Decodificar el buffer como latin1 (ANSI), igual que personalMinisterio.js
-    const contenido = req.file.buffer.toString('latin1');
+    // 2026-11-11: detecta UTF-8 o latin1 y repara acentos dañados (ver utils/texto.js).
+    const contenido = decodificarArchivo(req.file.buffer);
     const lineas = contenido.split(/\r?\n/);
 
     if (lineas.length < 2) {
